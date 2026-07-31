@@ -1,0 +1,33 @@
+# Web Framework
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+email-validator>=2.0.0
+
+# Database
+sqlalchemy==2.0.41
+pg8000==1.31.2
+alembic==1.16.1
+
+# Authentication
+python-jose[cryptography]==3.4.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.20
+bcrypt==4.3.0
+
+# Environment
+python-dotenv==1.1.0
+
+# CORS
+# (included in FastAPI/Starlette)
+
+# File handling
+python-magic==0.4.27
+aiofiles==24.1.0
+
+# AI & ML (Phase 3)
+groq>=0.11.0
+pytesseract>=0.3.13
+opencv-python-headless>=4.10.0
+PyMuPDF>=1.24.0
+chromadb>=0.5.0
+sentence-transformers>=3.0.0
