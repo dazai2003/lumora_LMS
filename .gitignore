@@ -37,3 +37,7 @@ desktop.ini
 
 # Logs
 *.log
+
+# Databases & Vector Stores
+*.db
+chroma_data/

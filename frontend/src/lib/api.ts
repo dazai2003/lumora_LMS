@@ -296,6 +296,20 @@ class ApiClient {
     });
   }
 
+  async updateMaterial(materialId: number, formData: FormData) {
+    return this.request<Material>(`/materials/${materialId}`, {
+      method: "PUT",
+      body: formData,
+    });
+  }
+
+  async updateMaterialTranscript(materialId: number, extractedText: string) {
+    return this.request<Material>(`/materials/${materialId}/transcript`, {
+      method: "PUT",
+      body: JSON.stringify({ extracted_text: extractedText }),
+    });
+  }
+
   async createNote(data: {
     title: string;
     description?: string;
@@ -383,6 +397,7 @@ class ApiClient {
     title: string;
     description?: string;
     time_limit_minutes?: number;
+    available_until?: string;
     lesson_id: number;
     short_answer_grading_mode?: "manual" | "ai";
     questions?: QuestionCreate[];
@@ -413,6 +428,7 @@ class ApiClient {
       description: string;
       status: string;
       time_limit_minutes: number;
+      available_until: string;
       short_answer_grading_mode: "manual" | "ai";
     }>
   ) {
@@ -494,13 +510,72 @@ class ApiClient {
     });
   }
 
+  // ─── Phase 2 Question Bank & Moderation ─────
+  async approveQuestion(questionId: number) {
+    return this.request<{ message: string; success: boolean }>(`/questions/${questionId}/approve`, { method: "POST" });
+  }
+
+  async rejectQuestion(questionId: number) {
+    return this.request<{ message: string; success: boolean }>(`/questions/${questionId}/reject`, { method: "POST" });
+  }
+
+  async archiveQuestion(questionId: number) {
+    return this.request<{ message: string; success: boolean }>(`/questions/${questionId}/archive`, { method: "POST" });
+  }
+
+  async bulkModerateQuestions(questionIds: number[], action: "approve" | "reject" | "archive") {
+    return this.request<{ message: string; success: boolean }>("/questions/bulk-moderate", {
+      method: "POST",
+      body: JSON.stringify({ question_ids: questionIds, action }),
+    });
+  }
+
+  async importQuestions(questionsData: any) {
+    return this.request<{ message: string; count: number; success: boolean }>("/questions/import", {
+      method: "POST",
+      body: JSON.stringify({ questions_data: questionsData }),
+    });
+  }
+
+  // ─── Phase 2 Question Pools ─────────────────
+  async getQuestionPools(courseId?: number) {
+    const url = courseId ? `/pools?course_id=${courseId}` : "/pools";
+    return this.request<any[]>(url);
+  }
+
+  async createQuestionPool(data: { title: string; description?: string; course_id: number; question_ids?: number[] }) {
+    return this.request<any>("/pools", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ─── Phase 2 Rubrics ────────────────────────
+  async getGradingRubrics(questionId?: number) {
+    const url = questionId ? `/rubrics?question_id=${questionId}` : "/rubrics";
+    return this.request<any[]>(url);
+  }
+
+  async submitRubricScore(answerId: number, data: { rubric_id: number; criteria_scores: any[]; teacher_final_score: number; override_reason?: string }) {
+    return this.request<{ message: string; success: boolean }>(`/rubrics/scores/submit?answer_id=${answerId}`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
   async generateAIQuiz(data: {
     lesson_id: number;
     title?: string;
     num_questions?: number;
     question_types?: string[];
+    mcq_count?: number;
+    tf_count?: number;
+    sa_count?: number;
     difficulty?: string;
     material_ids?: number[];
+    time_limit_minutes?: number;
+    available_until?: string;
+    default_points?: number;
   }) {
     return this.request<{ message: string; task_id: number }>("/quizzes/ai/generate", {
       method: "POST",
@@ -561,6 +636,10 @@ class ApiClient {
     return this.request<{ message: string }>("/notifications/mark-all-read", {
       method: "POST",
     });
+  }
+
+  async getFullCourseAnalytics(courseId: number) {
+    return this.request<FullCourseAnalytics>(`/analytics/teacher/course/${courseId}/full-analytics`);
   }
 
   async getCourseQuizBreakdown(courseId: number) {
@@ -646,12 +725,334 @@ class ApiClient {
     });
   }
 
-  async askQuestion(courseId: number, question: string) {
-    return this.request<QAResponse>("/qa/ask", {
+  async getMaterialAiSummary(data: {
+    material_title: string;
+    material_type: string;
+    flag_contexts: string[];
+    flag_comments: string[];
+  }): Promise<{ summary: string; recommended_action: string; success: boolean }> {
+    return this.request("/materials/teacher/insights/ai-summary", {
       method: "POST",
-      body: JSON.stringify({ course_id: courseId, question }),
+      body: JSON.stringify(data),
     });
   }
+
+  async askQuestion(courseId: number, question: string, sessionId?: number) {
+    return this.request<QAResponse>("/qa/ask", {
+      method: "POST",
+      body: JSON.stringify({ course_id: courseId, question, session_id: sessionId }),
+    });
+  }
+
+  // ─── Phase 3 AI Learning Intelligence ─────
+  async createAITutorSession(courseId?: number, title?: string) {
+    return this.request<{ id: number; title: string; course_id?: number; created_at: string; is_active: boolean }>("/qa/sessions", {
+      method: "POST",
+      body: JSON.stringify({ course_id: courseId, title }),
+    });
+  }
+
+  async listAITutorSessions(courseId?: number, search?: string) {
+    let url = "/qa/sessions";
+    const params = new URLSearchParams();
+    if (courseId) params.append("course_id", courseId.toString());
+    if (search) params.append("search", search);
+    if (params.toString()) url += `?${params.toString()}`;
+    return this.request<any[]>(url);
+  }
+
+  async getAITutorSession(sessionId: number) {
+    return this.request<any>(`/qa/sessions/${sessionId}`);
+  }
+
+  async deleteAITutorSession(sessionId: number) {
+    return this.request(`/qa/sessions/${sessionId}`, { method: "DELETE" });
+  }
+
+  async getMyLearningProfile() {
+    return this.request<any>("/students/me/profile");
+  }
+
+  async getStudentProfileForTeacher(studentId: number) {
+    return this.request<any>(`/students/teacher/${studentId}/profile`);
+  }
+
+  async generateMaterialAIInsights(materialId: number) {
+    return this.request<any>(`/materials/${materialId}/insights/generate`, { method: "POST" });
+  }
+
+  async getMaterialAIInsights(materialId: number) {
+    return this.request<any>(`/materials/${materialId}/insights`);
+  }
+
+  async updateMaterialAIInsights(materialId: number, data: any) {
+    return this.request<any>(`/materials/${materialId}/insights`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async createSmartRevisionQuiz(lessonId?: number) {
+    return this.request<any>("/quizzes/smart-revision", {
+      method: "POST",
+      body: JSON.stringify({ lesson_id: lessonId }),
+    });
+  }
+
+  async getSystemAIConfig() {
+    return this.request<any>("/admin/ai-config");
+  }
+
+  async updateSystemAIConfig(data: any) {
+    return this.request<any>("/admin/ai-config", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ─── Phase 4 Assignment & Coursework ─────
+  async createAssignment(data: any) {
+    return this.request<any>("/assignments", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listAssignments(courseId?: number, status?: string, search?: string) {
+    let url = "/assignments";
+    const params = new URLSearchParams();
+    if (courseId) params.append("course_id", courseId.toString());
+    if (status) params.append("status", status);
+    if (search) params.append("search", search);
+    if (params.toString()) url += `?${params.toString()}`;
+    return this.request<any[]>(url);
+  }
+
+  async getAssignmentDetails(assignmentId: number) {
+    return this.request<any>(`/assignments/${assignmentId}`);
+  }
+
+  async submitAssignment(assignmentId: number, data: any) {
+    return this.request<any>(`/assignments/${assignmentId}/submit`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listAssignmentSubmissions(assignmentId: number, status?: string) {
+    const url = status ? `/assignments/${assignmentId}/submissions?status=${status}` : `/assignments/${assignmentId}/submissions`;
+    return this.request<any[]>(url);
+  }
+
+  async gradeAssignmentSubmission(submissionId: number, data: any) {
+    return this.request<any>(`/assignments/submissions/${submissionId}/grade`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async aiGradeAssignmentSubmission(submissionId: number) {
+    return this.request<any>(`/assignments/submissions/${submissionId}/ai-grade`, {
+      method: "POST",
+    });
+  }
+
+  async getAssignmentAnalytics(assignmentId: number) {
+    return this.request<any>(`/assignments/${assignmentId}/analytics`);
+  }
+
+  // ─── Phase 4.1 Coursework Workspace ─────
+  async generateCourseworkAI(prompt: string, courseId?: number) {
+    return this.request<any>("/assignments/generate-ai", {
+      method: "POST",
+      body: JSON.stringify({ prompt, course_id: courseId }),
+    });
+  }
+
+  async workspaceSubmit(assignmentId: number, data: any) {
+    return this.request<any>(`/assignments/${assignmentId}/workspace-submit`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async preSubmissionCheck(assignmentId: number, contentText: string) {
+    return this.request<any>("/assignments/submissions/pre-check", {
+      method: "POST",
+      body: JSON.stringify({ assignment_id: assignmentId, content_text: contentText }),
+    });
+  }
+
+  async addSubmissionAnnotation(submissionId: number, data: any) {
+    return this.request<any>(`/assignments/submissions/${submissionId}/annotations`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listSubmissionAnnotations(submissionId: number) {
+    return this.request<any[]>(`/assignments/submissions/${submissionId}/annotations`);
+  }
+
+  async getSubmissionTimeline(submissionId: number) {
+    return this.request<any[]>(`/assignments/submissions/${submissionId}/timeline`);
+  }
+
+  async addAssignmentResource(assignmentId: number, data: any) {
+    return this.request<any>(`/assignments/${assignmentId}/resources`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ─── Phase 4.2 Professional Document Review ─────
+
+  // Inline Comments
+  async createInlineComment(submissionId: number, data: any) {
+    return this.request<any>(`/assignments/submissions/${submissionId}/comments`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listInlineComments(submissionId: number) {
+    return this.request<any[]>(`/assignments/submissions/${submissionId}/comments`);
+  }
+
+  async resolveComment(commentId: number, isResolved: boolean) {
+    return this.request<any>(`/assignments/submissions/comments/${commentId}/resolve`, {
+      method: "PATCH",
+      body: JSON.stringify({ is_resolved: isResolved }),
+    });
+  }
+
+  async replyToComment(commentId: number, commentText: string) {
+    return this.request<any>(`/assignments/submissions/comments/${commentId}/reply`, {
+      method: "POST",
+      body: JSON.stringify({ comment_text: commentText }),
+    });
+  }
+
+  // Inline Suggestions
+  async createSuggestion(submissionId: number, data: any) {
+    return this.request<any>(`/assignments/submissions/${submissionId}/suggestions`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listSuggestions(submissionId: number) {
+    return this.request<any[]>(`/assignments/submissions/${submissionId}/suggestions`);
+  }
+
+  async respondToSuggestion(suggestionId: number, action: "accepted" | "rejected") {
+    return this.request<any>(`/assignments/submissions/suggestions/${suggestionId}/respond`, {
+      method: "PATCH",
+      body: JSON.stringify({ action }),
+    });
+  }
+
+  // Section Feedback
+  async saveSectionFeedback(submissionId: number, sections: any[]) {
+    return this.request<any>(`/assignments/submissions/${submissionId}/section-feedback`, {
+      method: "POST",
+      body: JSON.stringify({ sections }),
+    });
+  }
+
+  async getSectionFeedback(submissionId: number) {
+    return this.request<any[]>(`/assignments/submissions/${submissionId}/section-feedback`);
+  }
+
+  // AI Deep Review
+  async aiDeepReview(submissionId: number) {
+    return this.request<any>(`/assignments/submissions/${submissionId}/ai-review-deep`, {
+      method: "POST",
+    });
+  }
+
+  // AI Comment Generator
+  async aiCommentFromSelection(submissionId: number, selectedText: string, actionType: string) {
+    return this.request<any>(`/assignments/submissions/${submissionId}/ai-comment-selection`, {
+      method: "POST",
+      body: JSON.stringify({ selected_text: selectedText, action_type: actionType }),
+    });
+  }
+
+  // Version History
+  async listSubmissionVersions(submissionId: number) {
+    return this.request<any[]>(`/assignments/submissions/${submissionId}/versions`);
+  }
+
+  async createVersionSnapshot(submissionId: number) {
+    return this.request<any>(`/assignments/submissions/${submissionId}/versions/create`, {
+      method: "POST",
+    });
+  }
+
+  // Document Processing
+  async processSubmissionDocument(submissionId: number) {
+    return this.request<any>(`/assignments/submissions/${submissionId}/process-document`, {
+      method: "POST",
+    });
+  }
+
+  // Coursework Management (Edit / Delete)
+  async updateAssignment(assignmentId: number, data: any) {
+    return this.request<any>(`/assignments/${assignmentId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteAssignment(assignmentId: number) {
+    return this.request<any>(`/assignments/${assignmentId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async deleteAssignmentResource(resourceId: number) {
+    return this.request<any>(`/assignments/resources/${resourceId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async getEnrolledStudents(assignmentId: number) {
+    return this.request<any[]>(`/assignments/${assignmentId}/enrolled-students`);
+  }
+
+  async importDocumentToWorkspace(file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    const res = await fetch(`${API_BASE}/assignments/import-document`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+    if (!res.ok) throw new Error("Failed to import document");
+    return res.json();
+  }
+
+  async uploadSubmissionFile(assignmentId: number, file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    const res = await fetch(`${API_BASE}/assignments/${assignmentId}/upload-submission-file`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+    if (!res.ok) throw new Error("Failed to upload submission file");
+    return res.json();
+  }
+
+  async deleteSubmissionFile(fileId: number) {
+    return this.request<any>(`/assignments/submission-files/${fileId}`, {
+      method: "DELETE",
+    });
+  }
+
 
   async askQuestionStream(
     courseId: number, 
@@ -757,15 +1158,26 @@ class ApiClient {
     return this.request<DirectMessageResponse[]>(`/messages/thread?course_id=${courseId}&other_user_id=${otherUserId}`);
   }
 
-  async sendDirectMessage(courseId: number, receiverId: number, content: string, tag?: string) {
+  async sendDirectMessage(
+    courseIdOrData: number | { course_id: number; receiver_id: number; content: string; tag?: string },
+    receiverId?: number,
+    content?: string,
+    tag?: string
+  ) {
+    let payload;
+    if (typeof courseIdOrData === "object") {
+      payload = courseIdOrData;
+    } else {
+      payload = {
+        course_id: courseIdOrData,
+        receiver_id: receiverId!,
+        content: content!,
+        tag: tag
+      };
+    }
     return this.request<DirectMessageResponse>("/messages/send", {
       method: "POST",
-      body: JSON.stringify({
-        course_id: courseId,
-        receiver_id: receiverId,
-        content: content,
-        tag: tag
-      })
+      body: JSON.stringify(payload)
     });
   }
 
@@ -798,10 +1210,6 @@ class ApiClient {
     });
   }
 
-  // ─── Phase 8: Recommendations ───────────────────────────
-  async getStudentRecommendations() {
-    return this.request<StudyRecommendation[]>("/analytics/student/recommendations");
-  }
 
   // ─── Payments & Subscriptions ─────────────────────────
   async checkoutCourse(courseId: number, paymentPlan: "monthly" | "one_time") {
@@ -1120,8 +1528,58 @@ export interface CourseAnalytics {
   course_title: string;
   total_students: number;
   average_quiz_score?: number;
+  average_coursework_score?: number;
+  material_completion_rate?: number;
   total_questions_asked: number;
   completion_rate?: number;
+}
+
+export interface CourseworkAnalyticsSummary {
+  assignment_id: number;
+  title: string;
+  max_marks: number;
+  total_submitted: number;
+  submission_rate_pct: number;
+  late_count: number;
+  average_marks: number;
+  average_pct: number;
+}
+
+export interface StudentRosterAnalytics {
+  student_id: number;
+  student_name: string;
+  email: string;
+  enrolled_at: string;
+  quiz_avg: number | null;
+  quizzes_taken: number;
+  coursework_avg: number | null;
+  courseworks_submitted: number;
+  material_completion_pct: number;
+  ai_questions_asked: number;
+  composite_score: number;
+  risk_level: "healthy" | "moderate" | "at_risk";
+}
+
+export interface FullCourseAnalytics {
+  course_id: number;
+  course_title: string;
+  summary: {
+    total_students: number;
+    average_quiz_score: number;
+    average_coursework_score: number;
+    material_completion_rate: number;
+    total_ai_questions: number;
+    at_risk_students_count: number;
+  };
+  coursework_breakdown: CourseworkAnalyticsSummary[];
+  quiz_breakdown: QuizBreakdownItem[];
+  material_breakdown: {
+    total_materials: number;
+    overall_completion_pct: number;
+    by_type: Record<string, { count: number; completed_count: number; completion_pct: number }>;
+  };
+  student_roster: StudentRosterAnalytics[];
+  top_confusion_areas: { topic: string; count: number }[];
 }
 
 export interface StudentProgress {
@@ -1131,6 +1589,10 @@ export interface StudentProgress {
   quizzes_taken: number;
   average_score?: number;
   questions_asked: number;
+  coursework_submitted?: number;
+  average_coursework_score?: number;
+  completed_materials?: number;
+  overall_progress?: number;
   last_active?: string;
 }
 
@@ -1405,6 +1867,7 @@ export interface GradingQueueItem {
   integrity_warnings: number;
   flagged_answers_count: number;
   pending_short_answers_count: number;
+  is_pending_review?: boolean;
   events: IntegrityEventView[];
 }
 

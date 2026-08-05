@@ -4,6 +4,9 @@ import React, { useState, useEffect, useRef } from "react";
 import api, { Material, MaterialNote, MaterialFlag, StudentMaterialProgress } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { SvgIcon } from "@/components/SvgIcon";
+import Modal from "@/components/Modal";
+import { useToast } from "@/components/ui/Toast";
+import ReactMarkdown from "react-markdown";
 
 interface MaterialViewerProps {
   material: Material;
@@ -52,6 +55,28 @@ export default function MaterialViewer({ material, onClose }: MaterialViewerProp
   const [newFlagContext, setNewFlagContext] = useState("");
   const videoRef = useRef<HTMLVideoElement>(null);
   const lastSaveTimeRef = useRef<number>(0);
+
+  // Transcript Edit State
+  const { addToast } = useToast();
+  const [showTranscriptEdit, setShowTranscriptEdit] = useState(false);
+  const [editingTranscript, setEditingTranscript] = useState("");
+  const [savingTranscript, setSavingTranscript] = useState(false);
+
+  const handleSaveTranscript = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingTranscript(true);
+    try {
+      await api.updateMaterialTranscript(material.id, editingTranscript);
+      material.extracted_text = editingTranscript;
+      addToast("Transcript updated & AI vector embeddings re-indexed!", "success");
+      setShowTranscriptEdit(false);
+    } catch (err) {
+      console.error(err);
+      addToast("Failed to update transcript.", "error");
+    } finally {
+      setSavingTranscript(false);
+    }
+  };
 
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;
@@ -228,8 +253,47 @@ export default function MaterialViewer({ material, onClose }: MaterialViewerProp
           )}
 
           {!isLoading && !hasError && material.material_type === "note" && (
-            <div style={{ padding: "1.5rem", width: "100%", height: "100%", background: "var(--bg-card)", color: "var(--text-primary)", whiteSpace: "pre-wrap", lineHeight: 1.7, overflowY: "auto" }}>
-              {material.content || "No content available."}
+            <div style={{
+              padding: "2rem",
+              width: "100%",
+              height: "100%",
+              overflowY: "auto",
+              background: "var(--bg-tertiary)",
+              display: "flex",
+              justifyContent: "center",
+            }}>
+              <div style={{
+                maxWidth: "780px",
+                width: "100%",
+                background: "var(--bg-card)",
+                borderRadius: "8px",
+                boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
+                padding: "2.5rem 3rem",
+                minHeight: "400px",
+              }}>
+                <h2 style={{ fontSize: "1.3rem", fontWeight: 700, margin: "0 0 0.25rem 0", color: "var(--text-primary)" }}>
+                  {material.title}
+                </h2>
+                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "1.25rem", paddingBottom: "1rem", borderBottom: "1px solid var(--border-subtle)" }}>
+                  Created {new Date(material.created_at).toLocaleDateString()} at {new Date(material.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </div>
+                {material.content && material.content.trim().startsWith("<") ? (
+                  <div
+                    style={{
+                      fontSize: "0.95rem",
+                      lineHeight: 1.8,
+                      fontFamily: "'Georgia', 'Times New Roman', serif",
+                      color: "var(--text-primary)",
+                      wordBreak: "break-word",
+                    }}
+                    dangerouslySetInnerHTML={{ __html: material.content }}
+                  />
+                ) : (
+                  <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.7, fontSize: "0.95rem", color: "var(--text-primary)" }}>
+                    {material.content || "No content available."}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -254,9 +318,21 @@ export default function MaterialViewer({ material, onClose }: MaterialViewerProp
               {/* Interactive Transcript Viewer */}
               {material.extracted_text && (
                 <div style={{ marginTop: "1rem", background: "var(--bg-body)", border: "1px solid var(--border)", borderRadius: "8px", overflow: "hidden", display: "flex", flexDirection: "column", maxHeight: isFullscreen ? "30vh" : "200px" }}>
-                  <div style={{ padding: "0.75rem 1rem", background: "rgba(0,0,0,0.1)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                    <SvgIcon name="edit" size={18} />
-                    <h4 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 600, color: "var(--text-primary)" }}>Video Transcript (AI Generated)</h4>
+                  <div style={{ padding: "0.75rem 1rem", background: "rgba(0,0,0,0.1)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                      <SvgIcon name="edit" size={18} />
+                      <h4 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 600, color: "var(--text-primary)" }}>Video Transcript (AI Generated)</h4>
+                    </div>
+                    {(user?.role === "teacher" || user?.role === "admin") && (
+                      <button 
+                        type="button" 
+                        className="btn-secondary btn-sm" 
+                        onClick={() => { setEditingTranscript(material.extracted_text || ""); setShowTranscriptEdit(true); }}
+                        style={{ padding: "0.25rem 0.6rem", fontSize: "0.8rem", display: "flex", alignItems: "center", gap: "4px" }}
+                      >
+                        <SvgIcon name="edit" size={13} /> Edit Transcript
+                      </button>
+                    )}
                   </div>
                   <div style={{ padding: "1.25rem", overflowY: "auto", color: "var(--text-primary)", fontSize: "0.95rem", lineHeight: 1.8, whiteSpace: "pre-wrap" }}>
                     {material.extracted_text}
@@ -303,7 +379,7 @@ export default function MaterialViewer({ material, onClose }: MaterialViewerProp
                     {notes.map(note => (
                       <div key={note.id} style={{ padding: "0.75rem", background: "var(--bg-body)", borderRadius: "6px", fontSize: "0.9rem" }}>
                         {note.context && <strong style={{ color: "#8b5cf6", display: "block", marginBottom: "0.25rem" }}>{note.context}</strong>}
-                        <div style={{ whiteSpace: "pre-wrap" }}>{note.content}</div>
+                        <div><ReactMarkdown>{note.content}</ReactMarkdown></div>
                       </div>
                     ))}
                     {notes.length === 0 && <div style={{ color: "var(--text-muted)", textAlign: "center", marginTop: "1rem" }}>No notes yet.</div>}
@@ -344,8 +420,8 @@ export default function MaterialViewer({ material, onClose }: MaterialViewerProp
                   </button>
                   {summary && (
                     <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                      <div style={{ padding: "1rem", background: "rgba(139, 92, 246, 0.1)", border: "1px solid rgba(139, 92, 246, 0.3)", borderRadius: "8px", fontSize: "0.95rem", lineHeight: 1.6, color: "var(--text-primary)", whiteSpace: "pre-wrap", overflowY: "auto", maxHeight: "40vh" }}>
-                        {summary}
+                      <div style={{ padding: "1rem", background: "rgba(139, 92, 246, 0.1)", border: "1px solid rgba(139, 92, 246, 0.3)", borderRadius: "8px", fontSize: "0.95rem", lineHeight: 1.6, color: "var(--text-primary)", overflowY: "auto", maxHeight: "40vh" }}>
+                        <ReactMarkdown>{summary}</ReactMarkdown>
                       </div>
                       <button 
                         className="btn-secondary" 
@@ -379,6 +455,32 @@ export default function MaterialViewer({ material, onClose }: MaterialViewerProp
           </div>
         )}
       </div>
+
+      {/* Review & Edit Transcript Modal */}
+      {showTranscriptEdit && (
+        <Modal title="Review & Edit AI Transcript" onClose={() => setShowTranscriptEdit(false)} maxWidth="720px">
+          <form onSubmit={handleSaveTranscript}>
+            <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "1rem" }}>
+              Review and fix any speech recognition errors. Saving will re-index vector embeddings so AI RAG Q&amp;A and Quiz Generators use the corrected transcript.
+            </p>
+            <div className="form-group">
+              <textarea
+                className="textarea"
+                style={{ minHeight: "300px", fontFamily: "inherit", fontSize: "0.9rem", lineHeight: 1.6 }}
+                value={editingTranscript}
+                onChange={(e) => setEditingTranscript(e.target.value)}
+                required
+              />
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="btn-secondary" onClick={() => setShowTranscriptEdit(false)}>Cancel</button>
+              <button type="submit" className="btn-primary" disabled={savingTranscript}>
+                {savingTranscript ? "Saving & Re-Indexing..." : "Save & Re-Index AI"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }

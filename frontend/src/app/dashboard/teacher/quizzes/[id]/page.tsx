@@ -24,6 +24,7 @@ export default function TeacherQuizDetailPage({ params }: { params: Promise<{ id
   const [editTitle, setEditTitle] = useState("");
   const [editDesc, setEditDesc] = useState("");
   const [editTimeLimit, setEditTimeLimit] = useState<number | "">("");
+  const [editDeadline, setEditDeadline] = useState("");
   const [editShortAnswerGrading, setEditShortAnswerGrading] = useState<"manual" | "ai">("manual");
 
   // Add Question
@@ -32,7 +33,7 @@ export default function TeacherQuizDetailPage({ params }: { params: Promise<{ id
   const [newQText, setNewQText] = useState("");
   const [newQOptions, setNewQOptions] = useState(["", "", "", ""]);
   const [newQCorrect, setNewQCorrect] = useState("");
-  const [newQPoints, setNewQPoints] = useState(1);
+  const [newQPoints, setNewQPoints] = useState(10);
   const [newQExplanation, setNewQExplanation] = useState("");
 
   // Delete states
@@ -60,6 +61,7 @@ export default function TeacherQuizDetailPage({ params }: { params: Promise<{ id
         setEditTitle(q.title);
         setEditDesc(q.description || "");
         setEditTimeLimit(q.time_limit_minutes || "");
+        setEditDeadline(q.available_until ? new Date(q.available_until).toISOString().slice(0, 16) : "");
         setEditShortAnswerGrading(q.short_answer_grading_mode || "manual");
       })
       .catch((err) => {
@@ -87,6 +89,7 @@ export default function TeacherQuizDetailPage({ params }: { params: Promise<{ id
         title: editTitle,
         description: editDesc,
         time_limit_minutes: editTimeLimit === "" ? undefined : editTimeLimit,
+        available_until: editDeadline ? new Date(editDeadline).toISOString() : undefined,
         short_answer_grading_mode: editShortAnswerGrading,
       });
       addToast("Quiz details updated successfully!", "success");
@@ -375,6 +378,10 @@ export default function TeacherQuizDetailPage({ params }: { params: Promise<{ id
             <div className="form-group">
               <label className="label" style={{ fontSize: "0.8rem" }}>Time Limit (Minutes)</label>
               <input className="input" type="number" min={1} value={editTimeLimit} onChange={(e) => setEditTimeLimit(e.target.value ? parseInt(e.target.value) : "")} placeholder="Leave blank for unlimited" style={{ fontSize: "0.85rem" }} />
+            </div>
+            <div className="form-group">
+              <label className="label" style={{ fontSize: "0.8rem" }}>Submission Deadline (Closes At)</label>
+              <input className="input" type="datetime-local" value={editDeadline} onChange={(e) => setEditDeadline(e.target.value)} style={{ fontSize: "0.85rem" }} />
             </div>
             <div className="form-group">
               <label className="label" style={{ fontSize: "0.8rem" }}>Short Answer Grading Mode</label>

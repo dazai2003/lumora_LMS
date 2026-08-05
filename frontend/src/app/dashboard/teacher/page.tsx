@@ -7,7 +7,7 @@ import { SvgIcon } from "@/components/SvgIcon";
 import type { IconName } from "@/components/SvgIcon";
 import Link from "next/link";
 import { useToast } from "@/components/ui/Toast";
-import { DashboardSkeleton } from "@/components/Skeleton";
+import { SkeletonDashboardOverview } from "@/components/ui/Skeleton";
 
 export default function TeacherDashboard() {
   const [courses, setCourses] = useState<Course[]>([]);
@@ -51,12 +51,18 @@ export default function TeacherDashboard() {
   }, [selectedCourse]);
 
   if (loading) {
-    return <DashboardSkeleton />;
+    return <SkeletonDashboardOverview />;
   }
 
   const totalStudents = analytics.reduce((sum, a) => sum + a.total_students, 0);
   const avgScore = analytics.filter(a => a.average_quiz_score).length > 0
     ? (analytics.reduce((sum, a) => sum + (a.average_quiz_score || 0), 0) / analytics.filter(a => a.average_quiz_score).length).toFixed(1)
+    : "N/A";
+  const avgCwScore = analytics.filter(a => a.average_coursework_score).length > 0
+    ? (analytics.reduce((sum, a) => sum + (a.average_coursework_score || 0), 0) / analytics.filter(a => a.average_coursework_score).length).toFixed(1)
+    : "N/A";
+  const avgMatCompletion = analytics.filter(a => a.material_completion_rate).length > 0
+    ? (analytics.reduce((sum, a) => sum + (a.material_completion_rate || 0), 0) / analytics.filter(a => a.material_completion_rate).length).toFixed(1)
     : "N/A";
   const totalQuestions = analytics.reduce((sum, a) => sum + a.total_questions_asked, 0);
 
@@ -76,20 +82,12 @@ export default function TeacherDashboard() {
 
   const kpiCards = [
     {
-      label: "Active Courses",
-      value: courses.length,
-      icon: "book" as IconName,
-      color: "#2563EB",
-      bgColor: "rgba(37, 99, 235, 0.08)",
-      href: "/dashboard/teacher/courses",
-    },
-    {
       label: "Total Students",
       value: totalStudents,
       icon: "users" as IconName,
       color: "#10B981",
       bgColor: "rgba(16, 185, 129, 0.08)",
-      href: "/dashboard/teacher/grading",
+      href: "/dashboard/teacher/analytics",
     },
     {
       label: "Avg Quiz Score",
@@ -100,11 +98,27 @@ export default function TeacherDashboard() {
       href: "/dashboard/teacher/analytics",
     },
     {
+      label: "Avg Coursework Mark",
+      value: `${avgCwScore}${avgCwScore !== "N/A" ? "%" : ""}`,
+      icon: "award" as IconName,
+      color: "#8B5CF6",
+      bgColor: "rgba(139, 92, 246, 0.08)",
+      href: "/dashboard/teacher/assignments",
+    },
+    {
+      label: "Material Progress",
+      value: `${avgMatCompletion}${avgMatCompletion !== "N/A" ? "%" : ""}`,
+      icon: "book-open" as IconName,
+      color: "#06B6D4",
+      bgColor: "rgba(6, 182, 212, 0.08)",
+      href: "/dashboard/teacher/analytics",
+    },
+    {
       label: "Questions Asked",
       value: totalQuestions,
       icon: "message-circle" as IconName,
-      color: "#8B5CF6",
-      bgColor: "rgba(139, 92, 246, 0.08)",
+      color: "#EC4899",
+      bgColor: "rgba(236, 72, 153, 0.08)",
       href: "/dashboard/teacher/qa",
     },
   ];

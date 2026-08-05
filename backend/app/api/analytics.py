@@ -5,7 +5,7 @@ from typing import List, Dict, Any
 from datetime import datetime
 
 from app.database import get_db
-from app.models import User, UserRole, Course, StudentQuestion, AIResponse, Enrollment, QuizAttempt, Lesson, Material, StudentMaterialProgress
+from app.models import User, UserRole, Course, StudentQuestion, AIResponse, Enrollment, QuizAttempt, Quiz, Lesson, Material, StudentMaterialProgress, ActivityLog, Assignment, AssignmentSubmission
 from app.schemas import StudentCourseProgressResponse
 from app.auth import get_current_user, require_role
 
@@ -19,12 +19,33 @@ async def get_teacher_courses_analytics(
     courses = db.query(Course).filter(Course.teacher_id == current_user.id).all()
     results = []
     for c in courses:
-        students_count = db.query(func.count(Enrollment.id)).filter(Enrollment.course_id == c.id).scalar()
+        students_count = db.query(func.count(Enrollment.id)).filter(Enrollment.course_id == c.id).scalar() or 0
         
         # Avg quiz score
         avg_score = db.query(func.avg(QuizAttempt.percentage)).join(QuizAttempt.quiz).filter(
             QuizAttempt.quiz.has(course_id=c.id)
         ).scalar() or 0.0
+
+        # Avg coursework score
+        graded_cw = db.query(AssignmentSubmission).join(Assignment).filter(
+            Assignment.course_id == c.id,
+            AssignmentSubmission.grade_marks.isnot(None)
+        ).all()
+        cw_scores = [(s.grade_marks / s.assignment.max_marks * 100.0) for s in graded_cw if s.assignment and s.assignment.max_marks > 0]
+        avg_cw_score = round(sum(cw_scores) / len(cw_scores), 2) if cw_scores else 0.0
+
+        # Material completion rate
+        total_mats = db.query(func.count(Material.id)).join(Lesson).filter(Lesson.course_id == c.id).scalar() or 0
+        possible_mats = total_mats * students_count
+        completed_mats = db.query(func.count(StudentMaterialProgress.id)).join(
+            Material, StudentMaterialProgress.material_id == Material.id
+        ).join(
+            Lesson, Material.lesson_id == Lesson.id
+        ).filter(
+            Lesson.course_id == c.id,
+            StudentMaterialProgress.is_completed == True
+        ).scalar() or 0
+        mat_completion_pct = round((completed_mats / possible_mats * 100.0), 1) if possible_mats > 0 else 0.0
 
         # Total questions asked
         questions_asked = db.query(func.count(StudentQuestion.id)).filter(
@@ -36,9 +57,238 @@ async def get_teacher_courses_analytics(
             "course_title": c.title,
             "total_students": students_count,
             "average_quiz_score": round(avg_score, 2),
+            "average_coursework_score": avg_cw_score,
+            "material_completion_rate": mat_completion_pct,
             "total_questions_asked": questions_asked
         })
     return results
+
+
+@router.get("/teacher/course/{course_id}/full-analytics")
+async def get_full_course_analytics(
+    course_id: int,
+    current_user: User = Depends(require_role(UserRole.TEACHER)),
+    db: Session = Depends(get_db),
+):
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    if current_user.role != UserRole.ADMIN and course.teacher_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view analytics for this course")
+
+    enrollments = db.query(Enrollment).filter(Enrollment.course_id == course_id).all()
+    total_enrolled = len(enrollments)
+
+    # 1. Coursework Analytics
+    assignments = db.query(Assignment).filter(Assignment.course_id == course_id).all()
+    coursework_list = []
+    total_cw_graded_scores = []
+
+    for assign in assignments:
+        subs = db.query(AssignmentSubmission).filter(AssignmentSubmission.assignment_id == assign.id).all()
+        submitted_subs = [s for s in subs if s.status in ["submitted", "graded", "returned"]]
+        late_subs = [s for s in subs if s.is_late]
+        graded_subs = [s for s in subs if s.grade_marks is not None]
+
+        scores = [s.grade_marks for s in graded_subs]
+        avg_marks = round(sum(scores) / len(scores), 1) if scores else 0.0
+        avg_pct = round((avg_marks / assign.max_marks * 100), 1) if assign.max_marks > 0 else 0.0
+
+        for s in graded_subs:
+            if assign.max_marks > 0:
+                total_cw_graded_scores.append((s.grade_marks / assign.max_marks) * 100.0)
+
+        coursework_list.append({
+            "assignment_id": assign.id,
+            "title": assign.title,
+            "max_marks": assign.max_marks,
+            "total_submitted": len(submitted_subs),
+            "submission_rate_pct": round((len(submitted_subs) / total_enrolled * 100), 1) if total_enrolled > 0 else 0.0,
+            "late_count": len(late_subs),
+            "average_marks": avg_marks,
+            "average_pct": avg_pct,
+        })
+
+    avg_coursework_pct = round(sum(total_cw_graded_scores) / len(total_cw_graded_scores), 1) if total_cw_graded_scores else 0.0
+
+    # 2. Quiz Breakdown
+    quizzes = db.query(Quiz).filter(Quiz.course_id == course_id).all()
+    quiz_list = []
+    total_quiz_scores = []
+
+    for q in quizzes:
+        attempts = db.query(QuizAttempt).filter(QuizAttempt.quiz_id == q.id, QuizAttempt.completed_at.isnot(None), QuizAttempt.percentage.isnot(None)).all()
+        scores = [a.percentage for a in attempts]
+        if scores:
+            total_quiz_scores.extend(scores)
+
+        avg_score = round(sum(scores) / len(scores), 1) if scores else 0.0
+        highest_score = round(max(scores), 1) if scores else None
+        lowest_score = round(min(scores), 1) if scores else None
+
+        distribution = {"0-20": 0, "21-40": 0, "41-60": 0, "61-80": 0, "81-100": 0}
+        for s in scores:
+            if s <= 20: distribution["0-20"] += 1
+            elif s <= 40: distribution["21-40"] += 1
+            elif s <= 60: distribution["41-60"] += 1
+            elif s <= 80: distribution["61-80"] += 1
+            else: distribution["81-100"] += 1
+
+        quiz_list.append({
+            "quiz_id": q.id,
+            "title": q.title,
+            "total_attempts": len(attempts),
+            "completion_rate": round((len(attempts) / total_enrolled * 100), 1) if total_enrolled > 0 else 0.0,
+            "average_score": avg_score,
+            "highest_score": highest_score,
+            "lowest_score": lowest_score,
+            "score_distribution": distribution
+        })
+
+    avg_quiz_pct = round(sum(total_quiz_scores) / len(total_quiz_scores), 1) if total_quiz_scores else 0.0
+
+    # 3. Material Completion Breakdown
+    materials = db.query(Material).join(Lesson).filter(Lesson.course_id == course_id).all()
+    total_materials = len(materials)
+    material_type_stats = {}
+
+    for m_type in ["pdf", "video", "note", "image"]:
+        m_of_type = [m for m in materials if m.material_type == m_type]
+        if not m_of_type:
+            continue
+        m_ids = [m.id for m in m_of_type]
+        completed_progress = db.query(func.count(StudentMaterialProgress.id)).filter(
+            StudentMaterialProgress.material_id.in_(m_ids),
+            StudentMaterialProgress.is_completed == True
+        ).scalar() or 0
+        possible_total = len(m_of_type) * total_enrolled
+        pct = round((completed_progress / possible_total * 100), 1) if possible_total > 0 else 0.0
+        material_type_stats[m_type] = {
+            "count": len(m_of_type),
+            "completed_count": completed_progress,
+            "completion_pct": pct
+        }
+
+    total_possible_materials = total_materials * total_enrolled
+    total_completed_materials = db.query(func.count(StudentMaterialProgress.id)).join(
+        Material, StudentMaterialProgress.material_id == Material.id
+    ).join(
+        Lesson, Material.lesson_id == Lesson.id
+    ).filter(
+        Lesson.course_id == course_id,
+        StudentMaterialProgress.is_completed == True
+    ).scalar() or 0
+
+    overall_material_pct = round((total_completed_materials / total_possible_materials * 100), 1) if total_possible_materials > 0 else 0.0
+
+    # 4. Student Roster & Composite Risk Intelligence
+    student_roster = []
+    at_risk_count = 0
+
+    for enr in enrollments:
+        student = enr.student
+        if not student:
+            continue
+
+        # Student Quiz Avg
+        s_quiz_attempts = db.query(QuizAttempt).join(Quiz).filter(
+            QuizAttempt.student_id == student.id,
+            Quiz.course_id == course_id,
+            QuizAttempt.completed_at.isnot(None),
+            QuizAttempt.percentage.isnot(None)
+        ).all()
+        s_quiz_scores = [a.percentage for a in s_quiz_attempts]
+        s_quiz_avg = round(sum(s_quiz_scores) / len(s_quiz_scores), 1) if s_quiz_scores else None
+
+        # Student Coursework Avg
+        s_cw_subs = db.query(AssignmentSubmission).join(Assignment).filter(
+            AssignmentSubmission.student_id == student.id,
+            Assignment.course_id == course_id,
+            AssignmentSubmission.grade_marks.isnot(None)
+        ).all()
+        s_cw_scores = [(s.grade_marks / s.assignment.max_marks * 100.0) for s in s_cw_subs if s.assignment and s.assignment.max_marks > 0]
+        s_cw_avg = round(sum(s_cw_scores) / len(s_cw_scores), 1) if s_cw_scores else None
+
+        # Student Material Completion
+        s_completed_mat = db.query(func.count(StudentMaterialProgress.id)).join(
+            Material, StudentMaterialProgress.material_id == Material.id
+        ).join(
+            Lesson, Material.lesson_id == Lesson.id
+        ).filter(
+            Lesson.course_id == course_id,
+            StudentMaterialProgress.student_id == student.id,
+            StudentMaterialProgress.is_completed == True
+        ).scalar() or 0
+
+        s_mat_pct = round((s_completed_mat / total_materials * 100), 1) if total_materials > 0 else 0.0
+
+        # AI Questions asked
+        s_ai_questions = db.query(func.count(StudentQuestion.id)).filter(
+            StudentQuestion.student_id == student.id,
+            StudentQuestion.course_id == course_id
+        ).scalar() or 0
+
+        # Composite Score (35% Quiz + 35% Coursework + 20% Materials + 10% AI questions)
+        q_component = (s_quiz_avg if s_quiz_avg is not None else 0.0) * 0.35
+        cw_component = (s_cw_avg if s_cw_avg is not None else 0.0) * 0.35
+        mat_component = s_mat_pct * 0.20
+        ai_component = min(100.0, (s_ai_questions / 3.0) * 100.0) * 0.10
+        composite_score = round(q_component + cw_component + mat_component + ai_component, 1)
+
+        # Risk Classification
+        if composite_score < 50.0 or ((s_quiz_avg is not None and s_quiz_avg < 50.0) and (s_cw_avg is not None and s_cw_avg < 50.0)):
+            risk_level = "at_risk"
+            at_risk_count += 1
+        elif composite_score < 70.0:
+            risk_level = "moderate"
+        else:
+            risk_level = "healthy"
+
+        student_roster.append({
+            "student_id": student.id,
+            "student_name": student.full_name,
+            "email": student.email,
+            "enrolled_at": enr.enrolled_at.isoformat(),
+            "quiz_avg": s_quiz_avg,
+            "quizzes_taken": len(s_quiz_scores),
+            "coursework_avg": s_cw_avg,
+            "courseworks_submitted": len(s_cw_subs),
+            "material_completion_pct": s_mat_pct,
+            "ai_questions_asked": s_ai_questions,
+            "composite_score": composite_score,
+            "risk_level": risk_level
+        })
+
+    # 5. AI Insights & Confusion Topics
+    topics = db.query(StudentQuestion.topic_category, func.count(StudentQuestion.id).label("count")).filter(
+        StudentQuestion.course_id == course_id,
+        StudentQuestion.topic_category != None
+    ).group_by(StudentQuestion.topic_category).order_by(func.count(StudentQuestion.id).desc()).limit(10).all()
+
+    top_confusion_areas = [{"topic": t[0], "count": t[1]} for t in topics]
+    total_ai_questions = db.query(func.count(StudentQuestion.id)).filter(StudentQuestion.course_id == course_id).scalar() or 0
+
+    return {
+        "course_id": course_id,
+        "course_title": course.title,
+        "summary": {
+            "total_students": total_enrolled,
+            "average_quiz_score": avg_quiz_pct,
+            "average_coursework_score": avg_coursework_pct,
+            "material_completion_rate": overall_material_pct,
+            "total_ai_questions": total_ai_questions,
+            "at_risk_students_count": at_risk_count,
+        },
+        "coursework_breakdown": coursework_list,
+        "quiz_breakdown": quiz_list,
+        "material_breakdown": {
+            "total_materials": total_materials,
+            "overall_completion_pct": overall_material_pct,
+            "by_type": material_type_stats
+        },
+        "student_roster": student_roster,
+        "top_confusion_areas": top_confusion_areas,
+    }
 
 @router.get("/teacher/course/{course_id}/quiz-breakdown")
 async def get_course_quiz_breakdown(
@@ -88,6 +338,9 @@ async def get_course_engagement(
     results = []
     summary = {"high": 0, "medium": 0, "low": 0}
     
+    total_course_quizzes = db.query(func.count(Quiz.id)).filter(Quiz.course_id == course_id).scalar() or 0
+    total_course_lessons = db.query(func.count(Lesson.id)).filter(Lesson.course_id == course_id).scalar() or 0
+
     for enr in enrollments:
         student = db.query(User).filter(User.id == enr.student_id).first()
         if not student: continue
@@ -107,7 +360,24 @@ async def get_course_engagement(
             StudentQuestion.course_id == course_id
         ).scalar() or 0
 
-        eng_level = "high" if q_asked > 5 else ("medium" if q_asked > 1 else "low")
+        # Weighted Engagement Score Component Calculation:
+        # 1. Quiz Completion (40% Weight)
+        quiz_score_pct = min(100.0, (q_taken / total_course_quizzes * 100.0)) if total_course_quizzes > 0 else (100.0 if q_taken > 0 else 0.0)
+        
+        # 2. Material Engagement Logs (40% Weight)
+        material_logs = db.query(func.count(ActivityLog.id)).filter(
+            ActivityLog.user_id == student.id,
+            ActivityLog.action == "view_lesson"
+        ).scalar() or 0
+        material_score_pct = min(100.0, (material_logs / total_course_lessons * 100.0)) if total_course_lessons > 0 else (100.0 if material_logs > 0 else 0.0)
+        
+        # 3. AI Questions Asked (20% Weight)
+        ai_score_pct = min(100.0, (q_asked / 3.0 * 100.0))
+        
+        # Composite Weighted Score (0 - 100)
+        weighted_score = (quiz_score_pct * 0.40) + (material_score_pct * 0.40) + (ai_score_pct * 0.20)
+
+        eng_level = "high" if weighted_score >= 70.0 else ("medium" if weighted_score >= 40.0 else "low")
         summary[eng_level] += 1
 
         results.append({
@@ -116,6 +386,7 @@ async def get_course_engagement(
             "average_score": round(avg_score, 2) if avg_score else None,
             "quizzes_taken": q_taken,
             "questions_asked": q_asked,
+            "weighted_score": round(weighted_score, 1),
             "engagement_level": eng_level,
             "enrolled_at": enr.enrolled_at.isoformat()
         })
@@ -224,13 +495,42 @@ async def get_student_progress(
     avg_score = db.query(func.avg(QuizAttempt.percentage)).filter(QuizAttempt.student_id == current_user.id).scalar() or 0.0
     questions_asked = db.query(func.count(StudentQuestion.id)).filter(StudentQuestion.student_id == current_user.id).scalar() or 0
     
+    # Coursework stats for student
+    coursework_submitted = db.query(func.count(AssignmentSubmission.id)).filter(
+        AssignmentSubmission.student_id == current_user.id,
+        AssignmentSubmission.status.in_(["submitted", "graded", "returned"])
+    ).scalar() or 0
+
+    graded_subs = db.query(AssignmentSubmission).filter(
+        AssignmentSubmission.student_id == current_user.id,
+        AssignmentSubmission.grade_marks.isnot(None)
+    ).all()
+    cw_scores = [(s.grade_marks / s.assignment.max_marks * 100.0) for s in graded_subs if s.assignment and s.assignment.max_marks > 0]
+    avg_coursework_score = round(sum(cw_scores) / len(cw_scores), 1) if cw_scores else 0.0
+
+    # Total completed materials
+    completed_materials = db.query(func.count(StudentMaterialProgress.id)).filter(
+        StudentMaterialProgress.student_id == current_user.id,
+        StudentMaterialProgress.is_completed == True
+    ).scalar() or 0
+
+    # Composite overall progress percentage
+    overall_progress = round(
+        (min(100.0, avg_score) * 0.4) +
+        (min(100.0, avg_coursework_score) * 0.4) +
+        (min(100.0, completed_materials * 5.0) * 0.2),
+        1
+    ) if (courses_enrolled > 0) else 0.0
+
     return {
-        "overall_progress": 0, # Placeholder
-        "course_progress": [], # Placeholder
+        "overall_progress": overall_progress,
         "courses_enrolled": courses_enrolled,
         "quizzes_taken": quizzes_taken,
         "average_score": round(avg_score, 2),
-        "questions_asked": questions_asked
+        "questions_asked": questions_asked,
+        "coursework_submitted": coursework_submitted,
+        "average_coursework_score": avg_coursework_score,
+        "completed_materials": completed_materials,
     }
 
 @router.get("/student/quiz-history")

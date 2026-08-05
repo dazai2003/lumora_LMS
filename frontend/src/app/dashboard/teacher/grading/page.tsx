@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import api, { GradingQueueItem, AttemptDetail, AttemptDetailAnswer } from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
-import { SkeletonTableRow } from "@/components/ui/Skeleton";
+import { SkeletonGradingQueue } from "@/components/ui/Skeleton";
 import { SvgIcon } from "@/components/SvgIcon";
 
 export default function GradingQueuePage() {
@@ -14,6 +14,7 @@ export default function GradingQueuePage() {
   const [attemptDetail, setAttemptDetail] = useState<AttemptDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [courseFilter, setCourseFilter] = useState<string>("all");
+  const [tabFilter, setTabFilter] = useState<"pending" | "graded" | "all">("pending");
 
   // Grading state per answer
   const [gradingStates, setGradingStates] = useState<Record<number, {
@@ -43,8 +44,13 @@ export default function GradingQueuePage() {
   // Derive unique courses for filter
   const courseNames = Array.from(new Set(attempts.map(a => a.course_title))).sort();
 
-  // Filter by course then group by quiz
-  const filtered = courseFilter === "all" ? attempts : attempts.filter(a => a.course_title === courseFilter);
+  // Filter by course and status tab, then group by quiz
+  const filtered = attempts.filter(a => {
+    const matchesCourse = courseFilter === "all" || a.course_title === courseFilter;
+    const isPending = a.is_pending_review ?? (a.pending_short_answers_count > 0 || a.integrity_warnings > 0 || a.flagged_answers_count > 0);
+    const matchesTab = tabFilter === "all" || (tabFilter === "pending" ? isPending : !isPending);
+    return matchesCourse && matchesTab;
+  });
   const groupedByQuiz: Record<string, { quiz_title: string; course_title: string; quiz_id: number; items: GradingQueueItem[] }> = {};
   for (const a of filtered) {
     const key = `${a.quiz_id}`;
@@ -134,23 +140,7 @@ export default function GradingQueuePage() {
   };
 
   if (loading) {
-    return (
-      <div className="animate-fade-in">
-        <div className="page-header">
-          <h1>Grading Queue</h1>
-          <p>Loading attempts requiring review...</p>
-        </div>
-        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <tbody>
-              <SkeletonTableRow columns={5} />
-              <SkeletonTableRow columns={5} />
-              <SkeletonTableRow columns={5} />
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
+    return <SkeletonGradingQueue />;
   }
 
   return (
@@ -178,6 +168,34 @@ export default function GradingQueuePage() {
           </div>
           <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>Integrity Warnings</div>
         </div>
+      </div>
+
+      {/* Status Category Tabs */}
+      <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1.5rem", borderBottom: "1px solid var(--border-subtle)", paddingBottom: "0.5rem" }}>
+        <button
+          className={`btn-sm ${tabFilter === "pending" ? "btn-primary" : "btn-secondary"}`}
+          onClick={() => setTabFilter("pending")}
+          style={{ fontSize: "0.85rem", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
+        >
+          <SvgIcon name="clock" size={14} />
+          <span>Pending Review ({attempts.filter(a => a.is_pending_review ?? (a.pending_short_answers_count > 0 || a.integrity_warnings > 0 || a.flagged_answers_count > 0)).length})</span>
+        </button>
+        <button
+          className={`btn-sm ${tabFilter === "graded" ? "btn-primary" : "btn-secondary"}`}
+          onClick={() => setTabFilter("graded")}
+          style={{ fontSize: "0.85rem", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
+        >
+          <SvgIcon name="check-circle" size={14} />
+          <span>Graded & Completed History ({attempts.filter(a => !(a.is_pending_review ?? (a.pending_short_answers_count > 0 || a.integrity_warnings > 0 || a.flagged_answers_count > 0))).length})</span>
+        </button>
+        <button
+          className={`btn-sm ${tabFilter === "all" ? "btn-primary" : "btn-secondary"}`}
+          onClick={() => setTabFilter("all")}
+          style={{ fontSize: "0.85rem", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
+        >
+          <SvgIcon name="layers" size={14} />
+          <span>All Submissions ({attempts.length})</span>
+        </button>
       </div>
 
       {/* Course Filter */}

@@ -289,10 +289,11 @@ async def get_question_history(
     results = []
     for q in questions:
         ai_resp = q.ai_response
+        resp_text = ai_resp.response_text if ai_resp and ai_resp.response_text else "Sorry, this response was interrupted. Please ask your question again."
         results.append({
             "question_id": q.id,
             "question_text": q.question_text,
-            "response_text": ai_resp.response_text if ai_resp else None,
+            "response_text": resp_text,
             "context_sources": ai_resp.context_sources if ai_resp else [],
             "confidence_score": ai_resp.confidence_score if ai_resp else None,
             "is_flagged": ai_resp.is_flagged if ai_resp else False,
@@ -659,3 +660,121 @@ def _calculate_confidence(context_chunks: list) -> float:
     if len(context_chunks) >= 2:
         return 0.75
     return 0.5
+
+
+# ──────────────────────────────────────────────
+# AI Tutor Multi-Turn Session Management
+# ──────────────────────────────────────────────
+
+@router.post("/sessions", response_model=dict)
+def create_ai_tutor_session(
+    data: dict,
+    current_user: User = Depends(require_role(UserRole.STUDENT)),
+    db: Session = Depends(get_db),
+):
+    """Create a new AI tutor chat session."""
+    from app.models import AITutorSession
+    course_id = data.get("course_id")
+    title = data.get("title", "New Conversation")
+    
+    session = AITutorSession(
+        student_id=current_user.id,
+        course_id=course_id,
+        title=title,
+        is_active=True
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return {
+        "id": session.id,
+        "title": session.title,
+        "course_id": session.course_id,
+        "created_at": session.created_at.isoformat(),
+        "is_active": session.is_active
+    }
+
+
+@router.get("/sessions", response_model=List[dict])
+def list_ai_tutor_sessions(
+    course_id: Optional[int] = None,
+    search: Optional[str] = None,
+    current_user: User = Depends(require_role(UserRole.STUDENT)),
+    db: Session = Depends(get_db),
+):
+    """List active AI tutor chat sessions for student."""
+    from app.models import AITutorSession
+    query = db.query(AITutorSession).filter(AITutorSession.student_id == current_user.id, AITutorSession.is_active == True)
+    if course_id:
+        query = query.filter(AITutorSession.course_id == course_id)
+    if search:
+        query = query.filter(AITutorSession.title.ilike(f"%{search}%"))
+    
+    sessions = query.order_by(AITutorSession.updated_at.desc()).all()
+    results = []
+    for s in sessions:
+        q_count = len(s.questions)
+        results.append({
+            "id": s.id,
+            "title": s.title,
+            "course_id": s.course_id,
+            "course_title": s.course.title if s.course else None,
+            "created_at": s.created_at.isoformat(),
+            "updated_at": s.updated_at.isoformat(),
+            "is_active": s.is_active,
+            "question_count": q_count
+        })
+    return results
+
+
+@router.get("/sessions/{session_id}", response_model=dict)
+def get_ai_tutor_session(
+    session_id: int,
+    current_user: User = Depends(require_role(UserRole.STUDENT)),
+    db: Session = Depends(get_db),
+):
+    """Fetch all messages within a specific session."""
+    from app.models import AITutorSession
+    session = db.query(AITutorSession).filter(AITutorSession.id == session_id, AITutorSession.student_id == current_user.id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    messages = []
+    for q in session.questions:
+        ans = q.ai_response
+        messages.append({
+            "question_id": q.id,
+            "question_text": q.question_text,
+            "response_text": ans.response_text if ans else None,
+            "confidence_score": ans.confidence_score if ans else None,
+            "context_sources": ans.context_sources if ans else [],
+            "sources_json": ans.sources_json if ans else [],
+            "asked_at": q.asked_at.isoformat(),
+            "is_escalated": ans.is_escalated if ans else False
+        })
+        
+    return {
+        "id": session.id,
+        "title": session.title,
+        "course_id": session.course_id,
+        "course_title": session.course.title if session.course else None,
+        "created_at": session.created_at.isoformat(),
+        "messages": messages
+    }
+
+
+@router.delete("/sessions/{session_id}")
+def delete_ai_tutor_session(
+    session_id: int,
+    current_user: User = Depends(require_role(UserRole.STUDENT)),
+    db: Session = Depends(get_db),
+):
+    """Soft delete / deactivate a chat session."""
+    from app.models import AITutorSession
+    session = db.query(AITutorSession).filter(AITutorSession.id == session_id, AITutorSession.student_id == current_user.id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    session.is_active = False
+    db.commit()
+    return {"message": "Session deleted successfully"}

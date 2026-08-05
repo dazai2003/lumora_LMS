@@ -14,13 +14,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
-from app.api import auth, users, courses, lessons, materials, quizzes, analytics, qa, notifications, messages, payments, questions
+from app.api import auth, users, courses, lessons, materials, quizzes, analytics, qa, notifications, messages, payments, questions, jobs, audit, pools, rubrics, recommendations, students, materials_ai, admin_ai, assignments
+from sqlalchemy import text
 from app.database import engine, Base
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 # Create all database tables
 Base.metadata.create_all(bind=engine)
+
+# Auto-migrate direct_messages course_id column to nullable
+try:
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE direct_messages ALTER COLUMN course_id DROP NOT NULL;"))
+        conn.commit()
+except Exception:
+    pass
 
 app = FastAPI(
     title="Lumora - Learning Analytics Platform",
@@ -53,13 +62,22 @@ app.include_router(users.router, prefix="/api/users", tags=["Users"])
 app.include_router(courses.router, prefix="/api/courses", tags=["Courses"])
 app.include_router(lessons.router, prefix="/api/lessons", tags=["Lessons"])
 app.include_router(materials.router, prefix="/api/materials", tags=["Materials"])
+app.include_router(materials_ai.router, prefix="/api/materials", tags=["Material AI Insights"])
 app.include_router(quizzes.router, prefix="/api/quizzes", tags=["Quizzes"])
+app.include_router(assignments.router, prefix="/api/assignments", tags=["Assignments"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 app.include_router(qa.router, prefix="/api/qa", tags=["Q&A"])
+app.include_router(recommendations.router, prefix="/api/recommendations", tags=["Recommendations"])
+app.include_router(students.router, prefix="/api/students", tags=["Student Profile"])
+app.include_router(admin_ai.router, prefix="/api/admin", tags=["Admin AI Config"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["Notifications"])
 app.include_router(messages.router, prefix="/api/messages", tags=["Messages"])
 app.include_router(payments.router, prefix="/api/payments", tags=["Payments"])
 app.include_router(questions.router, prefix="/api/questions", tags=["Questions"])
+app.include_router(jobs.router, prefix="/api/jobs", tags=["Jobs"])
+app.include_router(audit.router, prefix="/api/audit", tags=["Audit"])
+app.include_router(pools.router, prefix="/api/pools", tags=["Pools"])
+app.include_router(rubrics.router, prefix="/api/rubrics", tags=["Rubrics"])
 
 
 @app.get("/", tags=["Root"])

@@ -24,8 +24,9 @@ def get_conversations(
 ):
     """
     Get a list of active conversations for the current user.
-    For a student, this shows courses they are enrolled in and have messaged/can message.
-    For a teacher, this shows students they have active conversations with across their courses.
+    For students: enrolled course teacher threads.
+    For teachers: student threads + system admin support threads.
+    For admins: teacher threads + system support threads.
     """
     # Find all messages where current user is sender or receiver
     messages = db.query(DirectMessage).filter(
@@ -40,17 +41,25 @@ def get_conversations(
     
     for msg in messages:
         other_user_id = msg.receiver_id if msg.sender_id == current_user.id else msg.sender_id
-        key = (msg.course_id, other_user_id)
+        c_id = msg.course_id if msg.course_id is not None else 0
+        key = (c_id, other_user_id)
         
         if key not in conversations_map:
-            course = db.query(Course).filter(Course.id == msg.course_id).first()
             other_user = db.query(User).filter(User.id == other_user_id).first()
-            if not course or not other_user:
+            if not other_user:
                 continue
+
+            course_title = "System Admin Support"
+            if c_id > 0:
+                course = db.query(Course).filter(Course.id == c_id).first()
+                if course:
+                    course_title = course.title
+                else:
+                    course_title = "Course Chat"
                 
             conversations_map[key] = {
-                "course_id": course.id,
-                "course_title": course.title,
+                "course_id": c_id,
+                "course_title": course_title,
                 "other_user_id": other_user.id,
                 "other_user_name": other_user.full_name,
                 "last_message": msg.content,
@@ -88,9 +97,41 @@ def get_conversations(
                             "other_user_id": teacher.id,
                             "other_user_name": teacher.full_name,
                             "last_message": "No messages yet. Say hi!",
-                            "last_message_at": datetime.min,
+                            "last_message_at": datetime(2020, 1, 1),
                             "unread_count": 0
                         })
+
+    # FOR TEACHERS: Also add empty conversation entries for system Admins
+    if current_user.role == UserRole.TEACHER:
+        admins = db.query(User).filter(User.role == UserRole.ADMIN, User.is_active == True).all()
+        for admin in admins:
+            key = (0, admin.id)
+            if key not in conversations_map:
+                results.append({
+                    "course_id": 0,
+                    "course_title": "System Admin Support",
+                    "other_user_id": admin.id,
+                    "other_user_name": admin.full_name,
+                    "last_message": "Click to message System Admin",
+                    "last_message_at": datetime.utcnow(),
+                    "unread_count": 0
+                })
+
+    # FOR ADMINS: Also add empty conversation entries for all active Teachers
+    if current_user.role == UserRole.ADMIN:
+        teachers = db.query(User).filter(User.role == UserRole.TEACHER, User.is_active == True).all()
+        for teacher in teachers:
+            key = (0, teacher.id)
+            if key not in conversations_map:
+                results.append({
+                    "course_id": 0,
+                    "course_title": "Teacher Direct Chat",
+                    "other_user_id": teacher.id,
+                    "other_user_name": teacher.full_name,
+                    "last_message": "No messages yet. Click to message teacher.",
+                    "last_message_at": datetime.utcnow(),
+                    "unread_count": 0
+                })
     
     # Resort
     results.sort(key=lambda x: x["last_message_at"], reverse=True)
@@ -104,12 +145,16 @@ def get_message_thread(
     db: Session = Depends(get_db)
 ):
     """
-    Get the full message thread between the current user and the other user in a specific course.
-    Also marks unread messages from the other user as read.
+    Get the full message thread between the current user and the other user.
+    course_id = 0 means Direct Admin Support.
     """
     # Fetch thread
-    messages = db.query(DirectMessage).filter(
-        DirectMessage.course_id == course_id,
+    if course_id > 0:
+        query = db.query(DirectMessage).filter(DirectMessage.course_id == course_id)
+    else:
+        query = db.query(DirectMessage).filter(or_(DirectMessage.course_id == 0, DirectMessage.course_id.is_(None)))
+
+    messages = query.filter(
         or_(
             and_(DirectMessage.sender_id == current_user.id, DirectMessage.receiver_id == other_user_id),
             and_(DirectMessage.sender_id == other_user_id, DirectMessage.receiver_id == current_user.id)
@@ -125,18 +170,26 @@ def get_message_thread(
         
     # Format response
     other_user = db.query(User).filter(User.id == other_user_id).first()
-    course = db.query(Course).filter(Course.id == course_id).first()
+    course = db.query(Course).filter(Course.id == course_id).first() if course_id > 0 else None
+    course_title = course.title if course else ("System Admin Support" if course_id == 0 else "Direct Message")
     
     results = []
     for m in messages:
-        sender_name = current_user.full_name if m.sender_id == current_user.id else other_user.full_name
-        receiver_name = current_user.full_name if m.receiver_id == current_user.id else other_user.full_name
+        sender_name = current_user.full_name if m.sender_id == current_user.id else (other_user.full_name if other_user else "User")
+        receiver_name = current_user.full_name if m.receiver_id == current_user.id else (other_user.full_name if other_user else "User")
         
         results.append({
-            **m.__dict__,
+            "id": m.id,
+            "sender_id": m.sender_id,
+            "receiver_id": m.receiver_id,
+            "course_id": m.course_id or 0,
+            "content": m.content,
+            "tag": m.tag,
+            "is_read": m.is_read,
+            "created_at": m.created_at,
             "sender_name": sender_name,
             "receiver_name": receiver_name,
-            "course_title": course.title if course else "Unknown"
+            "course_title": course_title
         })
         
     return results
@@ -154,14 +207,19 @@ def send_message(
     if not receiver:
         raise HTTPException(status_code=404, detail="Receiver not found")
         
-    course = db.query(Course).filter(Course.id == data.course_id).first()
-    if not course:
-        raise HTTPException(status_code=404, detail="Course not found")
+    c_id = data.course_id if data.course_id and data.course_id > 0 else 0
+    course_title = "System Admin Support"
+    
+    if c_id > 0:
+        course = db.query(Course).filter(Course.id == c_id).first()
+        if not course:
+            raise HTTPException(status_code=404, detail="Course not found")
+        course_title = course.title
         
     msg = DirectMessage(
         sender_id=current_user.id,
         receiver_id=data.receiver_id,
-        course_id=data.course_id,
+        course_id=c_id if c_id > 0 else None,
         content=data.content,
         tag=data.tag
     )
@@ -174,16 +232,23 @@ def send_message(
         user_id=data.receiver_id,
         sender_id=current_user.id,
         title=f"New message from {current_user.full_name}",
-        message=f"{current_user.full_name} sent you a message in {course.title}",
+        message=f"{current_user.full_name} sent you a message in {course_title}",
         type=NotificationType.MESSAGE,
-        related_entity_id=course.id,  # Link to course_id so we can route to chat
+        related_entity_id=c_id if c_id > 0 else None,
     )
     db.add(notif)
     db.commit()
     
     return {
-        **msg.__dict__,
+        "id": msg.id,
+        "sender_id": msg.sender_id,
+        "receiver_id": msg.receiver_id,
+        "course_id": c_id,
+        "content": msg.content,
+        "tag": msg.tag,
+        "is_read": msg.is_read,
+        "created_at": msg.created_at,
         "sender_name": current_user.full_name,
         "receiver_name": receiver.full_name,
-        "course_title": course.title
+        "course_title": course_title
     }

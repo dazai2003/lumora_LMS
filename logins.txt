@@ -1,0 +1,78 @@
+==================================================
+LUMORA LMS - LOGIN CREDENTIALS DIRECTORY
+==================================================
+
+--- SYSTEM ADMIN ---
+Email: admin@fdp.com
+Password: admin123
+
+
+--- TEACHERS ---
+
+1. Advanced Level Biology
+Teacher: Dr. Amara Perera
+Email: amara@fdp.com
+Password: teacher123
+
+2. Organic Chemistry & Synthesis
+Teacher: Prof. Sunil Jayawardena
+Email: sunil@fdp.com
+Password: teacher123
+
+3. Physics Mechanisms & Waves
+Teacher: Dr. Kamal Rathnayake
+Email: kamal@fdp.com
+Password: teacher123
+
+4. Combined Mathematics Theory
+Teacher: Mr. Nimal Wickramasinghe
+Email: nimal_maths@fdp.com
+Password: teacher123
+
+
+--- STUDENTS (BIOLOGICAL SCIENCE STREAM) ---
+(Default Password for all students: student123)
+
+1. Nimal Fernando
+Email: student1@fdp.com
+Password: student123
+
+2. Sanduni Silva
+Email: student2@fdp.com
+Password: student123
+
+3. Ruwan Jayasinghe
+Email: student3@fdp.com
+Password: student123
+
+4. Kasun Perera
+Email: student4@fdp.com
+Password: student123
+
+5. Dinithi Wickramasinghe
+Email: student5@fdp.com
+Password: student123
+
+
+--- STUDENTS (PHYSICAL SCIENCE / MATHS STREAM) ---
+(Default Password for all students: student123)
+
+6. Pathum Nissanka
+Email: student6@fdp.com
+Password: student123
+
+7. Kusal Mendis
+Email: student7@fdp.com
+Password: student123
+
+8. Dhananjaya de Silva
+Email: student8@fdp.com
+Password: student123
+
+9. Wanindu Hasaranga
+Email: student9@fdp.com
+Password: student123
+
+10. Dasun Shanaka
+Email: student10@fdp.com
+Password: student123

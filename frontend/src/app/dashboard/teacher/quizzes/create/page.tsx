@@ -2,15 +2,21 @@
 
 import { useState, useEffect } from "react";
 import api, { Course, Lesson, QuestionCreate, Material } from "@/lib/api";
-import { useRouter } from "next/navigation";
+import { Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { SvgIcon } from "@/components/SvgIcon";
 import type { IconName } from "@/components/SvgIcon";
 import { useToast } from "@/components/ui/Toast";
 
-export default function CreateQuizPage() {
+function CreateQuizFormContent() {
   const { addToast } = useToast();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const paramCourseId = searchParams.get("courseId");
+  const paramLessonId = searchParams.get("lessonId");
+  const paramMode = searchParams.get("mode");
+
   const [courses, setCourses] = useState<Course[]>([]);
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
@@ -18,22 +24,27 @@ export default function CreateQuizPage() {
   const [submitting, setSubmitting] = useState(false);
 
   // Creation Mode
-  const [creationMode, setCreationMode] = useState<"manual" | "ai">("manual");
+  const [creationMode, setCreationMode] = useState<"manual" | "ai">(paramMode === "ai" ? "ai" : "manual");
 
   // Common State
-  const [selectedCourse, setSelectedCourse] = useState<number | "">("");
-  const [selectedLesson, setSelectedLesson] = useState<number | "">("");
-  const [quizTitle, setQuizTitle] = useState("");
+  const [selectedCourse, setSelectedCourse] = useState<number | "">(paramCourseId ? parseInt(paramCourseId) : "");
+  const [selectedLesson, setSelectedLesson] = useState<number | "">(paramLessonId ? parseInt(paramLessonId) : "");
+  const [quizTitle, setQuizTitle] = useState(paramMode === "ai" ? "AI Generated Quiz" : "");
 
   // Manual Form State
   const [quizDesc, setQuizDesc] = useState("");
   const [timeLimit, setTimeLimit] = useState("");
+  const [deadline, setDeadline] = useState("");
+  const [defaultPoints, setDefaultPoints] = useState<number>(10);
   const [shortAnswerGrading, setShortAnswerGrading] = useState<"manual" | "ai">("manual");
   const [questions, setQuestions] = useState<QuestionCreate[]>([]);
 
   // AI Form State
   const [aiSelectedMaterials, setAiSelectedMaterials] = useState<number[]>([]);
-  const [aiNumQuestions, setAiNumQuestions] = useState(5);
+  const [aiNumQuestions, setAiNumQuestions] = useState(10);
+  const [mcqCount, setMcqCount] = useState<number>(5);
+  const [tfCount, setTfCount] = useState<number>(3);
+  const [saCount, setSaCount] = useState<number>(2);
   const [aiDifficulty, setAiDifficulty] = useState("medium");
   const [aiQuestionTypes, setAiQuestionTypes] = useState(["mcq", "true_false", "short_answer"]);
   const [aiSourceMode, setAiSourceMode] = useState<"materials" | "pdf">("materials");
@@ -115,7 +126,7 @@ export default function CreateQuizPage() {
       question_type: type,
       correct_answer: type === "true_false" ? "True" : "",
       options: type === "mcq" ? ["", "", "", ""] : type === "true_false" ? ["True", "False"] : undefined,
-      points: 1,
+      points: 10,
       order: questions.length + 1,
     };
     setQuestions([...questions, newQ]);
@@ -148,6 +159,7 @@ export default function CreateQuizPage() {
         title: quizTitle,
         description: quizDesc || undefined,
         time_limit_minutes: timeLimit ? parseInt(timeLimit) : undefined,
+        available_until: deadline ? new Date(deadline).toISOString() : undefined,
         lesson_id: selectedLesson as number,
         short_answer_grading_mode: shortAnswerGrading,
         questions,
@@ -170,8 +182,7 @@ export default function CreateQuizPage() {
     }
   };
 
-  const handleAIGenerate = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleAIGenerate = async (publish: boolean) => {
     if (!selectedLesson || !quizTitle.trim()) {
       return addToast("Please select a course & lesson and enter a quiz title.", "error");
     }
@@ -190,16 +201,27 @@ export default function CreateQuizPage() {
         formData.append("difficulty", aiDifficulty);
         formData.append("pdf_type", pdfType);
         formData.append("extract_all", extractAll.toString());
+        if (quizDesc) formData.append("instructions", quizDesc);
+        if (timeLimit) formData.append("time_limit_minutes", timeLimit);
+        if (deadline) formData.append("available_until", new Date(deadline).toISOString());
+        formData.append("default_points", defaultPoints.toString());
         response = await api.generateAIQuizFromPDF(formData);
         addToast("PDF uploaded. AI Generation started...", "info");
       } else {
+        const calculatedTotal = mcqCount + tfCount + saCount;
         response = await api.generateAIQuiz({
           lesson_id: selectedLesson as number,
           title: quizTitle,
-          num_questions: aiNumQuestions,
+          num_questions: calculatedTotal > 0 ? calculatedTotal : aiNumQuestions,
           question_types: aiQuestionTypes,
+          mcq_count: mcqCount,
+          tf_count: tfCount,
+          sa_count: saCount,
           difficulty: aiDifficulty,
           material_ids: aiSelectedMaterials.length > 0 ? aiSelectedMaterials : undefined,
+          time_limit_minutes: timeLimit ? parseInt(timeLimit) : undefined,
+          available_until: deadline ? new Date(deadline).toISOString() : undefined,
+          default_points: defaultPoints,
         });
         addToast("AI Generation started. Analyzing course materials...", "info");
       }
@@ -211,7 +233,15 @@ export default function CreateQuizPage() {
           const statusRes = await api.getAITaskStatus(taskId);
           if (statusRes.status === "completed" && statusRes.quiz_id) {
             clearInterval(pollTimer);
-            addToast("AI Quiz generated successfully!", "success");
+            if (publish) {
+              await api.updateQuiz(statusRes.quiz_id, {
+                status: "published",
+                short_answer_grading_mode: shortAnswerGrading
+              });
+              addToast("AI Quiz generated and published successfully!", "success");
+            } else {
+              addToast("AI Quiz generated and saved as draft!", "info");
+            }
             router.push(`/dashboard/teacher/quizzes/${statusRes.quiz_id}`);
           } else if (statusRes.status === "failed") {
             clearInterval(pollTimer);
@@ -349,7 +379,7 @@ export default function CreateQuizPage() {
                   Please select a course and lesson above to scan available study materials.
                 </div>
               ) : (
-                <form onSubmit={handleAIGenerate} style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+                <form onSubmit={(e) => { e.preventDefault(); handleAIGenerate(true); }} style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
                       <label className="label" style={{ fontSize: "0.8rem", margin: 0 }}>Knowledge Source</label>
@@ -452,33 +482,68 @@ export default function CreateQuizPage() {
                     </div>
                   ) : (
                     <>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="label" style={{ fontSize: "0.8rem" }}>Question Count</label>
-                          <input className="input" type="number" min={1} max={20} value={aiNumQuestions} onChange={(e) => setAiNumQuestions(parseInt(e.target.value) || 5)} style={{ fontSize: "0.85rem" }} />
+                      <div className="form-group" style={{ marginBottom: "1rem" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+                          <label className="label" style={{ fontSize: "0.8rem", margin: 0 }}>Question Type Breakdown</label>
+                          <span className="badge badge-info" style={{ fontSize: "0.75rem", padding: "0.2rem 0.5rem" }}>
+                            Total: {mcqCount + tfCount + saCount} Questions
+                          </span>
                         </div>
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="label" style={{ fontSize: "0.8rem" }}>Difficulty Level</label>
-                          <select className="input" value={aiDifficulty} onChange={(e) => setAiDifficulty(e.target.value)} style={{ fontSize: "0.85rem" }}>
-                            <option value="easy">Easy</option>
-                            <option value="medium">Medium</option>
-                            <option value="hard">Hard</option>
-                          </select>
+
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
+                          <div>
+                            <label style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "4px", marginBottom: "4px" }}>
+                              <SvgIcon name="clipboard" size={13} /> MCQ Count
+                            </label>
+                            <input 
+                              className="input" 
+                              type="number" 
+                              min={0} 
+                              max={20} 
+                              value={mcqCount} 
+                              onChange={(e) => setMcqCount(Math.max(0, parseInt(e.target.value) || 0))} 
+                              style={{ fontSize: "0.85rem" }} 
+                            />
+                          </div>
+
+                          <div>
+                            <label style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "4px", marginBottom: "4px" }}>
+                              <SvgIcon name="check-circle" size={13} /> True / False
+                            </label>
+                            <input 
+                              className="input" 
+                              type="number" 
+                              min={0} 
+                              max={20} 
+                              value={tfCount} 
+                              onChange={(e) => setTfCount(Math.max(0, parseInt(e.target.value) || 0))} 
+                              style={{ fontSize: "0.85rem" }} 
+                            />
+                          </div>
+
+                          <div>
+                            <label style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "4px", marginBottom: "4px" }}>
+                              <SvgIcon name="file-text" size={13} /> Short Answer
+                            </label>
+                            <input 
+                              className="input" 
+                              type="number" 
+                              min={0} 
+                              max={20} 
+                              value={saCount} 
+                              onChange={(e) => setSaCount(Math.max(0, parseInt(e.target.value) || 0))} 
+                              style={{ fontSize: "0.85rem" }} 
+                            />
+                          </div>
                         </div>
                       </div>
 
                       <div className="form-group" style={{ marginBottom: 0 }}>
-                        <label className="label" style={{ fontSize: "0.8rem" }}>Question Composition</label>
-                        <select 
-                          className="input" 
-                          value={aiQuestionTypes.join(",")} 
-                          onChange={(e) => setAiQuestionTypes(e.target.value.split(","))}
-                          style={{ fontSize: "0.85rem" }}
-                        >
-                          <option value="mcq,true_false,short_answer">Mixed (MCQ, True/False, Short Answer)</option>
-                          <option value="mcq">Multiple Choice Only</option>
-                          <option value="true_false">True / False Only</option>
-                          <option value="short_answer">Short Answer Only</option>
+                        <label className="label" style={{ fontSize: "0.8rem" }}>Difficulty Level</label>
+                        <select className="input" value={aiDifficulty} onChange={(e) => setAiDifficulty(e.target.value)} style={{ fontSize: "0.85rem" }}>
+                          <option value="easy">Easy</option>
+                          <option value="medium">Medium</option>
+                          <option value="hard">Hard</option>
                         </select>
                       </div>
                     </>
@@ -602,57 +667,149 @@ export default function CreateQuizPage() {
           )}
         </div>
 
-        {/* Right Column: Settings & Publish (Manual Mode) */}
-        {creationMode === "manual" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-            <div className="card" style={{ padding: "1.25rem" }}>
-              <h2 style={{ fontSize: "0.95rem", fontWeight: 600, marginBottom: "1rem", color: "var(--text-primary)" }}>3. Settings & Publish</h2>
-              
-              <div className="form-group" style={{ marginBottom: "1rem" }}>
-                <label className="label" style={{ fontSize: "0.8rem" }}>Instructions (Optional)</label>
-                <textarea className="input" rows={2} value={quizDesc} onChange={(e) => setQuizDesc(e.target.value)} placeholder="Guidelines for students" style={{ fontSize: "0.85rem" }} />
-              </div>
-              
-              <div className="form-group" style={{ marginBottom: "1rem" }}>
-                <label className="label" style={{ fontSize: "0.8rem" }}>Time Limit (Minutes)</label>
-                <input className="input" type="number" min={1} value={timeLimit} onChange={(e) => setTimeLimit(e.target.value)} placeholder="Leave blank for unlimited" style={{ fontSize: "0.85rem" }} />
-              </div>
-
-              <div className="form-group" style={{ background: "var(--bg-primary)", padding: "0.85rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)", marginBottom: "1.25rem" }}>
-                <label className="label" style={{ display: "flex", alignItems: "center", gap: "0.4rem", color: "var(--text-primary)", fontSize: "0.8rem" }}>
-                  <SvgIcon name="cpu" size={14} style={{ color: "var(--accent-primary)" }} /> Short Answer Evaluation
-                </label>
-                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
-                  Select how short answer text responses should be graded.
+        {/* Right Column: Settings & Publish (Unified for Manual & AI Modes) */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+          <div className="card" style={{ padding: "1.25rem" }}>
+            <h2 style={{ fontSize: "0.95rem", fontWeight: 600, marginBottom: "1rem", color: "var(--text-primary)" }}>3. Settings & Publish</h2>
+            
+            <div className="form-group" style={{ marginBottom: "1rem" }}>
+              <label className="label" style={{ fontSize: "0.8rem" }}>Instructions / Guidelines (Optional)</label>
+              <textarea className="input" rows={2} value={quizDesc} onChange={(e) => setQuizDesc(e.target.value)} placeholder="Guidelines for students taking this quiz..." style={{ fontSize: "0.85rem" }} />
+            </div>
+            
+            <div className="form-group" style={{ marginBottom: "1rem" }}>
+              <label className="label" style={{ fontSize: "0.8rem", display: "flex", alignItems: "center", gap: "4px" }}>
+                <SvgIcon name="clock" size={13} /> Time Limit (Minutes)
+              </label>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                <input 
+                  className="input" 
+                  type="number" 
+                  min={1} 
+                  max={360} 
+                  placeholder="Unlimited" 
+                  value={timeLimit} 
+                  onChange={(e) => setTimeLimit(e.target.value)} 
+                  style={{ fontSize: "0.85rem" }} 
+                />
+                <div style={{ display: "flex", gap: "0.25rem", flexWrap: "wrap" }}>
+                  {[15, 30, 45, 60].map(m => (
+                    <button 
+                      key={m} 
+                      type="button" 
+                      className={`btn-secondary btn-sm ${timeLimit === m.toString() ? "btn-primary" : ""}`}
+                      onClick={() => setTimeLimit(timeLimit === m.toString() ? "" : m.toString())}
+                      style={{ fontSize: "0.75rem", padding: "0.2rem 0.5rem" }}
+                    >
+                      {m}m
+                    </button>
+                  ))}
                 </div>
-                <select className="input" value={shortAnswerGrading} onChange={(e) => setShortAnswerGrading(e.target.value as any)} style={{ fontSize: "0.8rem" }}>
-                  <option value="manual">Manual Teacher Review</option>
-                  <option value="ai">AI Semantic Auto-Grading</option>
-                </select>
-              </div>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", borderTop: "1px solid var(--border-subtle)", paddingTop: "1rem" }}>
-                <button 
-                  className="btn-primary" 
-                  onClick={() => handleManualSubmit(true)} 
-                  disabled={submitting || questions.length === 0 || !quizTitle.trim() || !selectedLesson}
-                  style={{ padding: "0.55rem", fontSize: "0.85rem", display: "flex", justifyContent: "center", alignItems: "center", gap: "0.4rem" }}
-                >
-                  {submitting ? <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> : "Save & Publish Quiz"}
-                </button>
-                <button 
-                  className="btn-secondary" 
-                  onClick={() => handleManualSubmit(false)} 
-                  disabled={submitting || questions.length === 0 || !quizTitle.trim() || !selectedLesson}
-                  style={{ padding: "0.55rem", fontSize: "0.85rem", display: "flex", justifyContent: "center" }}
-                >
-                  Save as Draft
-                </button>
               </div>
             </div>
+
+            <div className="form-group" style={{ marginBottom: "1rem" }}>
+              <label className="label" style={{ fontSize: "0.8rem", display: "flex", alignItems: "center", gap: "4px" }}>
+                <SvgIcon name="calendar" size={13} /> Submission Deadline
+              </label>
+              <input 
+                className="input" 
+                type="datetime-local" 
+                value={deadline} 
+                onChange={(e) => setDeadline(e.target.value)} 
+                style={{ fontSize: "0.85rem" }} 
+              />
+            </div>
+
+            <div className="form-group" style={{ marginBottom: "1rem" }}>
+              <label className="label" style={{ fontSize: "0.8rem", display: "flex", alignItems: "center", gap: "4px" }}>
+                <SvgIcon name="check-circle" size={13} /> Default Points / Question
+              </label>
+              <input 
+                className="input" 
+                type="number" 
+                min={0.5} 
+                step={0.5} 
+                value={defaultPoints} 
+                onChange={(e) => setDefaultPoints(parseFloat(e.target.value) || 10)} 
+                style={{ fontSize: "0.85rem" }} 
+              />
+            </div>
+
+            <div className="form-group" style={{ background: "var(--bg-primary)", padding: "0.85rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)", marginBottom: "1.25rem" }}>
+              <label className="label" style={{ display: "flex", alignItems: "center", gap: "0.4rem", color: "var(--text-primary)", fontSize: "0.8rem" }}>
+                <SvgIcon name="cpu" size={14} style={{ color: "var(--accent-primary)" }} /> Short Answer Evaluation
+              </label>
+              <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
+                Select how short answer text responses should be evaluated.
+              </div>
+              <select className="input" value={shortAnswerGrading} onChange={(e) => setShortAnswerGrading(e.target.value as any)} style={{ fontSize: "0.8rem" }}>
+                <option value="manual">Manual Teacher Review</option>
+                <option value="ai">AI Semantic Auto-Grading</option>
+              </select>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", borderTop: "1px solid var(--border-subtle)", paddingTop: "1rem" }}>
+              {creationMode === "ai" ? (
+                <>
+                  <button 
+                    type="button"
+                    className="btn-primary" 
+                    onClick={() => handleAIGenerate(true)} 
+                    disabled={submitting || !quizTitle.trim() || !selectedLesson}
+                    style={{ padding: "0.55rem", fontSize: "0.85rem", display: "flex", justifyContent: "center", alignItems: "center", gap: "0.4rem", background: "#8B5CF6", borderColor: "#8B5CF6" }}
+                  >
+                    {submitting ? <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> : <>
+                      <SvgIcon name="sparkle" size={14} /> Generate & Publish Quiz
+                    </>}
+                  </button>
+                  <button 
+                    type="button"
+                    className="btn-secondary" 
+                    onClick={() => handleAIGenerate(false)} 
+                    disabled={submitting || !quizTitle.trim() || !selectedLesson}
+                    style={{ padding: "0.55rem", fontSize: "0.85rem", display: "flex", justifyContent: "center" }}
+                  >
+                    Generate as Draft
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button 
+                    className="btn-primary" 
+                    onClick={() => handleManualSubmit(true)} 
+                    disabled={submitting || questions.length === 0 || !quizTitle.trim() || !selectedLesson}
+                    style={{ padding: "0.55rem", fontSize: "0.85rem", display: "flex", justifyContent: "center", alignItems: "center", gap: "0.4rem" }}
+                  >
+                    {submitting ? <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> : "Save & Publish Quiz"}
+                  </button>
+                  <button 
+                    className="btn-secondary" 
+                    onClick={() => handleManualSubmit(false)} 
+                    disabled={submitting || questions.length === 0 || !quizTitle.trim() || !selectedLesson}
+                    style={{ padding: "0.55rem", fontSize: "0.85rem", display: "flex", justifyContent: "center" }}
+                  >
+                    Save as Draft
+                  </button>
+                </>
+              )}
+            </div>
           </div>
-        )}
+        </div>
       </div>
     </div>
+  );
+}
+
+export default function CreateQuizPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "50vh", gap: "0.5rem" }}>
+        <span className="spinner" style={{ width: 24, height: 24, borderWidth: 3 }} />
+        <span>Loading Quiz Creator...</span>
+      </div>
+    }>
+      <CreateQuizFormContent />
+    </Suspense>
   );
 }

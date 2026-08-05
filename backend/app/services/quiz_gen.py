@@ -32,27 +32,23 @@ def generate_quiz_questions(
     lesson_id: int,
     num_questions: int = 5,
     question_types: Optional[List[str]] = None,
+    mcq_count: Optional[int] = None,
+    tf_count: Optional[int] = None,
+    sa_count: Optional[int] = None,
     difficulty: str = "medium",
     material_ids: Optional[List[int]] = None,
 ) -> List[Dict]:
     """
     Generate quiz questions using Groq LLM + course material context from ChromaDB.
-
-    Args:
-        course_id: The course to pull materials from
-        lesson_id: The specific lesson for context
-        num_questions: How many questions to generate
-        question_types: List of types: "mcq", "true_false", "short_answer"
-        difficulty: "easy", "medium", or "hard"
-        material_ids: Optional list of specific material IDs to include
-
-    Returns:
-        List of question dicts ready to insert into the database
     """
     if question_types is None:
         question_types = ["mcq", "true_false", "short_answer"]
 
     start_time = time.time()
+
+    total_requested = (mcq_count or 0) + (tf_count or 0) + (sa_count or 0)
+    if total_requested > 0:
+        num_questions = total_requested
 
     # Step 1: Retrieve relevant material from ChromaDB
     context_text = _get_lesson_context(course_id, lesson_id)
@@ -67,6 +63,9 @@ def generate_quiz_questions(
         num_questions=num_questions,
         question_types=question_types,
         difficulty=difficulty,
+        mcq_count=mcq_count,
+        tf_count=tf_count,
+        sa_count=sa_count,
     )
 
     elapsed = int((time.time() - start_time) * 1000)
@@ -136,6 +135,9 @@ def _call_groq_for_questions(
     num_questions: int,
     question_types: List[str],
     difficulty: str,
+    mcq_count: Optional[int] = None,
+    tf_count: Optional[int] = None,
+    sa_count: Optional[int] = None,
 ) -> List[Dict]:
     """Call Groq LLM to generate quiz questions from the given context."""
     try:
@@ -151,6 +153,14 @@ def _call_groq_for_questions(
 
         types_str = ", ".join(question_types)
         schema_json = AIQuizOutput.schema_json()
+
+        breakdown_instruction = ""
+        if mcq_count or tf_count or sa_count:
+            breakdown_parts = []
+            if mcq_count: breakdown_parts.append(f"{mcq_count} MCQ questions ('mcq')")
+            if tf_count: breakdown_parts.append(f"{tf_count} True/False questions ('true_false')")
+            if sa_count: breakdown_parts.append(f"{sa_count} Short Answer questions ('short_answer')")
+            breakdown_instruction = f"- STRICT BREAKDOWN REQUIREMENT: You MUST generate EXACTLY: {', '.join(breakdown_parts)}."
         
         system_prompt = f"""You are an expert educational assessment creator. Generate exactly {num_questions} quiz questions based ONLY on the provided course material.
 
@@ -158,6 +168,7 @@ RULES:
 - Generate ONLY questions that can be answered from the provided material.
 - Difficulty level: {difficulty}
 - Allowed question types: {types_str}
+{breakdown_instruction}
 - For "mcq": provide exactly 4 options (A, B, C, D) and specify the exact correct option text.
 - For "true_false": correct_answer must be "True" or "False".
 - For "short_answer": correct_answer should be a brief 1-5 word phrase.
@@ -279,14 +290,34 @@ OUTPUT FORMAT: Return ONLY a valid JSON array of evaluation results. No markdown
             raise ValueError("Empty response from Groq")
             
         data = json.loads(content)
-        # Groq with json_object format often wraps arrays in an object like {"results": [...]}
+        raw_results = data if isinstance(data, list) else []
         if isinstance(data, dict):
             for key, val in data.items():
                 if isinstance(val, list):
-                    return val
-            # Fallback if it's a dict but doesn't have a list
-            raise ValueError("Expected JSON array in response")
-        return data
+                    raw_results = val
+                    break
+
+        req_map = {req["id"]: float(req.get("max_points", 1.0)) for req in eval_requests}
+        clamped_results = []
+        for item in raw_results:
+            if not isinstance(item, dict):
+                continue
+            qid = item.get("id")
+            max_pts = req_map.get(qid, 1.0)
+            try:
+                pts = float(item.get("points_earned", 0.0))
+            except (ValueError, TypeError):
+                pts = 0.0
+            clamped_pts = round(max(0.0, min(max_pts, pts)), 2)
+            is_corr = item.get("is_correct")
+            if is_corr is not None:
+                is_corr = bool(is_corr) and (clamped_pts > 0)
+            clamped_results.append({
+                "id": qid,
+                "is_correct": is_corr,
+                "points_earned": clamped_pts
+            })
+        return clamped_results
         
     except Exception as e:
         logger.error(f"Error evaluating short answers: {e}")

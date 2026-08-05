@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from app.database import get_db
-from app.models import User, UserRole, Question, QuestionVersion, Difficulty, CognitiveLevel, QuestionType
+from app.models import User, UserRole, Question, QuestionVersion, Difficulty, CognitiveLevel, QuestionType, TeacherApprovalStatus
 from app.auth import require_admin_or_teacher
 from app.schemas import (
     QuestionVersionResponse,
@@ -18,27 +18,26 @@ def get_question_bank(
     subject_id: Optional[int] = Query(None, description="Filter by subject"),
     topic_id: Optional[int] = Query(None, description="Filter by topic"),
     lesson_id: Optional[int] = Query(None, description="Filter by lesson"),
+    difficulty: Optional[str] = Query(None, description="Filter by difficulty"),
+    cognitive_level: Optional[str] = Query(None, description="Filter by Bloom's taxonomy"),
     question_type: Optional[QuestionType] = Query(None, description="Filter by question type"),
+    tag: Optional[str] = Query(None, description="Filter by tag"),
+    source_type: Optional[str] = Query(None, description="Filter by source (ai, manual, imported)"),
+    approval_status: Optional[TeacherApprovalStatus] = Query(None, description="Filter by approval status"),
+    search: Optional[str] = Query(None, description="Search question text or outcome"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(require_admin_or_teacher),
     db: Session = Depends(get_db),
 ):
     """
-    Retrieve questions from the Question Bank.
-    Questions are considered 'banked' if `is_banked=True`.
+    Retrieve questions from the Question Bank with multi-criteria filtering.
     """
     from sqlalchemy.orm import joinedload
-    # Join Question with QuestionVersion to filter on both identities
     query = db.query(QuestionVersion).join(Question, Question.id == QuestionVersion.question_id)
-    
-    # Eagerly load the question and lesson to satisfy the properties
     query = query.options(joinedload(QuestionVersion.question).joinedload(Question.lesson))
-
-    # Only return banked questions
     query = query.filter(Question.is_banked == True, Question.is_active == True)
     
-    # Apply filters
     if topic_id is not None:
         query = query.filter(Question.topic_id == topic_id)
         
@@ -51,16 +50,25 @@ def get_question_bank(
         
     if question_type is not None:
         query = query.filter(QuestionVersion.question_type == question_type)
-        
-    # Get the latest versions
-    # For a real implementation, we would ensure we get the latest approved version.
-    # Currently we just return all matching versions, or the most recent per question.
-    # We will order by creation date descending.
+
+    if difficulty is not None:
+        query = query.filter(QuestionVersion.difficulty == difficulty.lower())
+
+    if cognitive_level is not None:
+        query = query.filter(QuestionVersion.cognitive_level == cognitive_level.lower())
+
+    if source_type is not None:
+        query = query.filter(QuestionVersion.source_type == source_type.lower())
+
+    if approval_status is not None:
+        query = query.filter(QuestionVersion.teacher_approval_status == approval_status)
+
+    if search:
+        pattern = f"%{search}%"
+        query = query.filter(QuestionVersion.question_text.ilike(pattern))
+
     query = query.order_by(QuestionVersion.created_at.desc())
-    
     versions = query.offset(offset).limit(limit).all()
-    
-    # Build response
     return [QuestionVersionResponse.model_validate(v) for v in versions]
 
 @router.get("/{question_id}/analytics", response_model=QuestionAnalyticsResponse)
@@ -112,12 +120,32 @@ def get_question_analytics(
     elif success_rate > 75:
         observed_difficulty = "easy"
         
-    # Calculate distractor distribution
+    # Get latest version for type-specific answer normalization
+    latest_version = db.query(QuestionVersion).filter(
+        QuestionVersion.question_id == question_id
+    ).order_by(QuestionVersion.created_at.desc()).first()
+
+    q_type = latest_version.question_type if latest_version else None
+
+    # Calculate distractor distribution with normalization
     distractor_distribution = {}
     for a in answers:
-        # Only do distractor analysis if there is a student answer text
         if a.student_answer:
             ans_str = str(a.student_answer).strip()
+            
+            # Normalize True/False answers to canonical "True" or "False"
+            if q_type == QuestionType.TRUE_FALSE or ans_str.lower() in ["true", "false"]:
+                if ans_str.lower() in ["true", "t", "1"]:
+                    ans_str = "True"
+                elif ans_str.lower() in ["false", "f", "0"]:
+                    ans_str = "False"
+            elif latest_version and latest_version.options and isinstance(latest_version.options, list):
+                # Match MCQ options case-insensitively
+                for opt in latest_version.options:
+                    if str(opt).strip().lower() == ans_str.lower():
+                        ans_str = str(opt).strip()
+                        break
+
             if ans_str not in distractor_distribution:
                 distractor_distribution[ans_str] = 0
             distractor_distribution[ans_str] += 1
@@ -303,3 +331,157 @@ def check_duplicate_endpoint(
         "is_duplicate": len(duplicates) > 0,
         "duplicates": duplicates
     }
+
+
+# ──────────────────────────────────────────────
+# Phase 2 Moderation & Import/Export Endpoints
+# ──────────────────────────────────────────────
+
+@router.post("/{question_id}/approve")
+def approve_question(
+    question_id: int,
+    current_user: User = Depends(require_admin_or_teacher),
+    db: Session = Depends(get_db)
+):
+    """
+    Approve a question version for quiz usage.
+    """
+    v = db.query(QuestionVersion).filter(QuestionVersion.question_id == question_id).order_by(QuestionVersion.version_number.desc()).first()
+    if not v:
+        raise HTTPException(status_code=404, detail="Question version not found")
+    
+    v.teacher_approval_status = TeacherApprovalStatus.APPROVED
+    db.commit()
+
+    from app.services.audit import log_audit_event
+    log_audit_event(
+        db=db, action="QUESTION_APPROVED", entity_type="question", entity_id=question_id,
+        actor_id=current_user.id, actor_email=current_user.email
+    )
+    return {"message": "Question approved successfully", "success": True}
+
+
+@router.post("/{question_id}/reject")
+def reject_question(
+    question_id: int,
+    current_user: User = Depends(require_admin_or_teacher),
+    db: Session = Depends(get_db)
+):
+    """
+    Reject a question version.
+    """
+    v = db.query(QuestionVersion).filter(QuestionVersion.question_id == question_id).order_by(QuestionVersion.version_number.desc()).first()
+    if not v:
+        raise HTTPException(status_code=404, detail="Question version not found")
+    
+    v.teacher_approval_status = TeacherApprovalStatus.REJECTED
+    db.commit()
+
+    from app.services.audit import log_audit_event
+    log_audit_event(
+        db=db, action="QUESTION_REJECTED", entity_type="question", entity_id=question_id,
+        actor_id=current_user.id, actor_email=current_user.email
+    )
+    return {"message": "Question rejected", "success": True}
+
+
+@router.post("/{question_id}/archive")
+def archive_question(
+    question_id: int,
+    current_user: User = Depends(require_admin_or_teacher),
+    db: Session = Depends(get_db)
+):
+    """
+    Soft-delete/archive a question.
+    """
+    q = db.query(Question).filter(Question.id == question_id).first()
+    if not q:
+        raise HTTPException(status_code=404, detail="Question not found")
+    
+    q.is_active = False
+    db.commit()
+
+    from app.services.audit import log_audit_event
+    log_audit_event(
+        db=db, action="QUESTION_ARCHIVED", entity_type="question", entity_id=question_id,
+        actor_id=current_user.id, actor_email=current_user.email
+    )
+    return {"message": "Question archived", "success": True}
+
+
+@router.post("/bulk-moderate")
+def bulk_moderate_questions(
+    request: dict,
+    current_user: User = Depends(require_admin_or_teacher),
+    db: Session = Depends(get_db)
+):
+    """
+    Bulk approve, reject, or archive questions.
+    """
+    question_ids = request.get("question_ids", [])
+    action = request.get("action", "approve").lower()
+
+    versions = (
+        db.query(QuestionVersion)
+        .filter(QuestionVersion.question_id.in_(question_ids))
+        .all()
+    )
+
+    status_map = {
+        "approve": TeacherApprovalStatus.APPROVED,
+        "reject": TeacherApprovalStatus.REJECTED,
+        "archive": TeacherApprovalStatus.REJECTED
+    }
+
+    target_status = status_map.get(action, TeacherApprovalStatus.APPROVED)
+    for v in versions:
+        v.teacher_approval_status = target_status
+
+    if action == "archive":
+        db.query(Question).filter(Question.id.in_(question_ids)).update({"is_active": False}, synchronize_session=False)
+
+    db.commit()
+    return {"message": f"Successfully processed bulk {action} for {len(question_ids)} questions", "success": True}
+
+
+@router.get("/export")
+def export_questions_endpoint(
+    question_ids: List[int] = Query(...),
+    format: str = Query("json"),
+    current_user: User = Depends(require_admin_or_teacher),
+    db: Session = Depends(get_db)
+):
+    """
+    Export specified question IDs as JSON or CSV.
+    """
+    from app.services.import_export import export_questions_to_json, export_questions_to_csv
+    from fastapi.responses import Response
+
+    if format.lower() == "csv":
+        csv_data = export_questions_to_csv(db, question_ids)
+        return Response(content=csv_data, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=questions_export.csv"})
+    else:
+        json_data = export_questions_to_json(db, question_ids)
+        return Response(content=json_data, media_type="application/json", headers={"Content-Disposition": "attachment; filename=questions_export.json"})
+
+
+@router.post("/import")
+def import_questions_endpoint(
+    request: dict,
+    current_user: User = Depends(require_admin_or_teacher),
+    db: Session = Depends(get_db)
+):
+    """
+    Import questions from JSON payload.
+    """
+    from app.services.import_export import import_questions_from_json
+    import json
+    
+    json_data = request.get("questions_data")
+    if not json_data:
+        raise HTTPException(status_code=400, detail="Missing questions_data JSON")
+
+    json_str = json.dumps(json_data) if isinstance(json_data, list) or isinstance(json_data, dict) else str(json_data)
+    count = import_questions_from_json(db, json_str)
+    return {"message": f"Successfully imported {count} questions", "count": count, "success": True}
+

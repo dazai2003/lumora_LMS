@@ -1,27 +1,32 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import api, { Course, CourseAnalytics, QuizBreakdown, CourseEngagement } from "@/lib/api";
+import api, { Course, FullCourseAnalytics } from "@/lib/api";
 import BarChart from "@/components/charts/BarChart";
 import DoughnutChart from "@/components/charts/DoughnutChart";
 import { SvgIcon } from "@/components/SvgIcon";
+import { useToast } from "@/components/ui/Toast";
 import { useRouter } from "next/navigation";
+
+type AnalyticsTab = "overview" | "coursework" | "roster" | "ai_insights";
 
 export default function TeacherAnalyticsPage() {
   const router = useRouter();
+  const { addToast } = useToast();
+
   const [courses, setCourses] = useState<Course[]>([]);
-  const [analytics, setAnalytics] = useState<CourseAnalytics[]>([]);
   const [selectedCourse, setSelectedCourse] = useState<number | null>(null);
-  const [quizBreakdown, setQuizBreakdown] = useState<QuizBreakdown | null>(null);
-  const [engagement, setEngagement] = useState<CourseEngagement | null>(null);
-  const [aiInsights, setAiInsights] = useState<any | null>(null);
+  const [fullAnalytics, setFullAnalytics] = useState<FullCourseAnalytics | null>(null);
+  const [activeTab, setActiveTab] = useState<AnalyticsTab>("overview");
   const [loading, setLoading] = useState(true);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [sendingReminder, setSendingReminder] = useState(false);
+  const [rosterFilter, setRosterFilter] = useState<"all" | "at_risk" | "moderate" | "healthy">("all");
 
   useEffect(() => {
-    Promise.all([api.listCourses(), api.getTeacherCourseAnalytics()])
-      .then(([c, a]) => {
+    api.listCourses()
+      .then((c) => {
         setCourses(c);
-        setAnalytics(a);
         if (c.length > 0) setSelectedCourse(c[0].id);
       })
       .catch(console.error)
@@ -30,287 +35,432 @@ export default function TeacherAnalyticsPage() {
 
   useEffect(() => {
     if (selectedCourse) {
-      Promise.all([
-        api.getCourseQuizBreakdown(selectedCourse),
-        api.getCourseEngagement(selectedCourse),
-        api.getTeacherAIInsights(selectedCourse),
-      ])
-        .then(([qb, eng, ai]) => { setQuizBreakdown(qb); setEngagement(eng); setAiInsights(ai); })
-        .catch(console.error);
+      setAnalyticsLoading(true);
+      api.getFullCourseAnalytics(selectedCourse)
+        .then(setFullAnalytics)
+        .catch((err) => {
+          console.error(err);
+          addToast("Failed to load analytics for selected course", "error");
+        })
+        .finally(() => setAnalyticsLoading(false));
     }
   }, [selectedCourse]);
+
+  const handleSendReminders = async () => {
+    setSendingReminder(true);
+    try {
+      const res = await api.sendProgressReminders();
+      addToast(res.message || "Reminders sent successfully!", "success");
+    } catch {
+      addToast("Failed to send reminders", "error");
+    } finally {
+      setSendingReminder(false);
+    }
+  };
 
   if (loading) {
     return <div className="page-loader" style={{ minHeight: "60vh" }}><div className="spinner" /></div>;
   }
 
-  const currentAnalytics = analytics.find(a => a.course_id === selectedCourse);
+  const summary = fullAnalytics?.summary;
+  const roster = fullAnalytics?.student_roster || [];
+  const filteredRoster = roster.filter(s => rosterFilter === "all" ? true : s.risk_level === rosterFilter);
 
-  const engColors: Record<string, { bg: string; text: string }> = {
-    high: { bg: "rgba(16,185,129,0.08)", text: "#10B981" },
-    medium: { bg: "rgba(245,158,11,0.08)", text: "#F59E0B" },
-    low: { bg: "rgba(239,68,68,0.08)", text: "#EF4444" },
+  const riskBadgeStyles: Record<string, { bg: string; text: string; label: string }> = {
+    at_risk: { bg: "rgba(239,68,68,0.12)", text: "#EF4444", label: "At Risk" },
+    moderate: { bg: "rgba(245,158,11,0.12)", text: "#F59E0B", label: "Moderate" },
+    healthy: { bg: "rgba(16,185,129,0.12)", text: "#10B981", label: "Healthy" },
   };
 
   return (
-    <div>
-      {/* Header with Course Selector */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.5rem" }}>
-        <div className="page-header" style={{ marginBottom: 0 }}>
-          <h1>Learning Analytics</h1>
-          <p>Deep-dive into course performance, quiz scores, and student engagement</p>
-        </div>
-        {courses.length > 1 && (
-          <select
-            value={selectedCourse || ""}
-            onChange={(e) => setSelectedCourse(Number(e.target.value))}
-            className="form-select"
-            style={{ maxWidth: "280px", fontSize: "0.85rem" }}
-          >
-            {courses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
-          </select>
-        )}
-      </div>
-
-      {/* Course Summary Cards */}
-      {currentAnalytics && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "1rem", marginBottom: "1.5rem" }}>
-          {[
-            { icon: "users" as const, label: "Enrolled Students", value: currentAnalytics.total_students, color: "#2563EB" },
-            { icon: "bar-chart" as const, label: "Average Quiz Score", value: currentAnalytics.average_quiz_score != null ? currentAnalytics.average_quiz_score + "%" : "N/A", color: "#10B981" },
-            { icon: "message-circle" as const, label: "AI Questions Asked", value: currentAnalytics.total_questions_asked, color: "#8B5CF6" },
-          ].map((card) => (
-            <div key={card.label} className="stat-card-compact animate-fade-in">
-              <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: "var(--radius-sm)", background: card.color + "12" }}>
-                <SvgIcon name={card.icon} size={18} style={{ color: card.color }} />
-              </span>
-              <div>
-                <div className="stat-value">{card.value}</div>
-                <div className="stat-label">{card.label}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Charts Row */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem", marginBottom: "1.5rem" }}>
-        {/* Quiz Score Distribution Chart */}
-        <div className="card animate-fade-in">
-          <h2 style={{ fontSize: "0.95rem", fontWeight: 600, marginBottom: "1rem" }}>Quiz Score Distribution</h2>
-          {quizBreakdown && quizBreakdown.quizzes.length > 0 ? (
-            <BarChart
-              labels={quizBreakdown.quizzes.map(q => q.quiz_title.length > 15 ? q.quiz_title.slice(0, 15) + "…" : q.quiz_title)}
-              datasets={[
-                { label: "Avg Score (%)", data: quizBreakdown.quizzes.map(q => q.average_score || 0), backgroundColor: "rgba(37, 99, 235, 0.6)" },
-                { label: "Highest (%)", data: quizBreakdown.quizzes.map(q => q.highest_score || 0), backgroundColor: "rgba(16, 185, 129, 0.6)" },
-                { label: "Lowest (%)", data: quizBreakdown.quizzes.map(q => q.lowest_score || 0), backgroundColor: "rgba(239, 68, 68, 0.6)" },
-              ]}
-            />
-          ) : (
-            <div style={{ height: 260, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: "0.875rem" }}>No quiz data. Create and publish quizzes to see analytics.</div>
-          )}
-        </div>
-
-        {/* Engagement Chart */}
-        <div className="card animate-fade-in">
-          <h2 style={{ fontSize: "0.95rem", fontWeight: 600, marginBottom: "1rem" }}>Engagement Levels</h2>
-          {engagement && engagement.total_students > 0 ? (
-            <DoughnutChart
-              labels={["High Engagement", "Medium Engagement", "Low Engagement"]}
-              data={[engagement.engagement_summary.high, engagement.engagement_summary.medium, engagement.engagement_summary.low]}
-              colors={["rgba(16, 185, 129, 0.8)", "rgba(245, 158, 11, 0.8)", "rgba(239, 68, 68, 0.8)"]}
-              centerLabel={`${engagement.total_students} Students`}
-            />
-          ) : (
-            <div style={{ height: 240, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: "0.875rem" }}>No students enrolled</div>
-          )}
-        </div>
-      </div>
-
-      {/* Detailed Student Performance Table */}
-      <div className="card animate-fade-in" style={{ marginBottom: "1.5rem" }}>
-        <h2 style={{ fontSize: "0.95rem", fontWeight: 600, marginBottom: "1rem" }}>Student Performance Details</h2>
-        {engagement && engagement.students.length > 0 ? (
-          <div style={{ overflowX: "auto" }}>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Student</th>
-                  <th style={{ textAlign: "center" }}>Quizzes</th>
-                  <th style={{ textAlign: "center" }}>Avg Score</th>
-                  <th style={{ textAlign: "center" }}>AI Questions</th>
-                  <th style={{ textAlign: "center" }}>Engagement</th>
-                  <th style={{ textAlign: "right" }}>Enrolled</th>
-                  <th style={{ width: 40 }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {engagement.students.map((s) => {
-                  const level = engColors[s.engagement_level] || engColors.medium;
-                  return (
-                    <tr
-                      key={s.student_id}
-                      onClick={() => router.push(`/dashboard/teacher/analytics/student/${s.student_id}?courseId=${selectedCourse}&name=${encodeURIComponent(s.student_name)}`)}
-                      style={{ cursor: "pointer", transition: "background 0.15s ease" }}
-                      onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-primary)")}
-                      onMouseLeave={(e) => (e.currentTarget.style.background = "")}
-                    >
-                      <td style={{ fontWeight: 500 }}>{s.student_name}</td>
-                      <td style={{ textAlign: "center" }}>{s.quizzes_taken}</td>
-                      <td style={{ textAlign: "center" }}>
-                        {s.average_score != null ? (
-                          <span style={{
-                            background: s.average_score >= 60 ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)",
-                            color: s.average_score >= 60 ? "#10B981" : "#EF4444",
-                            padding: "2px 8px", borderRadius: "12px", fontSize: "0.8rem", fontWeight: 600,
-                          }}>
-                            {s.average_score}%
-                          </span>
-                        ) : "—"}
-                      </td>
-                      <td style={{ textAlign: "center" }}>{s.questions_asked}</td>
-                      <td style={{ textAlign: "center" }}>
-                        <span style={{ background: level.bg, color: level.text, padding: "2px 8px", borderRadius: "12px", fontSize: "0.75rem", fontWeight: 600 }}>
-                          {s.engagement_level.charAt(0).toUpperCase() + s.engagement_level.slice(1)}
-                        </span>
-                      </td>
-                      <td style={{ textAlign: "right", color: "var(--text-muted)", fontSize: "0.8rem" }}>
-                        {new Date(s.enrolled_at).toLocaleDateString()}
-                      </td>
-                      <td style={{ textAlign: "center" }}>
-                        <SvgIcon name="chevron-right" size={15} style={{ color: "var(--text-muted)" }} />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="empty-state">
-            <SvgIcon name="users" className="empty-state-icon" />
-            <div className="empty-state-title">No students enrolled</div>
-            <div className="empty-state-desc">There are currently no students enrolled in this course.</div>
-          </div>
-        )}
-      </div>
-
-      {/* AI Insights Section */}
-      {aiInsights && (
+    <div style={{ maxWidth: "1400px", margin: "0 auto", paddingBottom: "2rem" }}>
+      {/* Top Header & Course Selector */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", flexWrap: "wrap", gap: "1rem" }}>
         <div>
-          <h2 style={{ fontSize: "1.1rem", fontWeight: 600, marginBottom: "1rem" }}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
-              <SvgIcon name="sparkle" size={18} style={{ color: "#8B5CF6" }} />
-              AI Insights
-            </span>
-          </h2>
-          
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "1rem", marginBottom: "1.5rem" }}>
-            <div className="stat-card-compact animate-fade-in">
-              <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: "var(--radius-sm)", background: "rgba(37, 99, 235, 0.08)" }}>
-                <SvgIcon name="message-circle" size={18} style={{ color: "#2563EB" }} />
-              </span>
-              <div>
-                <div className="stat-value">{aiInsights.total_queries}</div>
-                <div className="stat-label">Total AI Queries</div>
-              </div>
-            </div>
-            <div className="stat-card-compact animate-fade-in">
-              <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: "var(--radius-sm)", background: "rgba(245, 158, 11, 0.08)" }}>
-                <SvgIcon name="alert-triangle" size={18} style={{ color: "#F59E0B" }} />
-              </span>
-              <div>
-                <div className="stat-value">{aiInsights.low_confidence_count}</div>
-                <div className="stat-label">Low Confidence</div>
-              </div>
-            </div>
-            <div className="stat-card-compact animate-fade-in">
-              <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: "var(--radius-sm)", background: "rgba(16, 185, 129, 0.08)" }}>
-                <SvgIcon name="layers" size={18} style={{ color: "#10B981" }} />
-              </span>
-              <div>
-                <div className="stat-value">{aiInsights.top_confusion_areas?.length > 0 ? aiInsights.top_confusion_areas[0].topic : "None"}</div>
-                <div className="stat-label">Top Confusion Area</div>
-              </div>
-            </div>
-          </div>
+          <h1 style={{ fontSize: "1.5rem", fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>Learning Analytics Workstation</h1>
+          <p style={{ fontSize: "0.825rem", color: "var(--text-muted)", margin: "2px 0 0 0" }}>
+            Multi-dimensional insights: Coursework grades, Quiz distributions, Material completion & AI student risk intelligence
+          </p>
+        </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "1.5rem" }}>
-            {/* Top Confusion Areas List */}
-            <div className="card">
-              <h2 style={{ fontSize: "0.95rem", fontWeight: 600, marginBottom: "1rem" }}>Top Confusion Areas</h2>
-              {aiInsights.top_confusion_areas?.length === 0 ? (
-                <div className="empty-state">
-                  <SvgIcon name="hash" className="empty-state-icon" />
-                  <div className="empty-state-title">No topics found</div>
-                  <div className="empty-state-desc">Students haven't asked enough questions yet.</div>
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                  {aiInsights.top_confusion_areas?.map((area: any, idx: number) => (
-                    <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.625rem 0.75rem", background: "var(--bg-primary)", borderRadius: "var(--radius-sm)" }}>
-                      <span style={{ fontWeight: 500, color: "var(--text-primary)", fontSize: "0.85rem" }}>{area.topic}</span>
-                      <span style={{ background: "rgba(139, 92, 246, 0.08)", color: "#8B5CF6", padding: "2px 8px", borderRadius: "12px", fontSize: "0.75rem", fontWeight: 600 }}>
-                        {area.count}
-                      </span>
+        <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+          {courses.length > 0 && (
+            <select
+              value={selectedCourse || ""}
+              onChange={(e) => setSelectedCourse(Number(e.target.value))}
+              className="form-select"
+              style={{ minWidth: "220px", fontSize: "0.85rem" }}
+            >
+              {courses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+            </select>
+          )}
+
+          <button
+            className="btn-secondary btn-sm"
+            onClick={handleSendReminders}
+            disabled={sendingReminder}
+            style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.8rem", padding: "0.45rem 0.85rem" }}
+          >
+            <SvgIcon name="bell" size={14} />
+            {sendingReminder ? "Sending..." : "Nudge Low Progress Students"}
+          </button>
+        </div>
+      </div>
+
+      {/* Navigation Tabs */}
+      <div style={{ display: "flex", borderBottom: "1px solid var(--border-subtle)", marginBottom: "1.5rem", gap: "0.5rem" }}>
+        {[
+          { key: "overview" as AnalyticsTab, label: "Overview & Performance", icon: "bar-chart" as const },
+          { key: "coursework" as AnalyticsTab, label: `Coursework Analytics (${fullAnalytics?.coursework_breakdown?.length || 0})`, icon: "file-text" as const },
+          { key: "roster" as AnalyticsTab, label: `Student Risk Roster (${roster.length})`, icon: "users" as const, alert: summary?.at_risk_students_count },
+          { key: "ai_insights" as AnalyticsTab, label: "AI Insights & Confusion Topics", icon: "sparkles" as const },
+        ].map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            style={{
+              padding: "0.6rem 1rem",
+              border: "none",
+              borderBottom: activeTab === tab.key ? "2px solid var(--accent-primary)" : "2px solid transparent",
+              background: "transparent",
+              cursor: "pointer",
+              fontSize: "0.85rem",
+              fontWeight: activeTab === tab.key ? 700 : 500,
+              color: activeTab === tab.key ? "var(--accent-primary)" : "var(--text-muted)",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              transition: "all 0.15s",
+            }}
+          >
+            <SvgIcon name={tab.icon} size={15} />
+            {tab.label}
+            {tab.alert != null && tab.alert > 0 && (
+              <span className="badge badge-error" style={{ fontSize: "0.65rem", padding: "1px 5px" }}>
+                {tab.alert} at risk
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {analyticsLoading ? (
+        <div style={{ height: 300, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div className="spinner" />
+        </div>
+      ) : summary ? (
+        <>
+          {/* ═══════════════════════════════════════════════════════════════
+              TAB 1: OVERVIEW & PERFORMANCE
+             ═══════════════════════════════════════════════════════════════ */}
+          {activeTab === "overview" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+              {/* Summary KPI Cards Bar */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem" }}>
+                {[
+                  { label: "Enrolled Students", value: summary.total_students, icon: "users" as const, color: "#2563EB", sub: "Active learners" },
+                  { label: "Avg Quiz Score", value: `${summary.average_quiz_score}%`, icon: "check-circle" as const, color: "#10B981", sub: `${fullAnalytics?.quiz_breakdown?.length || 0} quizzes` },
+                  { label: "Avg Coursework Mark", value: `${summary.average_coursework_score}%`, icon: "award" as const, color: "#8B5CF6", sub: `${fullAnalytics?.coursework_breakdown?.length || 0} assignments` },
+                  { label: "Material Completion", value: `${summary.material_completion_rate}%`, icon: "book-open" as const, color: "#F59E0B", sub: `${fullAnalytics?.material_breakdown?.total_materials || 0} materials` },
+                  { label: "At-Risk Students", value: summary.at_risk_students_count, icon: "alert-triangle" as const, color: summary.at_risk_students_count > 0 ? "#EF4444" : "#10B981", sub: "Needs intervention" },
+                ].map((card) => (
+                  <div key={card.label} className="card" style={{ padding: "1rem", display: "flex", alignItems: "center", gap: "0.75rem", border: "1px solid var(--border-subtle)" }}>
+                    <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 42, height: 42, borderRadius: "var(--radius-md)", background: card.color + "14", flexShrink: 0 }}>
+                      <SvgIcon name={card.icon} size={20} style={{ color: card.color }} />
+                    </span>
+                    <div>
+                      <div style={{ fontSize: "1.35rem", fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.1 }}>{card.value}</div>
+                      <div style={{ fontSize: "0.775rem", fontWeight: 600, color: "var(--text-primary)", marginTop: "2px" }}>{card.label}</div>
+                      <div style={{ fontSize: "0.675rem", color: "var(--text-muted)" }}>{card.sub}</div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                  </div>
+                ))}
+              </div>
 
-            {/* Recent Feed Table */}
-            <div className="card">
-              <h2 style={{ fontSize: "0.95rem", fontWeight: 600, marginBottom: "1rem" }}>Recent Question Feed</h2>
-              <div style={{ overflowX: "auto", maxHeight: "300px" }}>
-                <table className="data-table">
-                  <thead style={{ position: "sticky", top: 0, background: "var(--bg-card)", zIndex: 1 }}>
-                    <tr>
-                      <th>Question</th>
-                      <th>Category</th>
-                      <th>Difficulty</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {aiInsights.recent_feed?.length === 0 ? (
-                      <tr>
-                        <td colSpan={3}>
-                          <div className="empty-state" style={{ padding: "2rem" }}>
-                            <SvgIcon name="message-circle" className="empty-state-icon" />
-                            <div className="empty-state-title">No recent questions</div>
+              {/* Charts Row */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
+                {/* Quiz Score Distribution */}
+                <div className="card" style={{ padding: "1.25rem" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+                    <h3 style={{ fontSize: "0.95rem", fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>Quiz Score Performance</h3>
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Avg Score &amp; High/Low Range</span>
+                  </div>
+                  {fullAnalytics.quiz_breakdown.length > 0 ? (
+                    <BarChart
+                      labels={fullAnalytics.quiz_breakdown.map(q => {
+                        const title = q.quiz_title || (q as any).title || "Quiz";
+                        return title.length > 14 ? title.slice(0, 14) + "…" : title;
+                      })}
+                      datasets={[
+                        { label: "Avg Score (%)", data: fullAnalytics.quiz_breakdown.map(q => q.average_score || 0), backgroundColor: "rgba(37, 99, 235, 0.7)" },
+                        { label: "Highest (%)", data: fullAnalytics.quiz_breakdown.map(q => q.highest_score || 0), backgroundColor: "rgba(16, 185, 129, 0.7)" },
+                        { label: "Lowest (%)", data: fullAnalytics.quiz_breakdown.map(q => q.lowest_score || 0), backgroundColor: "rgba(239, 68, 68, 0.7)" },
+                      ]}
+                    />
+                  ) : (
+                    <div style={{ height: 240, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+                      No quizzes created yet for this course.
+                    </div>
+                  )}
+                </div>
+
+                {/* Material Engagement Breakdown */}
+                <div className="card" style={{ padding: "1.25rem" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+                    <h3 style={{ fontSize: "0.95rem", fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>Material Completion by Type</h3>
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Overall: {fullAnalytics.material_breakdown.overall_completion_pct}%</span>
+                  </div>
+                  {Object.keys(fullAnalytics.material_breakdown.by_type || {}).length > 0 ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                      <DoughnutChart
+                        labels={Object.keys(fullAnalytics.material_breakdown.by_type).map(t => t.toUpperCase() + " Materials")}
+                        data={Object.values(fullAnalytics.material_breakdown.by_type).map(t => t.completion_pct)}
+                        colors={["#2563EB", "#10B981", "#8B5CF6", "#F59E0B"]}
+                        centerLabel={`${fullAnalytics.material_breakdown.overall_completion_pct}%`}
+                      />
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+                        {Object.entries(fullAnalytics.material_breakdown.by_type).map(([mType, stat]) => (
+                          <div key={mType} style={{ background: "var(--bg-tertiary)", padding: "0.5rem 0.75rem", borderRadius: "var(--radius-sm)", fontSize: "0.75rem" }}>
+                            <div style={{ fontWeight: 600, textTransform: "uppercase", color: "var(--text-secondary)" }}>{mType} ({stat.count})</div>
+                            <div style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text-primary)" }}>{stat.completion_pct}% completed</div>
                           </div>
-                        </td>
-                      </tr>
-                    ) : (
-                      aiInsights.recent_feed?.map((feedItem: any) => (
-                        <tr key={feedItem.id}>
-                          <td style={{ maxWidth: "250px" }}>
-                            <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={feedItem.question}>
-                              {feedItem.question}
-                            </div>
-                            <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: "2px" }}>
-                              {new Date(feedItem.asked_at).toLocaleString()}
-                            </div>
-                          </td>
-                          <td>
-                            <span style={{ padding: "2px 6px", background: "var(--bg-primary)", borderRadius: "4px", color: "var(--text-secondary)", fontSize: "0.8rem" }}>
-                              {feedItem.topic_category || "Uncategorized"}
-                            </span>
-                          </td>
-                          <td>
-                            <span style={{ padding: "2px 6px", background: "var(--bg-primary)", borderRadius: "4px", color: "var(--text-secondary)", fontSize: "0.8rem" }}>
-                              {feedItem.sentiment_difficulty || "Unknown"}
-                            </span>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ height: 240, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+                      No materials published yet for this course.
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          )}
+
+          {/* ═══════════════════════════════════════════════════════════════
+              TAB 2: COURSEWORK ANALYTICS
+             ═══════════════════════════════════════════════════════════════ */}
+          {activeTab === "coursework" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+              <div className="card" style={{ padding: "1.25rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+                  <div>
+                    <h3 style={{ fontSize: "1rem", fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>Coursework &amp; Assignment Breakdown</h3>
+                    <p style={{ fontSize: "0.775rem", color: "var(--text-muted)", margin: "2px 0 0 0" }}>Submission metrics, average marks, and late submissions</p>
+                  </div>
+                  <button className="btn-secondary btn-sm" onClick={() => router.push("/dashboard/teacher/assignments")}>
+                    Open SpeedGrader
+                  </button>
+                </div>
+
+                {fullAnalytics.coursework_breakdown.length === 0 ? (
+                  <div className="empty-state" style={{ padding: "3rem" }}>
+                    <SvgIcon name="file-text" className="empty-state-icon" style={{ opacity: 0.35, width: 44, height: 44 }} />
+                    <div className="empty-state-title" style={{ marginTop: "0.75rem" }}>No coursework assignments</div>
+                    <div className="empty-state-desc">Create assignments to start tracking coursework submission analytics.</div>
+                  </div>
+                ) : (
+                  <div style={{ overflowX: "auto" }}>
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Assignment Title</th>
+                          <th style={{ textAlign: "center" }}>Max Marks</th>
+                          <th style={{ textAlign: "center" }}>Total Submitted</th>
+                          <th style={{ textAlign: "center" }}>Submission Rate</th>
+                          <th style={{ textAlign: "center" }}>Late Submissions</th>
+                          <th style={{ textAlign: "center" }}>Avg Score</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {fullAnalytics.coursework_breakdown.map((cw) => (
+                          <tr key={cw.assignment_id}>
+                            <td style={{ fontWeight: 600, color: "var(--text-primary)" }}>{cw.title}</td>
+                            <td style={{ textAlign: "center" }}>{cw.max_marks} pts</td>
+                            <td style={{ textAlign: "center" }}>{cw.total_submitted} / {summary.total_students}</td>
+                            <td style={{ textAlign: "center" }}>
+                              <span style={{
+                                background: cw.submission_rate_pct >= 80 ? "rgba(16,185,129,0.1)" : "rgba(245,158,11,0.1)",
+                                color: cw.submission_rate_pct >= 80 ? "#10B981" : "#F59E0B",
+                                padding: "2px 8px", borderRadius: "12px", fontSize: "0.775rem", fontWeight: 600
+                              }}>
+                                {cw.submission_rate_pct}%
+                              </span>
+                            </td>
+                            <td style={{ textAlign: "center" }}>
+                              {cw.late_count > 0 ? (
+                                <span style={{ color: "var(--color-error)", fontWeight: 600, fontSize: "0.8rem" }}>
+                                  {cw.late_count} late
+                                </span>
+                              ) : (
+                                <span style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>0</span>
+                              )}
+                            </td>
+                            <td style={{ textAlign: "center" }}>
+                              <span style={{
+                                background: cw.average_pct >= 60 ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)",
+                                color: cw.average_pct >= 60 ? "#10B981" : "#EF4444",
+                                padding: "3px 10px", borderRadius: "12px", fontSize: "0.825rem", fontWeight: 700
+                              }}>
+                                {cw.average_marks} / {cw.max_marks} ({cw.average_pct}%)
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ═══════════════════════════════════════════════════════════════
+              TAB 3: STUDENT RISK ROSTER & INTELLIGENCE
+             ═══════════════════════════════════════════════════════════════ */}
+          {activeTab === "roster" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+              <div className="card" style={{ padding: "1.25rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.75rem" }}>
+                  <div>
+                    <h3 style={{ fontSize: "1rem", fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>Student Performance &amp; Risk Intelligence</h3>
+                    <p style={{ fontSize: "0.775rem", color: "var(--text-muted)", margin: "2px 0 0 0" }}>
+                      Composite score calculated from Coursework (35%), Quizzes (35%), Material Completion (20%), and AI Questions (10%)
+                    </p>
+                  </div>
+
+                  <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                    <span style={{ fontSize: "0.775rem", color: "var(--text-muted)" }}>Filter Risk:</span>
+                    <select
+                      className="form-select"
+                      value={rosterFilter}
+                      onChange={(e) => setRosterFilter(e.target.value as any)}
+                      style={{ fontSize: "0.8rem", padding: "4px 8px" }}
+                    >
+                      <option value="all">All Students ({roster.length})</option>
+                      <option value="at_risk">At Risk Only ({summary.at_risk_students_count})</option>
+                      <option value="moderate">Moderate</option>
+                      <option value="healthy">Healthy</option>
+                    </select>
+                  </div>
+                </div>
+
+                {filteredRoster.length === 0 ? (
+                  <div className="empty-state" style={{ padding: "3rem" }}>
+                    <SvgIcon name="users" className="empty-state-icon" style={{ opacity: 0.35, width: 44, height: 44 }} />
+                    <div className="empty-state-title" style={{ marginTop: "0.75rem" }}>No matching students</div>
+                    <div className="empty-state-desc">Try clearing your risk filter.</div>
+                  </div>
+                ) : (
+                  <div style={{ overflowX: "auto" }}>
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Student Name</th>
+                          <th style={{ textAlign: "center" }}>Quiz Avg</th>
+                          <th style={{ textAlign: "center" }}>Coursework Avg</th>
+                          <th style={{ textAlign: "center" }}>Material Completion</th>
+                          <th style={{ textAlign: "center" }}>AI Questions</th>
+                          <th style={{ textAlign: "center" }}>Composite Score</th>
+                          <th style={{ textAlign: "center" }}>Status</th>
+                          <th style={{ width: 40 }}></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredRoster.map((s) => {
+                          const badge = riskBadgeStyles[s.risk_level] || riskBadgeStyles.healthy;
+                          return (
+                            <tr
+                              key={s.student_id}
+                              onClick={() => router.push(`/dashboard/teacher/analytics/student/${s.student_id}?courseId=${selectedCourse}&name=${encodeURIComponent(s.student_name)}`)}
+                              style={{ cursor: "pointer", transition: "background 0.15s ease" }}
+                              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-primary)")}
+                              onMouseLeave={(e) => (e.currentTarget.style.background = "")}
+                            >
+                              <td>
+                                <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.85rem" }}>{s.student_name}</div>
+                                <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>{s.email}</div>
+                              </td>
+                              <td style={{ textAlign: "center" }}>
+                                {s.quiz_avg != null ? `${s.quiz_avg}%` : "—"}
+                              </td>
+                              <td style={{ textAlign: "center" }}>
+                                {s.coursework_avg != null ? `${s.coursework_avg}%` : "—"}
+                              </td>
+                              <td style={{ textAlign: "center" }}>
+                                <span style={{ fontWeight: 600 }}>{s.material_completion_pct}%</span>
+                              </td>
+                              <td style={{ textAlign: "center" }}>{s.ai_questions_asked}</td>
+                              <td style={{ textAlign: "center" }}>
+                                <span style={{ fontSize: "0.9rem", fontWeight: 700, color: s.composite_score >= 70 ? "#10B981" : s.composite_score >= 50 ? "#F59E0B" : "#EF4444" }}>
+                                  {s.composite_score}%
+                                </span>
+                              </td>
+                              <td style={{ textAlign: "center" }}>
+                                <span style={{ background: badge.bg, color: badge.text, padding: "3px 10px", borderRadius: "12px", fontSize: "0.725rem", fontWeight: 700 }}>
+                                  {badge.label}
+                                </span>
+                              </td>
+                              <td style={{ textAlign: "center" }}>
+                                <SvgIcon name="chevron-right" size={15} style={{ color: "var(--text-muted)" }} />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ═══════════════════════════════════════════════════════════════
+              TAB 4: AI INSIGHTS & CONFUSION TOPICS
+             ═══════════════════════════════════════════════════════════════ */}
+          {activeTab === "ai_insights" && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "1.5rem" }}>
+              {/* Top Confusion Areas */}
+              <div className="card" style={{ padding: "1.25rem" }}>
+                <h3 style={{ fontSize: "0.95rem", fontWeight: 700, marginBottom: "1rem", color: "var(--text-primary)" }}>
+                  Top Student Confusion Topics
+                </h3>
+                {fullAnalytics.top_confusion_areas.length === 0 ? (
+                  <div className="empty-state" style={{ padding: "2rem" }}>
+                    <SvgIcon name="sparkles" className="empty-state-icon" style={{ opacity: 0.35 }} />
+                    <div className="empty-state-title" style={{ fontSize: "0.9rem" }}>No confusion topics detected</div>
+                    <div className="empty-state-desc" style={{ fontSize: "0.775rem" }}>Questions asked by students will populate this AI topic map.</div>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                    {fullAnalytics.top_confusion_areas.map((area, idx) => (
+                      <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.6rem 0.75rem", background: "var(--bg-tertiary)", borderRadius: "var(--radius-sm)" }}>
+                        <span style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.825rem" }}>{area.topic}</span>
+                        <span className="badge badge-info" style={{ fontSize: "0.7rem" }}>
+                          {area.count} queries
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Information Box */}
+              <div className="card" style={{ padding: "1.25rem", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center" }}>
+                <SvgIcon name="sparkles" size={40} style={{ color: "var(--accent-primary)", opacity: 0.8, marginBottom: "0.75rem" }} />
+                <h3 style={{ fontSize: "1.05rem", fontWeight: 700, margin: "0 0 0.4rem 0", color: "var(--text-primary)" }}>
+                  AI-Powered Learning Insights Active
+                </h3>
+                <p style={{ fontSize: "0.825rem", color: "var(--text-muted)", maxWidth: "480px", margin: 0, lineHeight: 1.6 }}>
+                  Our AI engine analyzes student questions, quiz answer distributions, and coursework submissions to highlight concepts requiring reinforcement during lectures.
+                </p>
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="card" style={{ padding: "4rem", textAlign: "center", color: "var(--text-muted)" }}>
+          No analytics data available for this course.
         </div>
       )}
     </div>

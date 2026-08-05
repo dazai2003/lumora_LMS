@@ -6,6 +6,7 @@ import Link from "next/link";
 import Modal from "@/components/Modal";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import MaterialViewer from "@/components/MaterialViewer";
+import WYSIWYGEditor from "@/components/WYSIWYGEditor";
 import { SvgIcon } from "@/components/SvgIcon";
 import type { IconName } from "@/components/SvgIcon";
 import { useToast } from "@/components/ui/Toast";
@@ -35,6 +36,14 @@ export default function TeacherLessonDetailPage({ params }: { params: Promise<{ 
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Edit Material State
+  const [editMaterial, setEditMaterial] = useState<Material | null>(null);
+  const [editMatTitle, setEditMatTitle] = useState("");
+  const [editMatDesc, setEditMatDesc] = useState("");
+  const [replaceFile, setReplaceFile] = useState<File | null>(null);
+  const [updatingMat, setUpdatingMat] = useState(false);
+  const replaceFileInputRef = useRef<HTMLInputElement>(null);
+
   // Delete material
   const [deleteMat, setDeleteMat] = useState<Material | null>(null);
   const [deletingMat, setDeletingMat] = useState(false);
@@ -57,6 +66,31 @@ export default function TeacherLessonDetailPage({ params }: { params: Promise<{ 
   };
 
   useEffect(() => { loadData(); }, [lId]);
+
+  // Real-time Auto-Polling when any material is processing or pending
+  useEffect(() => {
+    const hasPending = materials.some(
+      m => m.processing_status === "PROCESSING" || m.processing_status === "PENDING"
+    );
+
+    if (hasPending) {
+      const pollTimer = setInterval(async () => {
+        try {
+          const updated = await api.listMaterials(lId);
+          setMaterials(updated);
+        } catch (e) {
+          console.error("Material status polling error:", e);
+        }
+      }, 3000);
+
+      return () => clearInterval(pollTimer);
+    }
+  }, [materials, lId]);
+
+  // Check if there is an active video transcription in progress
+  const activeProcessingVideo = materials.find(
+    m => m.material_type === "video" && (m.processing_status === "PROCESSING" || m.processing_status === "PENDING")
+  );
 
   const handleCreateNote = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,7 +120,14 @@ export default function TeacherLessonDetailPage({ params }: { params: Promise<{ 
       formData.append("material_type", uploadType);
       formData.append("file", uploadFile);
       await api.uploadMaterial(formData);
-      addToast(`File "${uploadTitle}" uploaded successfully!`, "success");
+      
+      addToast(
+        uploadType === "video" 
+          ? `Video "${uploadTitle}" uploaded! AI Transcription started in background...`
+          : `File "${uploadTitle}" uploaded successfully!`, 
+        "success"
+      );
+      
       setShowUpload(false);
       setUploadTitle(""); setUploadFile(null);
       const updated = await api.listMaterials(lId);
@@ -96,6 +137,39 @@ export default function TeacherLessonDetailPage({ params }: { params: Promise<{ 
       addToast("Failed to upload file.", "error");
     }
     finally { setUploading(false); }
+  };
+
+  const openEditModal = (mat: Material) => {
+    setEditMaterial(mat);
+    setEditMatTitle(mat.title);
+    setEditMatDesc(mat.description || "");
+    setReplaceFile(null);
+  };
+
+  const handleUpdateMaterial = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editMaterial) return;
+    setUpdatingMat(true);
+    try {
+      const formData = new FormData();
+      formData.append("title", editMatTitle);
+      formData.append("description", editMatDesc);
+      if (replaceFile) {
+        formData.append("file", replaceFile);
+      }
+
+      await api.updateMaterial(editMaterial.id, formData);
+      addToast(`Material "${editMatTitle}" updated successfully!`, "success");
+      setEditMaterial(null);
+      setReplaceFile(null);
+      const updated = await api.listMaterials(lId);
+      setMaterials(updated);
+    } catch (err) {
+      console.error(err);
+      addToast("Failed to update material.", "error");
+    } finally {
+      setUpdatingMat(false);
+    }
   };
 
   const handleDeleteMaterial = async () => {
@@ -144,38 +218,34 @@ export default function TeacherLessonDetailPage({ params }: { params: Promise<{ 
 
   const materialIconName = (type: string): IconName => {
     switch (type) {
-      case "note": return "edit";
       case "pdf": return "file-text";
-      case "image": return "image";
       case "video": return "video";
+      case "image": return "image";
+      case "note": return "book";
       default: return "layers";
     }
   };
 
-  if (loading || !lesson) {
-    return <div className="page-loader" style={{ minHeight: "60vh" }}><div className="spinner" /></div>;
-  }
+  if (loading) return <div className="loading-spinner">Loading lesson details...</div>;
+  if (!lesson) return <div className="card">Lesson not found.</div>;
 
   return (
-    <div>
-      {/* Breadcrumb */}
-      <div className="breadcrumb">
-        <Link href="/dashboard/teacher/courses">Courses</Link>
-        <span className="breadcrumb-sep">/</span>
-        <Link href={`/dashboard/teacher/courses/${courseId}`}>Course</Link>
-        <span className="breadcrumb-sep">/</span>
-        <span style={{ color: "var(--text-primary)" }}>{lesson.title}</span>
+    <div style={{ padding: "1.5rem" }}>
+      {/* Breadcrumb Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1.5rem", fontSize: "0.9rem", color: "var(--text-muted)" }}>
+        <Link href={`/dashboard/teacher/courses/${courseId}`} style={{ color: "var(--text-muted)", textDecoration: "none" }}>Course View</Link>
+        <span>&rsaquo;</span>
+        <span style={{ color: "var(--text-primary)", fontWeight: 500 }}>{lesson.title}</span>
       </div>
 
-      {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "2rem" }}>
+      {/* Lesson Header Card */}
+      <div className="card" style={{ padding: "1.5rem", marginBottom: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
-          <h1 style={{ fontSize: "1.75rem", fontWeight: 700, marginBottom: "0.25rem" }}>{lesson.title}</h1>
-          <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            <h1 style={{ fontSize: "1.4rem", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>{lesson.title}</h1>
             <span className={`badge ${lesson.is_published ? "badge-success" : "badge-warning"}`}>
               {lesson.is_published ? "Published" : "Draft"}
             </span>
-            <span style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Lesson {lesson.order}</span>
           </div>
           {lesson.description && <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", marginTop: "0.5rem" }}>{lesson.description}</p>}
         </div>
@@ -186,6 +256,44 @@ export default function TeacherLessonDetailPage({ params }: { params: Promise<{ 
           </button>
         </div>
       </div>
+
+      {/* Live Video AI Transcription Progress Box */}
+      {activeProcessingVideo && (
+        <div className="card animate-fade-in" style={{ 
+          padding: "1.25rem 1.5rem", 
+          marginBottom: "1.5rem", 
+          background: "linear-gradient(135deg, rgba(99,102,241,0.12) 0%, rgba(139,92,246,0.12) 100%)", 
+          border: "1px solid #818cf8",
+          boxShadow: "0 4px 16px rgba(99,102,241,0.12)"
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+              <div className="spinner" style={{ width: 18, height: 18, borderWidth: 2, borderColor: "#818cf8", borderTopColor: "transparent" }} />
+              <span style={{ fontSize: "0.95rem", fontWeight: 600, color: "var(--text-primary)" }}>
+                Video Uploaded — Generating AI Transcript...
+              </span>
+            </div>
+            <span className="badge badge-info" style={{ fontSize: "0.75rem" }}>PROCESSING WHISPER AI</span>
+          </div>
+          <p style={{ margin: "0 0 0.75rem 0", fontSize: "0.85rem", color: "var(--text-secondary)" }}>
+            Extracting audio track &amp; indexing speech for <strong>&quot;{activeProcessingVideo.title}&quot;</strong>. Progress updates automatically in real-time.
+          </p>
+
+          {/* Dynamic Progress Bar */}
+          <div style={{ width: "100%", height: "8px", background: "rgba(0,0,0,0.2)", borderRadius: "4px", overflow: "hidden", position: "relative" }}>
+            <div 
+              style={{ 
+                height: "100%", 
+                width: "100%", 
+                background: "linear-gradient(90deg, #6366f1, #a855f7, #6366f1)", 
+                backgroundSize: "200% 100%",
+                animation: "pulseGradient 2s infinite linear",
+                borderRadius: "4px"
+              }} 
+            />
+          </div>
+        </div>
+      )}
 
       {/* Materials Section */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
@@ -222,15 +330,41 @@ export default function TeacherLessonDetailPage({ params }: { params: Promise<{ 
               </div>
             </div>
             <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-              <span className={`badge ${mat.processing_status === "completed" ? "badge-success" : mat.processing_status === "failed" ? "badge-error" : "badge-warning"}`}>
-                {mat.processing_status}
+              <span className={`badge ${mat.processing_status === "completed" || mat.processing_status === "READY" ? "badge-success" : mat.processing_status === "failed" ? "badge-error" : "badge-warning"}`}>
+                {mat.processing_status === "completed" || mat.processing_status === "READY" ? "Ready" : mat.processing_status}
               </span>
-              <button className="btn-icon btn-icon-danger" onClick={() => setDeleteMat(mat)} title="Delete">&times;</button>
+
+              {/* Edit Material Button */}
+              <button 
+                className="btn-icon" 
+                onClick={(e) => { e.stopPropagation(); openEditModal(mat); }} 
+                title="Edit Material"
+                style={{ padding: "0.3rem 0.5rem" }}
+              >
+                <SvgIcon name="edit" size={14} />
+              </button>
+
+              {/* Delete Button */}
+              <button 
+                className="btn-icon btn-icon-danger" 
+                onClick={(e) => { e.stopPropagation(); setDeleteMat(mat); }} 
+                title="Delete"
+              >
+                &times;
+              </button>
             </div>
           </div>
         ))
       ) : (
-        <div className="card"><div className="empty-state"><div className="empty-state-icon" style={{ opacity: 0.4 }}><SvgIcon name="layers" size={40} /></div><div className="empty-state-title">No materials yet</div><div className="empty-state-desc">Add notes or upload files for this lesson.</div></div></div>
+        <div className="card">
+          <div className="empty-state">
+            <div className="empty-state-icon" style={{ opacity: 0.4 }}>
+              <SvgIcon name="layers" size={40} />
+            </div>
+            <div className="empty-state-title">No materials yet</div>
+            <div className="empty-state-desc">Add notes or upload files for this lesson.</div>
+          </div>
+        </div>
       )}
 
       {/* Assessments Section */}
@@ -242,7 +376,7 @@ export default function TeacherLessonDetailPage({ params }: { params: Promise<{ 
               <SvgIcon name="check-circle" size={24} />
             </div>
             <div>
-              <h3 style={{ fontSize: "1.05rem", fontWeight: 600, margin: 0, color: "var(--text-primary)" }}>Manage Quizzes & AI Generator</h3>
+              <h3 style={{ fontSize: "1.05rem", fontWeight: 600, margin: 0, color: "var(--text-primary)" }}>Manage Quizzes &amp; AI Generator</h3>
               <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: "4px 0 0 0" }}>Assess student understanding for this lesson.</p>
             </div>
           </div>
@@ -250,26 +384,32 @@ export default function TeacherLessonDetailPage({ params }: { params: Promise<{ 
             <Link href={`/dashboard/teacher/quizzes?courseId=${courseId}&lessonId=${lId}`} className="btn-secondary">
               View Quizzes
             </Link>
-            <Link href={`/dashboard/teacher/quizzes?courseId=${courseId}&lessonId=${lId}&action=generate`} className="btn-primary" style={{ background: "linear-gradient(135deg, #8b5cf6, #6366f1)" }}>
+            <Link href={`/dashboard/teacher/quizzes/create?courseId=${courseId}&lessonId=${lId}&mode=ai`} className="btn-primary" style={{ background: "linear-gradient(135deg, #8b5cf6, #6366f1)" }}>
               <SvgIcon name="sparkle" size={15} style={{ marginRight: "4px" }} /> Generate AI Quiz
             </Link>
           </div>
         </div>
       </div>
 
-      {/* Create Note Modal */}
+      {/* Create Note Modal — Digital Paper Workspace */}
       {showNoteForm && (
-        <Modal title="Add Note" onClose={() => setShowNoteForm(false)} maxWidth="640px">
+        <Modal title="Add Note" onClose={() => setShowNoteForm(false)} maxWidth="950px">
           <form onSubmit={handleCreateNote}>
             <div className="form-group">
               <label className="label">Note Title *</label>
               <input className="input" value={noteTitle} onChange={(e) => setNoteTitle(e.target.value)} placeholder="e.g., Key Formulas" required autoFocus />
             </div>
             <div className="form-group">
-              <label className="label">Content *</label>
-              <textarea className="textarea" style={{ minHeight: "200px" }} value={noteContent} onChange={(e) => setNoteContent(e.target.value)} placeholder="Write your lesson notes here..." required />
+              <label className="label" style={{ marginBottom: "0.35rem" }}>Content *</label>
+              <WYSIWYGEditor
+                initialContent={noteContent}
+                onChange={(html) => setNoteContent(html)}
+                placeholder="Compose your lesson notes here..."
+                minHeight="380px"
+                showStats={true}
+              />
             </div>
-            <div className="modal-actions">
+            <div className="modal-actions" style={{ marginTop: "0.75rem" }}>
               <button type="button" className="btn-secondary" onClick={() => setShowNoteForm(false)}>Cancel</button>
               <button type="submit" className="btn-primary" disabled={creatingNote || !noteTitle.trim() || !noteContent.trim()}>
                 {creatingNote ? "Saving..." : "Save Note"}
@@ -324,6 +464,47 @@ export default function TeacherLessonDetailPage({ params }: { params: Promise<{ 
         </Modal>
       )}
 
+      {/* Edit & Replace Material Modal */}
+      {editMaterial && (
+        <Modal title="Edit Study Material" onClose={() => setEditMaterial(null)}>
+          <form onSubmit={handleUpdateMaterial}>
+            <div className="form-group">
+              <label className="label">Title *</label>
+              <input className="input" value={editMatTitle} onChange={(e) => setEditMatTitle(e.target.value)} required autoFocus />
+            </div>
+            <div className="form-group">
+              <label className="label">Description</label>
+              <textarea className="textarea" value={editMatDesc} onChange={(e) => setEditMatDesc(e.target.value)} placeholder="Optional description..." />
+            </div>
+            <div className="form-group">
+              <label className="label">Replace File (Optional)</label>
+              <div
+                className={`file-upload ${replaceFile ? "file-upload-selected" : ""}`}
+                onClick={() => replaceFileInputRef.current?.click()}
+              >
+                <div className="file-upload-icon"><SvgIcon name={replaceFile ? "check-circle" : "upload"} size={24} /></div>
+                <div className="file-upload-text">
+                  {replaceFile ? replaceFile.name : "Click to choose a replacement file..."}
+                </div>
+              </div>
+              <input
+                ref={replaceFileInputRef}
+                type="file"
+                style={{ display: "none" }}
+                accept=".pdf,.mp4,.webm,.mov,.avi"
+                onChange={(e) => setReplaceFile(e.target.files?.[0] || null)}
+              />
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="btn-secondary" onClick={() => setEditMaterial(null)}>Cancel</button>
+              <button type="submit" className="btn-primary" disabled={updatingMat || !editMatTitle.trim()}>
+                {updatingMat ? "Updating..." : "Save Changes"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
       {/* Edit Lesson Modal */}
       {showEditLesson && (
         <Modal title="Edit Lesson" onClose={() => setShowEditLesson(false)}>
@@ -343,8 +524,6 @@ export default function TeacherLessonDetailPage({ params }: { params: Promise<{ 
           </form>
         </Modal>
       )}
-
-
 
       {/* Delete Material Confirmation */}
       {deleteMat && (

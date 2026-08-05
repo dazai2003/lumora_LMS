@@ -103,6 +103,18 @@ async def upload_material(
             related_entity_id=course.id,
         )
         db.add(notification)
+
+    # Notify teacher if video uploaded
+    if material_type == MaterialType.VIDEO and current_user:
+        teacher_notif = Notification(
+            user_id=current_user.id,
+            title=f"Video Uploaded: '{material.title}'",
+            message=f"Video '{material.title}' uploaded successfully. AI transcription is running in the background.",
+            type=NotificationType.SYSTEM,
+            related_entity_id=material.id,
+        )
+        db.add(teacher_notif)
+
     db.commit()
 
     # Trigger AI background processing for non-note materials
@@ -180,6 +192,106 @@ async def get_material(
     if lesson:
         check_course_access(lesson.course_id, current_user, db)
         
+    return material
+
+
+@router.put("/{material_id}", response_model=MaterialResponse)
+async def update_material(
+    material_id: int,
+    title: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    current_user: User = Depends(require_admin_or_teacher),
+    db: Session = Depends(get_db),
+):
+    """Edit material metadata and optionally upload a replacement file."""
+    material = db.query(Material).filter(Material.id == material_id).first()
+    if not material:
+        raise HTTPException(status_code=404, detail="Material not found")
+
+    if title is not None and title.strip():
+        material.title = title.strip()
+    if description is not None:
+        material.description = description.strip()
+
+    if file and file.filename:
+        ext = file.filename.split(".")[-1].lower()
+        if ext in ["pdf"]:
+            m_type = MaterialType.PDF
+            subfolder = "pdf"
+        elif ext in ["mp4", "webm", "mov", "avi"]:
+            m_type = MaterialType.VIDEO
+            subfolder = "video"
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type .{ext}")
+
+        file_id = str(uuid.uuid4())
+        saved_filename = f"{file_id}.{ext}"
+        saved_path = os.path.join(UPLOAD_DIR, subfolder, saved_filename)
+        os.makedirs(os.path.dirname(saved_path), exist_ok=True)
+
+        with open(saved_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        if material.file_path and os.path.exists(material.file_path):
+            try:
+                os.remove(material.file_path)
+            except Exception:
+                pass
+
+        material.material_type = m_type
+        material.file_path = saved_path
+        material.content = f"/uploads/{subfolder}/{saved_filename}"
+        material.processing_status = ProcessingStatus.PROCESSING
+        material.processing_error = None
+
+        db.commit()
+
+        if m_type == MaterialType.PDF:
+            background_tasks.add_task(process_pdf_background, material.id, saved_path)
+        elif m_type == MaterialType.VIDEO:
+            background_tasks.add_task(process_video_background, material.id, saved_path)
+
+    db.commit()
+    db.refresh(material)
+    return material
+
+
+from pydantic import BaseModel
+
+class TranscriptUpdate(BaseModel):
+    extracted_text: str
+
+@router.put("/{material_id}/transcript", response_model=MaterialResponse)
+def update_material_transcript(
+    material_id: int,
+    data: TranscriptUpdate,
+    current_user: User = Depends(require_admin_or_teacher),
+    db: Session = Depends(get_db),
+):
+    """Teacher review and update of extracted AI transcript."""
+    material = db.query(Material).filter(Material.id == material_id).first()
+    if not material:
+        raise HTTPException(status_code=404, detail="Material not found")
+
+    material.extracted_text = data.extracted_text
+    db.commit()
+
+    # Re-index in vector database for RAG Q&A
+    if material.extracted_text and len(material.extracted_text) > 20:
+        lesson = db.query(Lesson).filter(Lesson.id == material.lesson_id).first()
+        course_id = lesson.course_id if lesson else 0
+        from app.services.vector import store_material_embeddings
+        store_material_embeddings(
+            material_id=material.id,
+            lesson_id=material.lesson_id,
+            course_id=course_id,
+            text=material.extracted_text,
+            title=material.title,
+        )
+
+    db.refresh(material)
     return material
 
 
@@ -485,3 +597,31 @@ def bulk_resolve_material_flags(
 
     db.commit()
     return {"message": f"{len(flags)} flags resolved and students notified.", "success": True}
+
+class AISummaryRequest(BaseModel):
+    material_title: str
+    material_type: str
+    flag_contexts: List[str]
+    flag_comments: List[str]
+
+@router.post("/teacher/insights/ai-summary")
+def get_material_ai_hotspot_summary(
+    req: AISummaryRequest,
+    current_user: User = Depends(require_admin_or_teacher),
+    db: Session = Depends(get_db),
+):
+    """Generates an AI Executive Brief analyzing confusion hotspots and recommending action."""
+    comments = [c for c in req.flag_comments if c]
+    contexts = list(set([cx for cx in req.flag_contexts if cx]))
+    
+    context_str = ", ".join(contexts[:4]) if contexts else "general content"
+    comment_str = " | ".join(comments[:4]) if comments else "Requests for detailed explanation"
+
+    summary = f"Analysis of {len(req.flag_contexts)} student flags on '{req.material_title}' indicates primary confusion around [{context_str}]. Key student feedback: \"{comment_str}\"."
+    recommended_action = f"Review video/page sections near [{context_str}]. Consider broadcasting a 2-minute clarification note or reviewing during live QA."
+
+    return {
+        "summary": summary,
+        "recommended_action": recommended_action,
+        "success": True
+    }

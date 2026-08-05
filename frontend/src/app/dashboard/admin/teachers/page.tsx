@@ -6,6 +6,7 @@ import { useToast } from "@/components/ui/Toast";
 import { SvgIcon } from "@/components/SvgIcon";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { Modal } from "@/components/ui/Modal";
+import Link from "next/link";
 
 type SortKey = "full_name" | "is_active" | "activity" | "created_at";
 type SortDir = "asc" | "desc";
@@ -353,6 +354,14 @@ export default function ManageTeachersPage() {
                     </td>
                     <td>
                       <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <Link
+                          href={`/dashboard/admin/messages?teacher_id=${teacher.id}`}
+                          className="btn-secondary btn-sm"
+                          style={{ display: "flex", alignItems: "center", gap: "0.3rem", padding: "0.25rem 0.6rem", fontSize: "0.8rem" }}
+                          title="Message Teacher"
+                        >
+                          <SvgIcon name="mail" size={13} /> Message
+                        </Link>
                         <button
                           onClick={() => handleToggleClick(teacher)}
                           className={teacher.is_active ? "btn-secondary btn-sm" : "btn-primary btn-sm"}

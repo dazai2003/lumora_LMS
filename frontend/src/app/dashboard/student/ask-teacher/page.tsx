@@ -5,19 +5,19 @@ import SvgIcon from "@/components/SvgIcon";
 import api, { ConversationSummary, DirectMessageResponse } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/components/ui/Toast";
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 const getAvatarGradient = (name: string) => {
-  if (!name) return "linear-gradient(135deg, #e2e8f0, #cbd5e1)";
+  if (!name) return "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)";
   const hash = name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
   const gradients = [
-    "linear-gradient(135deg, #FF6B6B 0%, #FF8E53 100%)",
-    "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)",
-    "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)",
-    "linear-gradient(135deg, #fa709a 0%, #fee140 100%)",
-    "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-    "linear-gradient(135deg, #f6d365 0%, #fda085 100%)"
+    "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
+    "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)",
+    "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+    "linear-gradient(135deg, #ec4899 0%, #d946ef 100%)",
+    "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
+    "linear-gradient(135deg, #06b6d4 0%, #0891b2 100%)"
   ];
   return gradients[hash % gradients.length];
 };
@@ -52,7 +52,8 @@ export default function AskTeacherPage() {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [newMessage, setNewMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [hoveredConversation, setHoveredConversation] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [courseFilter, setCourseFilter] = useState<string>("all");
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -172,73 +173,137 @@ export default function AskTeacherPage() {
     }
   };
 
+  // Derived Values
+  const totalUnread = conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
+  const uniqueCourses = Array.from(new Set(conversations.map(c => c.course_title))).sort();
+
+  const filteredConversations = conversations.filter(c => {
+    const matchesSearch = c.other_user_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          c.course_title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          (c.last_message || "").toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCourse = courseFilter === "all" || c.course_title === courseFilter;
+    return matchesSearch && matchesCourse;
+  });
+
   if (loading) {
     return (
-      <div style={{ display: "flex", height: "50vh", alignItems: "center", justifyContent: "center" }}>
-        <SvgIcon name="refresh" className="spin" size={32} style={{ color: "var(--accent-primary)" }} />
+      <div className="page-loader" style={{ minHeight: "60vh" }}>
+        <div className="spinner" />
       </div>
     );
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 120px)", paddingBottom: "1rem" }}>
-      {/* Standard SaaS Page Header */}
-      <div className="page-header" style={{ marginBottom: "1.5rem" }}>
-        <h1>Ask Teacher</h1>
-        <p>Direct messaging with your instructors</p>
+    <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem", height: "calc(100vh - 110px)", paddingBottom: "0.5rem" }}>
+      {/* Header & Metrics */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
+        <div className="page-header" style={{ marginBottom: 0 }}>
+          <h1>Ask Teacher</h1>
+          <p>Direct academic communication with your course instructors</p>
+        </div>
+
+        {/* Quick Stat Badges */}
+        <div style={{ display: "flex", gap: "0.75rem" }}>
+          <div className="stat-card" style={{ padding: "0.6rem 1.25rem", display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            <div style={{ padding: "0.4rem", borderRadius: "8px", background: "rgba(99, 102, 241, 0.15)", color: "var(--accent-primary)" }}>
+              <SvgIcon name="users" size={18} />
+            </div>
+            <div>
+              <div className="stat-value" style={{ fontSize: "1.1rem" }}>{conversations.length}</div>
+              <div className="stat-label" style={{ fontSize: "0.7rem" }}>Instructors</div>
+            </div>
+          </div>
+
+          <div className="stat-card" style={{ padding: "0.6rem 1.25rem", display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            <div style={{ padding: "0.4rem", borderRadius: "8px", background: totalUnread > 0 ? "rgba(239, 68, 68, 0.15)" : "rgba(16, 185, 129, 0.15)", color: totalUnread > 0 ? "#ef4444" : "#10b981" }}>
+              <SvgIcon name="bell" size={18} />
+            </div>
+            <div>
+              <div className="stat-value" style={{ fontSize: "1.1rem", color: totalUnread > 0 ? "#ef4444" : "var(--text-primary)" }}>{totalUnread}</div>
+              <div className="stat-label" style={{ fontSize: "0.7rem" }}>Unread</div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Standard Card Container */}
+      {/* Main Glassmorphic Inbox Container */}
       <div className="card" style={{ 
         flex: 1, 
         display: "flex", 
         overflow: "hidden", 
         padding: 0,
-        backgroundColor: "var(--bg-primary)",
-        border: "1px solid var(--border-color)",
+        background: "var(--bg-card)",
+        border: "1px solid var(--border)",
+        boxShadow: "var(--shadow-md)"
       }}>
         
         {/* Left Sidebar: Conversations List */}
         <div style={{ 
           width: "320px", 
-          borderRight: "1px solid var(--border-color)",
+          borderRight: "1px solid var(--border)",
           display: "flex",
           flexDirection: "column",
-          backgroundColor: "#F8FAFC"
+          background: "var(--bg-body)",
+          flexShrink: 0
         }}>
-          {/* Header */}
+          {/* Search & Filter Header */}
           <div style={{ 
-            padding: "1.25rem", 
-            borderBottom: "1px solid var(--border-color)",
-            backgroundColor: "#F8FAFC"
+            padding: "1rem", 
+            borderBottom: "1px solid var(--border)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.5rem"
           }}>
-            <h2 style={{ fontSize: "1.1rem", fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>Your Instructors</h2>
+            <div style={{ position: "relative" }}>
+              <input 
+                type="text" 
+                className="input-field" 
+                placeholder="Search instructor or message..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{ paddingLeft: "2.2rem", fontSize: "0.85rem" }}
+              />
+              <div style={{ position: "absolute", left: "0.75rem", top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }}>
+                <SvgIcon name="search" size={14} />
+              </div>
+            </div>
+
+            {uniqueCourses.length > 0 && (
+              <select 
+                className="input-field" 
+                value={courseFilter}
+                onChange={(e) => setCourseFilter(e.target.value)}
+                style={{ fontSize: "0.8rem", padding: "0.4rem 0.6rem" }}
+              >
+                <option value="all">All Courses</option>
+                {uniqueCourses.map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            )}
           </div>
           
+          {/* Conversation List Items */}
           <div style={{ flex: 1, overflowY: "auto" }}>
-            {conversations.length === 0 ? (
+            {filteredConversations.length === 0 ? (
               <div style={{ padding: "3rem 1.5rem", textAlign: "center", color: "var(--text-muted)" }}>
-                <SvgIcon name="users" size={32} style={{ opacity: 0.3, marginBottom: "1rem" }} />
-                <p style={{ fontSize: "0.95rem" }}>Enroll in a course to start messaging your instructors.</p>
+                <SvgIcon name="users" size={32} style={{ opacity: 0.3, marginBottom: "0.75rem" }} />
+                <p style={{ fontSize: "0.85rem", margin: 0 }}>No instructor conversations found.</p>
               </div>
             ) : (
-              conversations.map(conv => {
+              filteredConversations.map(conv => {
                 const key = `${conv.course_id}-${conv.other_user_id}`;
                 const isActive = activeConversation?.course_id === conv.course_id && activeConversation?.other_user_id === conv.other_user_id;
-                const isHovered = hoveredConversation === key;
                 
                 return (
                   <div 
                     key={key}
                     onClick={() => setActiveConversation(conv)}
-                    onMouseEnter={() => setHoveredConversation(key)}
-                    onMouseLeave={() => setHoveredConversation(null)}
                     style={{
-                      padding: "1rem 1.25rem",
+                      padding: "0.9rem 1rem",
                       cursor: "pointer",
-                      borderBottom: "1px solid var(--border-color)",
-                      backgroundColor: isActive ? "white" : (isHovered ? "white" : "transparent"),
-                      boxShadow: (isActive || isHovered) ? "0 2px 4px rgba(0,0,0,0.02)" : "none",
+                      borderBottom: "1px solid var(--border-subtle, var(--border))",
+                      background: isActive ? "rgba(99, 102, 241, 0.12)" : "transparent",
                       borderLeft: isActive ? "4px solid var(--accent-primary)" : "4px solid transparent",
                       transition: "all 0.15s ease",
                       display: "flex",
@@ -256,27 +321,28 @@ export default function AskTeacherPage() {
                       alignItems: "center", 
                       justifyContent: "center",
                       fontWeight: 700,
-                      fontSize: "1.1rem",
-                      flexShrink: 0
+                      fontSize: "1.05rem",
+                      flexShrink: 0,
+                      boxShadow: "0 2px 5px rgba(0,0,0,0.15)"
                     }}>
                       {conv.other_user_name.charAt(0)}
                     </div>
                     
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.2rem" }}>
-                        <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.95rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.9rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                           {conv.other_user_name}
                         </div>
-                        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", flexShrink: 0, marginLeft: "0.5rem" }}>
+                        <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", flexShrink: 0, marginLeft: "0.5rem" }}>
                           {formatTime(conv.last_message_at)}
                         </div>
                       </div>
                       
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <div style={{ 
-                          fontSize: "0.85rem", 
-                          color: conv.unread_count > 0 ? "var(--text-primary)" : "var(--text-secondary)", 
-                          fontWeight: conv.unread_count > 0 ? 700 : 400,
+                          fontSize: "0.8rem", 
+                          color: conv.unread_count > 0 ? "var(--text-primary)" : "var(--text-muted)", 
+                          fontWeight: conv.unread_count > 0 ? 600 : 400,
                           whiteSpace: "nowrap", 
                           overflow: "hidden", 
                           textOverflow: "ellipsis",
@@ -286,20 +352,20 @@ export default function AskTeacherPage() {
                         </div>
                         {conv.unread_count > 0 && (
                           <div style={{ 
-                            backgroundColor: "var(--accent-primary)", 
+                            background: "#ef4444", 
                             color: "white", 
                             fontSize: "0.7rem", 
                             fontWeight: 700,
                             padding: "2px 6px",
                             borderRadius: "10px",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
                             marginLeft: "0.5rem"
                           }}>
                             {conv.unread_count}
                           </div>
                         )}
+                      </div>
+                      <div style={{ fontSize: "0.7rem", color: "var(--accent-primary)", marginTop: "0.15rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {conv.course_title}
                       </div>
                     </div>
                   </div>
@@ -309,23 +375,23 @@ export default function AskTeacherPage() {
           </div>
         </div>
 
-        {/* Right Pane: Active Chat */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", backgroundColor: "var(--bg-primary)" }}>
+        {/* Right Pane: Active Thread */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "var(--bg-card)" }}>
           {activeConversation ? (
             <>
-              {/* Solid Chat Header */}
+              {/* Glassmorphic Active Header */}
               <div style={{ 
-                padding: "1rem 1.5rem", 
-                borderBottom: "1px solid var(--border-color)",
+                padding: "0.9rem 1.25rem", 
+                borderBottom: "1px solid var(--border)",
                 display: "flex",
                 alignItems: "center",
-                gap: "1rem",
-                backgroundColor: "var(--bg-primary)"
+                justifyContent: "space-between",
+                background: "var(--bg-body)"
               }}>
-                <div style={{ position: "relative" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
                   <div style={{ 
-                    width: "40px", 
-                    height: "40px", 
+                    width: "42px", 
+                    height: "42px", 
                     borderRadius: "50%", 
                     background: getAvatarGradient(activeConversation.other_user_name),
                     color: "white",
@@ -337,51 +403,50 @@ export default function AskTeacherPage() {
                   }}>
                     {activeConversation.other_user_name.charAt(0)}
                   </div>
-                  <div style={{
-                    position: "absolute",
-                    bottom: 0,
-                    right: 0,
-                    width: "12px",
-                    height: "12px",
-                    backgroundColor: "#10b981", // Green online indicator
-                    border: "2px solid white",
-                    borderRadius: "50%"
-                  }} />
-                </div>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 600, color: "var(--text-primary)" }}>
-                    {activeConversation.other_user_name}
-                  </h3>
-                  <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>
-                    Instructor for {activeConversation.course_title}
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 600, color: "var(--text-primary)" }}>
+                      {activeConversation.other_user_name}
+                    </h3>
+                    <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                      <span className="badge badge-info" style={{ fontSize: "0.65rem", padding: "0.15rem 0.4rem" }}>Course Instructor</span>
+                      <span>•</span>
+                      <span>{activeConversation.course_title}</span>
+                    </div>
                   </div>
+                </div>
+
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <span className="badge badge-success" style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10b981" }} />
+                    Active
+                  </span>
                 </div>
               </div>
 
-              {/* Chat Messages Area */}
+              {/* Chat Messages Feed */}
               <div style={{ 
                 flex: 1, 
                 overflowY: "auto", 
-                padding: "1.5rem", 
+                padding: "1.25rem", 
                 display: "flex", 
                 flexDirection: "column", 
                 gap: "0.75rem",
-                backgroundColor: "#F8FAFC"
+                background: "var(--bg-card)"
               }}>
-                <div style={{ textAlign: "center", margin: "1rem 0 2rem 0", color: "var(--text-muted)", fontSize: "0.8rem", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <div style={{ flex: 1, height: "1px", backgroundColor: "var(--border-color)", opacity: 0.5, margin: "0 1rem" }} />
-                  <span>Start of conversation with {activeConversation.other_user_name}</span>
-                  <div style={{ flex: 1, height: "1px", backgroundColor: "var(--border-color)", opacity: 0.5, margin: "0 1rem" }} />
+                <div style={{ textAlign: "center", margin: "0.5rem 0 1rem 0", color: "var(--text-muted)", fontSize: "0.75rem", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <div style={{ flex: 1, height: "1px", background: "var(--border)", opacity: 0.5, margin: "0 1rem" }} />
+                  <span>Beginning of discussion for <strong>{activeConversation.course_title}</strong></span>
+                  <div style={{ flex: 1, height: "1px", background: "var(--border)", opacity: 0.5, margin: "0 1rem" }} />
                 </div>
                 
                 {loadingMessages ? (
                   <div style={{ display: "flex", justifyContent: "center", padding: "4rem" }}>
-                    <SvgIcon name="refresh" className="spin" size={24} style={{ color: "var(--accent-primary)" }} />
+                    <div className="spinner" />
                   </div>
                 ) : messages.length === 0 ? (
-                  <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", opacity: 0.8 }}>
+                  <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
                     <SvgIcon name="message-circle" size={48} style={{ opacity: 0.3, marginBottom: "1rem" }} />
-                    <p style={{ margin: 0, fontSize: "0.95rem" }}>Start the conversation with {activeConversation.other_user_name}</p>
+                    <p style={{ margin: 0, fontSize: "0.95rem" }}>Send your first message to {activeConversation.other_user_name}</p>
                   </div>
                 ) : (
                   messages.map((msg, index) => {
@@ -396,29 +461,32 @@ export default function AskTeacherPage() {
                         display: "flex",
                         flexDirection: "column",
                         alignItems: isMe ? "flex-end" : "flex-start",
-                        marginTop: isFirstInGroup ? "0.5rem" : "0" // Spacing between groups
+                        marginTop: isFirstInGroup ? "0.5rem" : "0.15rem"
                       }}>
                         {isFirstInGroup && !isMe && (
-                          <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.25rem", marginLeft: "0.25rem" }}>
-                            {msg.sender_name}
+                          <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--accent-primary)", marginBottom: "0.25rem", marginLeft: "0.25rem" }}>
+                            {msg.sender_name} (Instructor)
                           </div>
                         )}
                         <div style={{
-                          backgroundColor: isMe ? "var(--accent-primary)" : "#E2E8F0",
-                          color: isMe ? "white" : "var(--text-primary)",
-                          padding: "0.75rem 1rem",
+                          background: isMe 
+                            ? "linear-gradient(135deg, var(--accent-primary, #6366f1), #8b5cf6)" 
+                            : "var(--bg-body)",
+                          color: isMe ? "#ffffff" : "var(--text-primary)",
+                          padding: "0.75rem 1.1rem",
                           borderRadius: isMe ? "16px 16px 4px 16px" : "4px 16px 16px 16px",
-                          fontSize: "0.95rem",
-                          lineHeight: 1.5,
-                          border: "none",
-                          boxShadow: "0 1px 2px rgba(0,0,0,0.05)"
+                          fontSize: "0.92rem",
+                          lineHeight: 1.6,
+                          border: isMe ? "none" : "1px solid var(--border)",
+                          boxShadow: isMe ? "0 2px 8px rgba(99, 102, 241, 0.25)" : "0 1px 3px rgba(0,0,0,0.05)"
                         }}>
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                         </div>
                         <div style={{ 
                           fontSize: "0.7rem", 
                           color: "var(--text-muted)", 
-                          marginTop: "0.25rem"
+                          marginTop: "0.25rem",
+                          padding: "0 0.2rem"
                         }}>
                           {formatTime(msg.created_at)}
                         </div>
@@ -429,37 +497,25 @@ export default function AskTeacherPage() {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Standard Compose Bar */}
+              {/* Compose Bar */}
               <div style={{ 
-                padding: "1rem 1.5rem", 
-                borderTop: "1px solid var(--border-color)",
-                backgroundColor: "var(--bg-primary)",
-                display: "flex",
-                alignItems: "flex-end",
-                gap: "1rem"
+                padding: "0.9rem 1.25rem", 
+                borderTop: "1px solid var(--border)",
+                background: "var(--bg-body)"
               }}>
                 <div style={{
-                  flex: 1,
                   display: "flex",
                   alignItems: "flex-end",
-                  backgroundColor: "var(--bg-secondary)",
-                  border: "1px solid var(--border-color)",
+                  background: "var(--bg-card)",
+                  border: "1px solid var(--border)",
                   borderRadius: "12px",
-                  padding: "0.5rem",
-                  gap: "0.5rem"
+                  padding: "0.5rem 0.75rem",
+                  gap: "0.75rem",
+                  boxShadow: "0 2px 6px rgba(0,0,0,0.04)"
                 }}>
-                  <div style={{ display: "flex", gap: "0.5rem", padding: "0.5rem 0.25rem", color: "var(--text-muted)", cursor: "pointer" }}>
-                    <button style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", padding: "0 0.25rem" }} title="Attach file">
-                      <SvgIcon name="file-text" size={18} />
-                    </button>
-                    <button style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", padding: "0 0.25rem" }} title="Upload image">
-                      <SvgIcon name="image" size={18} />
-                    </button>
-                  </div>
-                  
                   <textarea
                     ref={textareaRef}
-                    placeholder="Type your message..."
+                    placeholder={`Write a message to ${activeConversation.other_user_name}... (Shift+Enter for new line)`}
                     value={newMessage}
                     onChange={(e) => {
                       setNewMessage(e.target.value);
@@ -470,41 +526,40 @@ export default function AskTeacherPage() {
                     style={{
                       flex: 1,
                       resize: "none",
-                      padding: "0.5rem",
+                      padding: "0.4rem 0",
                       border: "none",
-                      backgroundColor: "transparent",
+                      background: "transparent",
                       color: "var(--text-primary)",
                       fontFamily: "inherit",
-                      fontSize: "0.95rem",
-                      minHeight: "44px",
+                      fontSize: "0.92rem",
+                      minHeight: "38px",
                       maxHeight: "150px",
                       outline: "none"
                     }}
                     rows={1}
                   />
                   
-                  {/* Send Button */}
                   <button
                     onClick={handleSendMessage}
                     disabled={!newMessage.trim() || submitting}
                     className="btn-primary"
                     style={{
-                      width: "40px",
-                      height: "40px",
-                      padding: 0,
+                      padding: "0.5rem 1rem",
                       display: "flex",
                       alignItems: "center",
-                      justifyContent: "center",
-                      flexShrink: 0,
+                      gap: "0.4rem",
                       borderRadius: "8px",
-                      alignSelf: "flex-end",
-                      marginBottom: "0.15rem"
+                      fontSize: "0.85rem",
+                      flexShrink: 0
                     }}
                   >
                     {submitting ? (
                       <SvgIcon name="refresh" className="spin" size={16} />
                     ) : (
-                      <SvgIcon name="send" size={16} />
+                      <>
+                        <span>Send</span>
+                        <SvgIcon name="send" size={14} />
+                      </>
                     )}
                   </button>
                 </div>
@@ -513,7 +568,7 @@ export default function AskTeacherPage() {
           ) : (
             <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", flexDirection: "column" }}>
               <SvgIcon name="message-circle" size={48} style={{ opacity: 0.3, marginBottom: "1rem" }} />
-              <p style={{ fontSize: "1.05rem" }}>Select a conversation to start messaging</p>
+              <p style={{ fontSize: "1.05rem" }}>Select an instructor to start messaging</p>
             </div>
           )}
         </div>

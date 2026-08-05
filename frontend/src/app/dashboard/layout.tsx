@@ -28,6 +28,12 @@ const navConfig: Record<string, { label: string; items: { href: string; label: s
         { href: "/dashboard/admin/password-resets", label: "Password Resets", icon: "lock" },
       ],
     },
+    {
+      label: "Communication",
+      items: [
+        { href: "/dashboard/admin/messages", label: "Teacher Messages", icon: "mail" },
+      ],
+    },
   ],
   teacher: [
     {
@@ -41,6 +47,7 @@ const navConfig: Record<string, { label: string; items: { href: string; label: s
       items: [
         { href: "/dashboard/teacher/courses", label: "My Courses", icon: "book" },
         { href: "/dashboard/teacher/quizzes", label: "Quizzes", icon: "clipboard" },
+        { href: "/dashboard/teacher/assignments", label: "Coursework", icon: "folder" },
         { href: "/dashboard/teacher/question-bank", label: "Question Bank", icon: "file-text" },
       ],
     },
@@ -48,10 +55,10 @@ const navConfig: Record<string, { label: string; items: { href: string; label: s
       label: "Insights",
       items: [
         { href: "/dashboard/teacher/analytics", label: "Analytics", icon: "chart" },
-        { href: "/dashboard/teacher/insights", label: "Material Flags", icon: "flag" },
-        { href: "/dashboard/teacher/inbox", label: "Student Inbox", icon: "mail" },
+        { href: "/dashboard/teacher/insights", label: "Material Stats", icon: "flag" },
         { href: "/dashboard/teacher/qa", label: "Q&A Moderation", icon: "scale" },
         { href: "/dashboard/teacher/grading", label: "Grading Queue", icon: "check-circle" },
+        { href: "/dashboard/teacher/inbox", label: "Messages & Support", icon: "mail" },
       ],
     },
   ],
@@ -67,7 +74,8 @@ const navConfig: Record<string, { label: string; items: { href: string; label: s
       items: [
         { href: "/dashboard/student/courses", label: "My Courses", icon: "book" },
         { href: "/dashboard/student/browse", label: "Browse Courses", icon: "search" },
-        { href: "/dashboard/student/quizzes", label: "Assessments", icon: "clipboard" },
+        { href: "/dashboard/student/assignments", label: "Coursework", icon: "folder" },
+        { href: "/dashboard/student/quizzes", label: "Quizzes", icon: "clipboard" },
       ],
     },
     {
@@ -94,6 +102,7 @@ const labelMap: Record<string, string> = {
   student: "Student",
   courses: "Courses",
   quizzes: "Quizzes",
+  assignments: "Coursework Assignments",
   analytics: "Analytics",
   insights: "Material Flags",
   qa: "Q&A Moderation",

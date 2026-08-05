@@ -2,7 +2,7 @@
 Pydantic schemas for request/response validation.
 """
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 from app.models import UserRole, MaterialType, QuestionType, QuizStatus, PasswordResetStatus
 
@@ -341,16 +341,24 @@ class QuestionVersionCreate(BaseModel):
 class QuestionVersionResponse(BaseModel):
     id: int
     question_id: int
+    version_number: Optional[int] = 1
     question_text: str
     question_type: QuestionType
-    options: Optional[List[str]] = None
-    correct_answer: Optional[str] = None  # Hidden from students during quiz
+    options: Optional[Any] = None
+    correct_answer: Optional[str] = None  # Hidden from students during quiz taking
     explanation: Optional[str] = None
-    default_points: float
+    default_points: float = 1.0
     difficulty: Optional[Difficulty] = None
     cognitive_level: Optional[CognitiveLevel] = None
+    tags: Optional[List[str]] = None
+    learning_outcome: Optional[str] = None
+    estimated_completion_time_seconds: Optional[int] = 60
+    correct_explanation: Optional[str] = None
+    incorrect_explanation: Optional[str] = None
+    suggested_reading: Optional[str] = None
     ai_validation_status: Optional[AIValidationStatus] = None
-    teacher_approval_status: TeacherApprovalStatus
+    teacher_approval_status: Optional[TeacherApprovalStatus] = None
+    source_type: Optional[str] = None
     created_at: datetime
     lesson_id: Optional[int] = None
     lesson_title: Optional[str] = None
@@ -372,11 +380,25 @@ class QuestionStudentView(BaseModel):
         from_attributes = True
 
 class QuestionAnalyticsResponse(BaseModel):
-    total_attempts: int
-    correct_attempts: int
-    success_rate: float
-    observed_difficulty: str
-    distractor_distribution: dict
+    total_attempts: int = 0
+    correct_attempts: int = 0
+    success_rate: float = 0.0
+    observed_difficulty: str = "unknown"
+    distractor_distribution: dict = {}
+    
+    # Extended Phase 2 metrics
+    question_id: Optional[int] = None
+    attempts_count: Optional[int] = 0
+    correct_count: Optional[int] = 0
+    avg_response_time_seconds: Optional[float] = 0.0
+    difficulty_index: Optional[float] = 0.0
+    discrimination_index: Optional[float] = 0.0
+    skip_count: Optional[int] = 0
+    flag_count: Optional[int] = 0
+    teacher_override_count: Optional[int] = 0
+
+    class Config:
+        from_attributes = True
     
 class QuestionImproveRequest(BaseModel):
     instructions: List[str] = Field(..., min_length=1)
@@ -622,6 +644,7 @@ class StudentProgress(BaseModel):
 class QuestionAsk(BaseModel):
     course_id: int
     question: str = Field(..., min_length=5, max_length=2000)
+    session_id: Optional[int] = None
 
 
 class StudentQuestionItem(BaseModel):
@@ -631,6 +654,7 @@ class StudentQuestionItem(BaseModel):
     asked_at: datetime
     student_name: Optional[str] = None
     course_title: Optional[str] = None
+    session_id: Optional[int] = None
 
 
 class AIResponseDetail(BaseModel):
@@ -639,10 +663,101 @@ class AIResponseDetail(BaseModel):
     response_text: Optional[str] = None
     context_sources: Optional[list] = []
     confidence_score: Optional[float] = None
+    reasoning_quality: Optional[str] = "High"
+    retrieved_context_score: Optional[float] = None
+    generation_time_ms: Optional[int] = None
+    sources_json: Optional[list] = []
+    is_escalated: bool = False
     is_flagged: bool = False
     teacher_correction: Optional[str] = None
     asked_at: str
     student_name: Optional[str] = None
+    session_id: Optional[int] = None
+
+
+class AITutorSessionCreate(BaseModel):
+    course_id: Optional[int] = None
+    title: Optional[str] = None
+
+
+class AITutorSessionResponse(BaseModel):
+    id: int
+    course_id: Optional[int] = None
+    course_title: Optional[str] = None
+    title: str
+    created_at: str
+    updated_at: str
+    is_active: bool = True
+    question_count: int = 0
+
+
+class StudentRecommendationResponse(BaseModel):
+    id: int
+    course_id: Optional[int] = None
+    recommendation_type: str
+    target_id: Optional[int] = None
+    title: str
+    reason: str
+    priority_score: float = 1.0
+    is_completed: bool = False
+
+
+class StudentLearningProfileResponse(BaseModel):
+    strong_topics: list = []
+    weak_topics: list = []
+    streak_days: int = 0
+    avg_study_duration_minutes: float = 0.0
+    preferred_material_type: str = "mixed"
+    quiz_score_trend: list = []
+    improvement_rate: float = 0.0
+
+
+class MaterialAIInsightResponse(BaseModel):
+    id: int
+    material_id: int
+    summary_text: str
+    key_concepts: list = []
+    definitions: list = []
+    learning_objectives: list = []
+    revision_points: list = []
+    misunderstood_concepts: list = []
+    is_published: bool = True
+    teacher_edited: bool = False
+
+
+class MaterialAIInsightUpdate(BaseModel):
+    summary_text: Optional[str] = None
+    key_concepts: Optional[list] = None
+    definitions: Optional[list] = None
+    learning_objectives: Optional[list] = None
+    revision_points: Optional[list] = None
+    misunderstood_concepts: Optional[list] = None
+    is_published: Optional[bool] = None
+
+
+class SystemAIConfigResponse(BaseModel):
+    id: int
+    llm_provider: str = "openai"
+    llm_model: str = "gpt-4o"
+    temperature: float = 0.3
+    max_tokens: int = 1500
+    confidence_threshold: float = 0.70
+    embedding_model: str = "text-embedding-3-small"
+    chunk_size: int = 500
+    retrieval_top_k: int = 5
+    enabled_modules: dict = {}
+
+
+class SystemAIConfigUpdate(BaseModel):
+    llm_provider: Optional[str] = None
+    llm_model: Optional[str] = None
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    confidence_threshold: Optional[float] = None
+    embedding_model: Optional[str] = None
+    chunk_size: Optional[int] = None
+    retrieval_top_k: Optional[int] = None
+    enabled_modules: Optional[dict] = None
 
 
 class TeacherQuestionCreate(BaseModel):
@@ -676,7 +791,7 @@ class TeacherQuestionResponse(BaseModel):
 # ──────────────────────────────────────────────
 
 class DirectMessageCreate(BaseModel):
-    course_id: int
+    course_id: Optional[int] = 0
     receiver_id: int
     content: str = Field(..., min_length=1, max_length=5000)
     tag: Optional[str] = None
@@ -685,7 +800,7 @@ class DirectMessageResponse(BaseModel):
     id: int
     sender_id: int
     receiver_id: int
-    course_id: int
+    course_id: Optional[int] = 0
     content: str
     tag: Optional[str] = None
     is_read: bool
@@ -762,10 +877,16 @@ class ConversationSummary(BaseModel):
 class AIQuizGenerate(BaseModel):
     lesson_id: int
     title: str = Field(default="AI Generated Quiz", max_length=255)
-    num_questions: int = Field(default=5, ge=1, le=20)
+    num_questions: int = Field(default=5, ge=1, le=30)
     question_types: Optional[List[str]] = ["mcq", "true_false", "short_answer"]
+    mcq_count: Optional[int] = Field(default=None, ge=0, le=20)
+    tf_count: Optional[int] = Field(default=None, ge=0, le=20)
+    sa_count: Optional[int] = Field(default=None, ge=0, le=20)
     difficulty: str = Field(default="medium", pattern="^(easy|medium|hard)$")
     material_ids: Optional[List[int]] = None
+    time_limit_minutes: Optional[int] = Field(default=None, ge=0)
+    available_until: Optional[datetime] = None
+    default_points: Optional[float] = Field(default=10.0, ge=0.1)
 
 
 # ──────────────────────────────────────────────
@@ -811,3 +932,161 @@ class NotificationResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ──────────────────────────────────────────────
+# Phase 1 Architecture Foundation Schemas
+# ──────────────────────────────────────────────
+
+
+class QuizQuestionResponse(BaseModel):
+    id: int
+    quiz_id: int
+    question_id: int
+    question_version_id: Optional[int] = None
+    order_index: int
+    points_override: Optional[float] = None
+
+    class Config:
+        from_attributes = True
+
+
+class IntegrityEventCreate(BaseModel):
+    event_type: str
+    timestamp: Optional[datetime] = None
+    metadata_json: Optional[Dict[str, Any]] = None
+    severity: Optional[str] = "low"
+
+
+class IntegrityEventResponse(BaseModel):
+    id: int
+    attempt_id: int
+    event_type: str
+    timestamp: datetime
+    metadata_json: Optional[Dict[str, Any]] = None
+    severity: str
+
+    class Config:
+        from_attributes = True
+
+
+class ProcessingJobResponse(BaseModel):
+    id: int
+    job_type: str
+    status: str
+    progress: float
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    error_message: Optional[str] = None
+    related_entity_type: Optional[str] = None
+    related_entity_id: Optional[int] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AuditLogResponse(BaseModel):
+    id: int
+    actor_id: Optional[int] = None
+    actor_email: Optional[str] = None
+    action: str
+    entity_type: str
+    entity_id: Optional[int] = None
+    timestamp: datetime
+    previous_values: Optional[Dict[str, Any]] = None
+    new_values: Optional[Dict[str, Any]] = None
+    ip_address: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ──────────────────────────────────────────────
+# Phase 2 Advanced Learning Experience Schemas
+# ──────────────────────────────────────────────
+
+class QuestionPoolCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = None
+    course_id: int
+    question_ids: Optional[List[int]] = None
+
+
+class QuestionPoolResponse(BaseModel):
+    id: int
+    title: str
+    description: Optional[str] = None
+    course_id: int
+    created_by_id: int
+    created_at: datetime
+    item_count: Optional[int] = 0
+
+    class Config:
+        from_attributes = True
+
+
+class QuizPoolRuleCreate(BaseModel):
+    pool_id: int
+    count: int = 5
+    difficulty_filter: Optional[str] = None
+    blooms_filter: Optional[str] = None
+    question_type_filter: Optional[str] = None
+
+
+class QuizPoolRuleResponse(BaseModel):
+    id: int
+    quiz_id: int
+    pool_id: int
+    count: int
+    difficulty_filter: Optional[str] = None
+    blooms_filter: Optional[str] = None
+    question_type_filter: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+
+
+
+class RubricCriterion(BaseModel):
+    name: str
+    max_points: float
+    description: Optional[str] = None
+
+
+class GradingRubricCreate(BaseModel):
+    title: str
+    question_id: Optional[int] = None
+    course_id: Optional[int] = None
+    max_marks: float = 10.0
+    criteria: List[RubricCriterion]
+
+
+class GradingRubricResponse(BaseModel):
+    id: int
+    title: str
+    question_id: Optional[int] = None
+    course_id: Optional[int] = None
+    max_marks: float
+    criteria_json: Any
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RubricScoreSubmit(BaseModel):
+    rubric_id: int
+    criteria_scores: List[Dict[str, Any]]
+    teacher_final_score: float
+    override_reason: Optional[str] = None
+
+
+class BulkModerationRequest(BaseModel):
+    question_ids: List[int]
+    action: str = Field(..., pattern="^(approve|reject|archive)$")
+    teacher_note: Optional[str] = None
+
+

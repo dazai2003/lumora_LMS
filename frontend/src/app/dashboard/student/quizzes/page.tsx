@@ -54,33 +54,26 @@ export default function StudentQuizzesPage() {
   return (
     <div>
       <div className="page-header">
-        <h1>Assessments</h1>
+        <h1>Quizzes</h1>
         <p>Test your knowledge and track your performance</p>
       </div>
 
       <div style={{ maxWidth: "1400px", margin: "0 auto" }}>
-        <div style={{ display: "flex", gap: "1rem", borderBottom: "1px solid var(--border-subtle)", marginBottom: "2rem" }}>
-        {(["available", "completed", "review"] as const).map(tab => (
-          <button 
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            style={{
-              background: "none",
-              border: "none",
-              padding: "0.75rem 1.25rem",
-              fontSize: "0.95rem",
-              fontWeight: 500,
-              color: activeTab === tab ? "var(--accent-primary)" : "var(--text-secondary)",
-              borderBottom: activeTab === tab ? "2px solid var(--accent-primary)" : "2px solid transparent",
-              cursor: "pointer",
-              transition: "all 0.2s ease",
-              marginBottom: "-1px"
-            }}
-          >
-            {tab === "available" ? `Available (${available.length})` : tab === "completed" ? `Completed (${completed.length})` : `Needs Review (${needsReview.length})`}
-          </button>
-        ))}
-      </div>
+        <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1.5rem", borderBottom: "1px solid var(--border-subtle)", paddingBottom: "0.5rem" }}>
+          {([
+            { key: "available" as const, label: `Available (${available.length})` },
+            { key: "completed" as const, label: `Completed (${completed.length})` },
+            { key: "review" as const, label: `Needs Review (${needsReview.length})` },
+          ]).map((t) => (
+            <button
+              key={t.key}
+              className={`btn-sm ${activeTab === t.key ? "btn-primary" : "btn-secondary"}`}
+              onClick={() => setActiveTab(t.key)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
 
       {displayList.length > 0 ? (
         <div className="animate-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "1.25rem" }}>
@@ -114,9 +107,15 @@ export default function StudentQuizzesPage() {
                 </p>
 
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--border-subtle)", paddingTop: "1rem" }}>
-                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "0.375rem" }}>
-                    <SvgIcon name="file-text" size={14} /> {q.question_count} Questions
-                    {q.time_limit_minutes && <><span style={{ margin: "0 0.25rem" }}>&middot;</span><SvgIcon name="clock" size={14} /> {q.time_limit_minutes}m</>}
+                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "0.375rem", flexWrap: "wrap" }}>
+                    <span><SvgIcon name="file-text" size={14} /> {q.question_count} Questions</span>
+                    {q.time_limit_minutes && <span>&middot; <SvgIcon name="clock" size={14} /> {q.time_limit_minutes}m limit</span>}
+                    {q.available_until && (
+                      <span className="badge badge-warning" style={{ fontSize: "0.7rem", padding: "0.15rem 0.4rem" }}>
+                        <SvgIcon name="calendar" size={12} style={{ marginRight: "3px" }} />
+                        Closes: {new Date(q.available_until).toLocaleDateString()} {new Date(q.available_until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
                   </div>
                   <Link href={`/dashboard/student/quizzes/${q.id}`} className={activeTab === "available" ? "btn-primary" : "btn-secondary"} style={{ padding: "0.4rem 0.875rem", fontSize: "0.8rem", textDecoration: "none" }}>
                     {activeTab === "available" ? "Start Quiz" : "Review Results"}

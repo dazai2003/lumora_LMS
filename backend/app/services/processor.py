@@ -84,6 +84,21 @@ def process_material(material_id: int, db_session_factory) -> None:
             )
             logger.info(f"Material {material_id}: stored {chunks_stored} vector chunks")
 
+            # Notify teacher if video transcript is ready
+            if material.material_type == MaterialType.VIDEO and lesson:
+                from app.models import Course, Notification, NotificationType
+                course = db.query(Course).filter(Course.id == lesson.course_id).first()
+                if course and course.teacher_id:
+                    comp_notif = Notification(
+                        user_id=course.teacher_id,
+                        title=f"AI Transcript Ready: '{material.title}'",
+                        message=f"AI speech-to-text transcript for video '{material.title}' is ready. Click to review and edit.",
+                        type=NotificationType.SYSTEM,
+                        related_entity_id=material.id,
+                    )
+                    db.add(comp_notif)
+                    db.commit()
+
         # ── Log the AI operation ──
         elapsed_ms = int((time.time() - start_time) * 1000)
         ai_log = AILog(

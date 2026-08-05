@@ -76,8 +76,8 @@ export default function NotificationBell() {
           router.push("/dashboard/student/assessments");
         }
       } else {
-        // Teacher course notifications (e.g. manual grading needed)
-        router.push("/dashboard/teacher/questions");
+        // Teacher course notifications (e.g. manual quiz grading needed)
+        router.push("/dashboard/teacher/grading");
       }
     } else if (n.type === "reminder") {
       if (role === "student") {
@@ -85,12 +85,10 @@ export default function NotificationBell() {
       }
     } else if (n.type === "system") {
       if (role === "teacher") {
-        // Assume system flags (material flag, QA flag) route to Questions or Insights
-        // Ideally we'd use related_entity_id, but /questions is the hub for flags
         if (n.title.toLowerCase().includes("material")) {
-          router.push("/dashboard/teacher/materials/insights");
+          router.push("/dashboard/teacher/insights");
         } else {
-          router.push("/dashboard/teacher/questions");
+          router.push("/dashboard/teacher/qa");
         }
       }
     }

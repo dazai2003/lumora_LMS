@@ -142,6 +142,9 @@ def run_quiz_generation(ai_log_id: int, course_id: int, lesson_id: int, data: AI
                 lesson_id=lesson_id,
                 num_questions=data.num_questions,
                 question_types=data.question_types,
+                mcq_count=data.mcq_count,
+                tf_count=data.tf_count,
+                sa_count=data.sa_count,
                 difficulty=data.difficulty,
                 material_ids=data.material_ids,
             )
@@ -164,9 +167,13 @@ def run_quiz_generation(ai_log_id: int, course_id: int, lesson_id: int, data: AI
             course_id=course_id,
             is_ai_generated=True,
             status=QuizStatus.DRAFT,
+            time_limit_minutes=data.time_limit_minutes,
+            available_until=data.available_until,
         )
         db.add(quiz)
         db.flush()
+        
+        default_pts = data.default_points or 10.0
         
         # Add generated questions
         for i, q_data in enumerate(generated):
@@ -637,6 +644,7 @@ def start_quiz(
             active_attempt.status = QuizAttemptStatus.AUTO_CLOSED
             active_attempt.completed_at = active_attempt.deadline_at
             db.commit()
+            # Active attempt expired; proceed to check if student can start a new attempt below
         else:
             return QuizAttemptResponse(
                 id=active_attempt.id,
@@ -796,10 +804,13 @@ def submit_quiz(
         for answer in answers_out:
             if answer.question_version_id in result_map:
                 res = result_map[answer.question_version_id]
-                answer.is_correct = res.get("is_correct")
-                answer.points_earned = res.get("points_earned", 0.0)
+                qq = q_map.get(answer.question_version_id)
+                eff_pts = (qq.points_override if qq and qq.points_override is not None else qq.question_version.default_points) if qq else 1.0
+                raw_pts = res.get("points_earned", 0.0)
+                answer.points_earned = max(0.0, min(eff_pts, float(raw_pts)))
+                answer.is_correct = res.get("is_correct") if answer.points_earned > 0 else False
 
-    earned_points = sum(ans.points_earned for ans in answers_out)
+    earned_points = max(0.0, min(total_points, sum(ans.points_earned for ans in answers_out)))
     
     # Format response
     response_answers = []
@@ -818,7 +829,7 @@ def submit_quiz(
 
     attempt.score = earned_points
     attempt.total_points = total_points
-    attempt.percentage = (earned_points / total_points * 100) if total_points > 0 else 0
+    attempt.percentage = max(0.0, min(100.0, (earned_points / total_points * 100))) if total_points > 0 else 0.0
     attempt.status = QuizAttemptStatus.SUBMITTED
     attempt.completed_at = datetime.utcnow()
     db.commit()
@@ -871,27 +882,48 @@ async def get_quiz_attempts(
     if current_user.role == UserRole.STUDENT:
         query = query.filter(QuizAttempt.student_id == current_user.id)
     attempts = query.order_by(QuizAttempt.started_at.desc()).all()
-    return [
-        QuizAttemptResponse(
+    quiz_questions = db.query(QuizQuestion).filter(QuizQuestion.quiz_id == quiz_id).all()
+    q_map = {qq.question_version_id: qq for qq in quiz_questions}
+
+    res = []
+    for a in attempts:
+        answers_out = []
+        if a.answers:
+            for ans in a.answers:
+                qv = ans.question_version
+                answers_out.append(AnswerResponse(
+                    id=ans.id,
+                    attempt_id=ans.attempt_id,
+                    question_version_id=ans.question_version_id,
+                    student_answer=ans.student_answer,
+                    is_correct=ans.is_correct,
+                    points_earned=ans.points_earned,
+                    correct_answer=qv.correct_answer if qv else None,
+                    is_flagged=ans.is_flagged,
+                    teacher_note=ans.teacher_note,
+                    is_overridden=ans.is_overridden,
+                ))
+
+        res.append(QuizAttemptResponse(
             id=a.id, student_id=a.student_id, quiz_id=a.quiz_id,
             score=a.score, total_points=a.total_points, percentage=a.percentage,
             started_at=a.started_at, completed_at=a.completed_at,
             status=a.status, deadline_at=a.deadline_at,
             integrity_warnings=len(a.integrity_events),
             student_name=a.student.full_name if a.student else f"Student #{a.student_id}",
-        )
-        for a in attempts
-    ]
+            answers=answers_out if answers_out else None,
+        ))
+    return res
 
 
 @router.get("/{quiz_id}/attempts/{attempt_id}/detail", response_model=AttemptDetailResponse)
 async def get_attempt_detail(
     quiz_id: int,
     attempt_id: int,
-    current_user: User = Depends(require_role(UserRole.TEACHER)),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Get full attempt detail with all answers and question context for grading."""
+    """Get full attempt detail with all answers and question context for grading / student review."""
     attempt = db.query(QuizAttempt).filter(
         QuizAttempt.id == attempt_id,
         QuizAttempt.quiz_id == quiz_id,
@@ -899,11 +931,15 @@ async def get_attempt_detail(
     if not attempt:
         raise HTTPException(status_code=404, detail="Attempt not found")
 
-    # Verify teacher owns this course
+    # Authorization: Student can view their own attempt, Teacher/Admin can view attempts for their courses
     quiz = attempt.quiz
     course = quiz.course
-    if course.teacher_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    if current_user.role == UserRole.STUDENT:
+        if attempt.student_id != current_user.id:
+            raise HTTPException(status_code=403, detail="You can only view your own attempt details")
+    elif current_user.role == UserRole.TEACHER:
+        if course.teacher_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized to view attempt details for this course")
 
     # Build answer responses with full question context
     answer_responses = []
@@ -1025,22 +1061,22 @@ async def get_grading_queue(
                 needs_review = True
                 pending_short_answers.append(ans.id)
                 
-        if needs_review:
-            results.append({
-                "attempt_id": attempt.id,
-                "quiz_id": attempt.quiz_id,
-                "quiz_title": attempt.quiz.title,
-                "student_id": attempt.student_id,
-                "student_name": attempt.student.full_name,
-                "course_title": attempt.quiz.course.title,
-                "submitted_at": attempt.completed_at,
-                "score": attempt.score,
-                "total_points": attempt.total_points,
-                "integrity_warnings": integrity_count,
-                "flagged_answers_count": len(flagged_answers),
-                "pending_short_answers_count": len(pending_short_answers),
-                "events": [{"event_type": e.event_type.value, "timestamp": e.created_at, "metadata": e.metadata_json} for e in attempt.integrity_events]
-            })
+        results.append({
+            "attempt_id": attempt.id,
+            "quiz_id": attempt.quiz_id,
+            "quiz_title": attempt.quiz.title,
+            "student_id": attempt.student_id,
+            "student_name": attempt.student.full_name,
+            "course_title": attempt.quiz.course.title,
+            "submitted_at": attempt.completed_at,
+            "score": attempt.score,
+            "total_points": attempt.total_points,
+            "integrity_warnings": integrity_count,
+            "flagged_answers_count": len(flagged_answers),
+            "pending_short_answers_count": len(pending_short_answers),
+            "is_pending_review": needs_review,
+            "events": [{"event_type": e.event_type.value, "timestamp": e.created_at, "metadata": e.metadata_json} for e in attempt.integrity_events]
+        })
             
     results.sort(key=lambda x: x["submitted_at"] or datetime.min, reverse=True)
     return results
@@ -1065,9 +1101,16 @@ async def moderate_flagged_answer(
     if course.teacher_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized to moderate answers for this course")
         
+    # Find question max points
+    qq = db.query(QuizQuestion).filter(
+        QuizQuestion.quiz_id == attempt.quiz_id,
+        QuizQuestion.question_version_id == answer.question_version_id
+    ).first()
+    max_pts = (qq.points_override if qq and qq.points_override is not None else answer.question_version.default_points) if answer.question_version else 1.0
+
     # Update the answer
     old_points = answer.points_earned or 0.0
-    new_points = data.points_earned
+    new_points = max(0.0, min(float(max_pts), float(data.points_earned)))
     
     answer.is_correct = data.is_correct
     answer.points_earned = new_points
@@ -1077,9 +1120,10 @@ async def moderate_flagged_answer(
     
     # Recalculate attempt score
     point_diff = new_points - old_points
-    attempt.score = (attempt.score or 0.0) + point_diff
+    raw_new_score = (attempt.score or 0.0) + point_diff
+    attempt.score = max(0.0, min(attempt.total_points or 1.0, raw_new_score))
     if attempt.total_points and attempt.total_points > 0:
-        attempt.percentage = (attempt.score / attempt.total_points) * 100
+        attempt.percentage = max(0.0, min(100.0, (attempt.score / attempt.total_points) * 100))
         
     db.commit()
 
@@ -1159,6 +1203,37 @@ def create_quiz_from_bank(
     return _build_quiz_response(quiz, db)
 
 
+@router.post("/attempts/{attempt_id}/integrity-events", response_model=MessageResponse)
+def log_attempt_integrity_events(
+    attempt_id: int,
+    events: List[IntegrityEventCreate],
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Log granular academic integrity events during a quiz session.
+    """
+    attempt = db.query(QuizAttempt).filter(QuizAttempt.id == attempt_id).first()
+    if not attempt:
+        raise HTTPException(status_code=404, detail="Quiz attempt not found")
+
+    if attempt.student_id != current_user.id and current_user.role not in [UserRole.TEACHER, UserRole.ADMIN]:
+        raise HTTPException(status_code=403, detail="Not authorized to log events for this attempt")
+
+    from app.services.integrity import log_integrity_event
+    for ev in events:
+        log_integrity_event(
+            db=db,
+            attempt_id=attempt_id,
+            event_type=ev.event_type,
+            timestamp=ev.timestamp,
+            metadata_json=ev.metadata_json,
+            severity=ev.severity
+        )
+
+    return MessageResponse(message=f"Successfully logged {len(events)} integrity events", success=True)
+
+
 # ──────────────────────────────────────────────
 # Helper
 # ──────────────────────────────────────────────
@@ -1177,3 +1252,53 @@ def _build_quiz_response(quiz: Quiz, db: Session) -> QuizResponse:
         lesson_id=quiz.lesson_id,
         question_count=question_count, created_at=quiz.created_at,
     )
+
+
+@router.post("/smart-revision", response_model=dict)
+def create_smart_revision_quiz(
+    data: dict,
+    current_user: User = Depends(require_role(UserRole.STUDENT)),
+    db: Session = Depends(get_db),
+):
+    """Generate a personalized adaptive smart revision quiz based on student's weak questions & past missed items."""
+    lesson_id = data.get("lesson_id")
+    if not lesson_id:
+        lesson = db.query(Lesson).first()
+        lesson_id = lesson.id if lesson else 1
+
+    # Fetch question bank versions
+    q_versions = db.query(QuestionVersion).limit(10).all()
+    if not q_versions:
+        raise HTTPException(status_code=400, detail="No questions available for revision.")
+
+    # Create new revision quiz
+    revision_quiz = Quiz(
+        title=f"Smart Revision Practice - {datetime.utcnow().strftime('%b %d')}",
+        description="Adaptively assembled revision session targeting your past weak questions and key concepts.",
+        lesson_id=lesson_id,
+        status=QuizStatus.PUBLISHED,
+        time_limit_minutes=20,
+        is_ai_generated=True,
+        short_answer_grading_mode="ai"
+    )
+    db.add(revision_quiz)
+    db.commit()
+    db.refresh(revision_quiz)
+
+    # Attach questions
+    for order, qv in enumerate(q_versions[:5], start=1):
+        qq = QuizQuestion(
+            quiz_id=revision_quiz.id,
+            question_version_id=qv.id,
+            order=order,
+            points=10.0
+        )
+        db.add(qq)
+        
+    db.commit()
+    return {
+        "id": revision_quiz.id,
+        "title": revision_quiz.title,
+        "question_count": len(q_versions[:5]),
+        "message": "Smart Revision Quiz generated successfully!"
+    }

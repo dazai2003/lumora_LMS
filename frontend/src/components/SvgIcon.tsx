@@ -83,7 +83,22 @@ export type IconName =
   | "compass"
   | "book-open"
   | "credit-card"
-  | "dollar-sign";
+  | "dollar-sign"
+  | "printer"
+  | "align-left"
+  | "align-center"
+  | "align-right"
+  | "list"
+  | "list-ordered"
+  | "code"
+  | "link"
+  | "table"
+  | "quote"
+  | "paperclip"
+  | "corner-down-right"
+  | "sparkles"
+  | "maximize"
+  | "minimize";
 
 interface SvgIconProps {
   name: IconName;
@@ -507,6 +522,115 @@ const paths: Record<IconName, React.ReactNode> = {
     <>
       <line x1="12" y1="1" x2="12" y2="23" />
       <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+    </>
+  ),
+  printer: (
+    <>
+      <polyline points="6 9 6 2 18 2 18 9" />
+      <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+      <rect x="6" y="14" width="12" height="8" />
+    </>
+  ),
+  "align-left": (
+    <>
+      <line x1="17" y1="10" x2="3" y2="10" />
+      <line x1="21" y1="6" x2="3" y2="6" />
+      <line x1="21" y1="14" x2="3" y2="14" />
+      <line x1="17" y1="18" x2="3" y2="18" />
+    </>
+  ),
+  "align-center": (
+    <>
+      <line x1="18" y1="10" x2="6" y2="10" />
+      <line x1="21" y1="6" x2="3" y2="6" />
+      <line x1="21" y1="14" x2="3" y2="14" />
+      <line x1="18" y1="18" x2="6" y2="18" />
+    </>
+  ),
+  "align-right": (
+    <>
+      <line x1="21" y1="10" x2="7" y2="10" />
+      <line x1="21" y1="6" x2="3" y2="6" />
+      <line x1="21" y1="14" x2="3" y2="14" />
+      <line x1="21" y1="18" x2="7" y2="18" />
+    </>
+  ),
+  list: (
+    <>
+      <line x1="8" y1="6" x2="21" y2="6" />
+      <line x1="8" y1="12" x2="21" y2="12" />
+      <line x1="8" y1="18" x2="21" y2="18" />
+      <line x1="3" y1="6" x2="3.01" y2="6" />
+      <line x1="3" y1="12" x2="3.01" y2="12" />
+      <line x1="3" y1="18" x2="3.01" y2="18" />
+    </>
+  ),
+  "list-ordered": (
+    <>
+      <line x1="10" y1="6" x2="21" y2="6" />
+      <line x1="10" y1="12" x2="21" y2="12" />
+      <line x1="10" y1="18" x2="21" y2="18" />
+      <path d="M4 6h1v4" />
+      <path d="M4 10h2" />
+      <path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1" />
+    </>
+  ),
+  code: (
+    <>
+      <polyline points="16 18 22 12 16 6" />
+      <polyline points="8 6 2 12 8 18" />
+    </>
+  ),
+  link: (
+    <>
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </>
+  ),
+  table: (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+      <line x1="3" y1="9" x2="21" y2="9" />
+      <line x1="3" y1="15" x2="21" y2="15" />
+      <line x1="12" y1="3" x2="12" y2="21" />
+    </>
+  ),
+  quote: (
+    <>
+      <path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 2v6c0 1.25.75 2 2 2h3c0 4-2 6-4 8z" />
+      <path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 2v6c0 1.25.75 2 2 2h3c0 4-2 6-4 8z" />
+    </>
+  ),
+  paperclip: (
+    <>
+      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+    </>
+  ),
+  "corner-down-right": (
+    <>
+      <polyline points="15 10 20 15 15 20" />
+      <path d="M4 4v7a4 4 0 0 0 4 4h12" />
+    </>
+  ),
+  sparkles: (
+    <>
+      <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+    </>
+  ),
+  maximize: (
+    <>
+      <polyline points="15 3 21 3 21 9" />
+      <polyline points="9 21 3 21 3 15" />
+      <line x1="21" y1="3" x2="14" y2="10" />
+      <line x1="3" y1="21" x2="10" y2="14" />
+    </>
+  ),
+  minimize: (
+    <>
+      <polyline points="4 14 10 14 10 20" />
+      <polyline points="20 10 14 10 14 4" />
+      <line x1="14" y1="10" x2="21" y2="3" />
+      <line x1="10" y1="14" x2="3" y2="21" />
     </>
   ),
 };

@@ -23,9 +23,10 @@ export default function QuestionBankPage() {
   const [duplicatesList, setDuplicatesList] = useState<{ originalId: number; text: string; duplicates: any[] }[]>([]);
   const [isScanningDuplicates, setIsScanningDuplicates] = useState(false);
   
-  // Analytics state
+  // Analytics & Responses Modal state
   const [analytics, setAnalytics] = useState<Record<number, QuestionAnalyticsResponse>>({});
   const [loadingAnalytics, setLoadingAnalytics] = useState<number | null>(null);
+  const [viewAllModalQuestion, setViewAllModalQuestion] = useState<QuestionVersionResponse | null>(null);
 
   // Filters
   const [lessonFilter, setLessonFilter] = useState<string>("all");
@@ -213,20 +214,48 @@ export default function QuestionBankPage() {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2rem", flexWrap: "wrap", gap: "1rem" }}>
         <div className="page-header" style={{ marginBottom: 0 }}>
           <h1>Question Bank</h1>
           <p>Manage and review the centralized repository of assessment questions.</p>
         </div>
-        <button 
-          className="btn btn-secondary"
-          onClick={handleScanDuplicates}
-          disabled={isScanningDuplicates}
-          style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
-        >
-          <SvgIcon name="layers" size={16} /> 
-          {isScanningDuplicates ? "Scanning..." : "Scan for Duplicates"}
-        </button>
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+          <button 
+            className="btn btn-secondary"
+            onClick={handleScanDuplicates}
+            disabled={isScanningDuplicates}
+            style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
+          >
+            <SvgIcon name="layers" size={16} /> 
+            {isScanningDuplicates ? "Scanning..." : "Scan for Duplicates"}
+          </button>
+          <button
+            className="btn btn-outline"
+            onClick={() => {
+              const fileInput = document.createElement("input");
+              fileInput.type = "file";
+              fileInput.accept = ".json";
+              fileInput.onchange = async (e: any) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  const text = await file.text();
+                  try {
+                    const parsed = JSON.parse(text);
+                    await api.importQuestions(parsed);
+                    addToast("Questions imported successfully", "success");
+                    fetchQuestions();
+                  } catch (err: any) {
+                    addToast("Import failed: " + err.message, "error");
+                  }
+                }
+              };
+              fileInput.click();
+            }}
+            style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
+          >
+            <SvgIcon name="download" size={16} /> Import JSON
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -295,128 +324,156 @@ export default function QuestionBankPage() {
               </div>
 
               {expandedId === q.id && (
-                <div className="animate-fade-in" style={{ marginTop: "1.5rem", paddingTop: "1.5rem", borderTop: "1px solid var(--border-color)" }}>
-                  {q.options && q.options.length > 0 && (
-                    <div style={{ marginBottom: "1rem" }}>
-                      <div style={{ fontWeight: 600, fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "0.5rem", textTransform: "uppercase" }}>Options</div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                        {q.options.map((opt, i) => (
-                          <div key={i} style={{ padding: "0.75rem", background: "var(--bg-secondary)", borderRadius: "var(--radius)", fontSize: "0.9rem" }}>
-                            {opt}
+                <div className="animate-fade-in" style={{ marginTop: "1rem", paddingTop: "1rem", borderTop: "1px solid var(--border-color)" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "1.25rem", alignItems: "start" }}>
+                    
+                    {/* Left Column: Options, Correct Answer, Explanation & Actions */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                      {q.options && q.options.length > 0 && (
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.4rem", textTransform: "uppercase", letterSpacing: "0.5px" }}>Options</div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0.4rem" }}>
+                            {q.options.map((opt, i) => (
+                              <div key={i} style={{ padding: "0.5rem 0.75rem", background: "var(--bg-secondary)", borderRadius: "var(--radius)", fontSize: "0.85rem", border: "1px solid var(--border-color)", wordBreak: "break-word" }}>
+                                <span style={{ opacity: 0.6, marginRight: "0.4rem" }}>{String.fromCharCode(65 + i)}.</span> {opt}
+                              </div>
+                            ))}
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem", marginTop: "1rem" }}>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "0.5rem", textTransform: "uppercase" }}>Correct Answer</div>
-                      <div style={{ padding: "0.75rem", background: "rgba(34, 197, 94, 0.1)", color: "var(--success)", border: "1px solid rgba(34, 197, 94, 0.2)", borderRadius: "var(--radius)", fontSize: "0.95rem", fontWeight: 500 }}>
-                        {q.correct_answer}
-                      </div>
-                    </div>
-                    
-                    {q.explanation && (
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "0.5rem", textTransform: "uppercase" }}>Explanation</div>
-                        <div style={{ padding: "0.75rem", background: "var(--bg-secondary)", borderRadius: "var(--radius)", fontSize: "0.9rem", color: "var(--text-secondary)" }}>
-                          {q.explanation}
                         </div>
-                      </div>
-                    )}
-                  </div>
+                      )}
 
-                  {/* Performance Analytics Section */}
-                  <div style={{ marginTop: "1.5rem", paddingTop: "1.5rem", borderTop: "1px dashed var(--border-color)" }}>
-                    <div style={{ fontWeight: 600, fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "1rem", textTransform: "uppercase", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                      <SvgIcon name="bar-chart" size={16} /> Performance Analytics
-                    </div>
-                    
-                    {loadingAnalytics === q.id ? (
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--text-muted)", fontSize: "0.9rem" }}>
-                        <div className="spinner" style={{ width: "16px", height: "16px", borderBottomColor: "var(--text-muted)" }} /> Loading analytics...
-                      </div>
-                    ) : analytics[q.id] ? (
-                      analytics[q.id].total_attempts === 0 ? (
-                        <div style={{ padding: "1rem", background: "var(--bg-secondary)", borderRadius: "var(--radius)", color: "var(--text-muted)", fontSize: "0.9rem", textAlign: "center" }}>
-                          No student attempts recorded yet. Use this question in an assessment to gather data.
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "0.75rem" }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase" }}>Correct Answer</div>
+                          <div style={{ padding: "0.5rem 0.75rem", background: "rgba(34, 197, 94, 0.1)", color: "var(--success)", border: "1px solid rgba(34, 197, 94, 0.25)", borderRadius: "var(--radius)", fontSize: "0.85rem", fontWeight: 600, wordBreak: "break-word" }}>
+                            {q.correct_answer}
+                          </div>
                         </div>
-                      ) : (
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "2rem" }}>
-                          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-                            <div>
-                              <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>Success Rate</div>
-                              <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--primary)" }}>
-                                {analytics[q.id].success_rate}%
+                        
+                        {q.explanation && (
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase" }}>Explanation</div>
+                            <div style={{ padding: "0.5rem 0.75rem", background: "var(--bg-secondary)", borderRadius: "var(--radius)", fontSize: "0.85rem", color: "var(--text-secondary)", wordBreak: "break-word", maxHeight: "120px", overflowY: "auto" }}>
+                              {q.explanation}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Integrated AI Quick Actions */}
+                      <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", paddingTop: "0.5rem" }}>
+                        <button 
+                          className="btn btn-secondary" 
+                          style={{ padding: "0.4rem 0.8rem", fontSize: "0.85rem" }}
+                          onClick={(e) => { e.stopPropagation(); generateVariations(q.id); }}
+                          disabled={isProcessingAI}
+                        >
+                          <SvgIcon name="layers" size={14} /> Generate Variations
+                        </button>
+                        <button 
+                          className="btn btn-primary" 
+                          style={{ background: "var(--accent)", color: "var(--text-primary)", border: "none", padding: "0.4rem 0.8rem", fontSize: "0.85rem" }}
+                          onClick={(e) => { e.stopPropagation(); handleImproveClick(q.id); }}
+                          disabled={isProcessingAI}
+                        >
+                          <SvgIcon name="zap" size={14} /> Improve with AI
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Right Column: Performance Analytics & Distractor Analysis */}
+                    <div style={{ padding: "1rem", background: "var(--bg-secondary)", borderRadius: "var(--radius)", border: "1px solid var(--border-color)" }}>
+                      <div style={{ fontWeight: 600, fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.75rem", textTransform: "uppercase", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                        <span style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}><SvgIcon name="bar-chart" size={14} /> Performance Analytics</span>
+                        {analytics[q.id] && (
+                          <span className={`badge ${
+                            analytics[q.id].observed_difficulty === "hard" ? "badge-error" : 
+                            analytics[q.id].observed_difficulty === "medium" ? "badge-warning" : "badge-success"
+                          }`} style={{ fontSize: "0.7rem", padding: "0.2rem 0.5rem" }}>
+                            {(analytics[q.id].observed_difficulty || "unknown").toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+                      
+                      {loadingAnalytics === q.id ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--text-muted)", fontSize: "0.85rem", padding: "0.5rem 0" }}>
+                          <div className="spinner" style={{ width: "14px", height: "14px", borderBottomColor: "var(--text-muted)" }} /> Loading stats...
+                        </div>
+                      ) : analytics[q.id] ? (
+                        analytics[q.id].total_attempts === 0 ? (
+                          <div style={{ padding: "0.75rem", color: "var(--text-muted)", fontSize: "0.85rem", textAlign: "center" }}>
+                            No student attempts recorded yet.
+                          </div>
+                        ) : (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", background: "var(--bg-card)", padding: "0.5rem 0.75rem", borderRadius: "var(--radius)" }}>
+                              <div>
+                                <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "block" }}>Success Rate</span>
+                                <span style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--primary)" }}>{analytics[q.id].success_rate}%</span>
                               </div>
-                              <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                                {analytics[q.id].correct_attempts} of {analytics[q.id].total_attempts} attempts correct
-                              </div>
+                              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{analytics[q.id].correct_attempts} / {analytics[q.id].total_attempts} attempts</span>
                             </div>
                             
-                            <div>
-                              <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>Observed Difficulty</div>
-                              <span className={`badge ${
-                                analytics[q.id].observed_difficulty === "hard" ? "badge-error" : 
-                                analytics[q.id].observed_difficulty === "medium" ? "badge-warning" : "badge-success"
-                              }`}>
-                                {(analytics[q.id].observed_difficulty || "unknown").toUpperCase()}
-                              </span>
-                            </div>
+                            {Object.keys(analytics[q.id].distractor_distribution).length > 0 && (() => {
+                              const entries = Object.entries(analytics[q.id].distractor_distribution).sort((a, b) => b[1] - a[1]);
+                              const isTrueFalse = q.question_type === "TRUE_FALSE";
+                              const isShortAnswer = q.question_type === "SHORT_ANSWER";
+                              const hasLongText = entries.some(([text]) => text.length > 35);
+                              const shouldLimitPreview = !isTrueFalse && (entries.length > 2 || hasLongText);
+                              const displayEntries = shouldLimitPreview ? entries.slice(0, 2) : entries;
+
+                              return (
+                                <div>
+                                  <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.4rem", textTransform: "uppercase", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                    <span>{isTrueFalse ? "Answer Breakdown" : isShortAnswer ? "Student Responses" : "Distractor Breakdown"}</span>
+                                    {shouldLimitPreview && (
+                                      <span style={{ fontSize: "0.7rem", color: "var(--primary)", cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); setViewAllModalQuestion(q); }}>
+                                        {entries.length} Total
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+                                    {displayEntries.map(([distractor, pct]) => {
+                                      const isCorrect = distractor.trim().toLowerCase() === (q.correct_answer || "").trim().toLowerCase();
+                                      return (
+                                        <div key={distractor} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem" }}>
+                                          <span style={{ width: "2.5rem", fontWeight: 600, textAlign: "right" }}>{pct}%</span>
+                                          <div style={{ flex: 1, height: "6px", background: "var(--bg-card)", borderRadius: "3px", overflow: "hidden" }}>
+                                            <div style={{ 
+                                              width: `${pct}%`, 
+                                              height: "100%", 
+                                              background: isCorrect ? "var(--success)" : "var(--error)",
+                                              opacity: isCorrect ? 1 : 0.6
+                                            }} />
+                                          </div>
+                                          <span style={{ flex: 1.2, wordBreak: "break-word", color: isCorrect ? "var(--success)" : "var(--text-secondary)", fontSize: "0.75rem" }}>
+                                            {distractor.length > 30 ? distractor.slice(0, 30) + "..." : distractor}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+
+                                  {shouldLimitPreview && (
+                                    <button 
+                                      className="btn btn-outline" 
+                                      style={{ marginTop: "0.6rem", width: "100%", fontSize: "0.75rem", padding: "0.3rem 0.5rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.3rem" }}
+                                      onClick={(e) => { e.stopPropagation(); setViewAllModalQuestion(q); }}
+                                    >
+                                      <SvgIcon name="file-text" size={12} /> View All Responses ({entries.length})
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </div>
-                          
-                          {Object.keys(analytics[q.id].distractor_distribution).length > 0 && (
-                            <div>
-                              <div style={{ fontSize: "0.85rem", fontWeight: 500, marginBottom: "0.75rem", color: "var(--text-primary)" }}>Distractor Analysis</div>
-                              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                                {Object.entries(analytics[q.id].distractor_distribution).sort((a, b) => b[1] - a[1]).map(([distractor, pct]) => {
-                                  const isCorrect = distractor === q.correct_answer;
-                                  return (
-                                    <div key={distractor} style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                                      <div style={{ width: "3.5rem", fontSize: "0.85rem", fontWeight: 600, textAlign: "right" }}>
-                                        {pct}%
-                                      </div>
-                                      <div style={{ flex: 1, height: "8px", background: "var(--bg-secondary)", borderRadius: "4px", overflow: "hidden" }}>
-                                        <div style={{ 
-                                          width: `${pct}%`, 
-                                          height: "100%", 
-                                          background: isCorrect ? "var(--success)" : "var(--error)",
-                                          opacity: isCorrect ? 1 : 0.6
-                                        }} />
-                                      </div>
-                                      <div style={{ flex: 1.5, fontSize: "0.85rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: isCorrect ? "var(--success)" : "var(--text-secondary)" }}>
-                                        {distractor}
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    ) : (
-                      <div style={{ color: "var(--error)", fontSize: "0.9rem" }}>Failed to load analytics.</div>
-                    )}
-                  </div>
-                  
-                  <div style={{ marginTop: "1.5rem", paddingTop: "1.5rem", borderTop: "1px dashed var(--border-color)", display: "flex", gap: "1rem", justifyContent: "flex-end" }}>
-                    <button 
-                      className="btn btn-secondary" 
-                      onClick={(e) => { e.stopPropagation(); generateVariations(q.id); }}
-                      disabled={isProcessingAI}
-                    >
-                      <SvgIcon name="layers" size={16} /> Generate Variations
-                    </button>
-                    <button 
-                      className="btn btn-primary" 
-                      style={{ background: "var(--accent)", color: "var(--text-primary)", border: "none" }}
-                      onClick={(e) => { e.stopPropagation(); handleImproveClick(q.id); }}
-                      disabled={isProcessingAI}
-                    >
-                      <SvgIcon name="zap" size={16} /> Improve with AI
-                    </button>
+                        )
+                      ) : (
+                        <div style={{ color: "var(--error)", fontSize: "0.85rem" }}>Failed to load analytics.</div>
+                      )}
+                    </div>
+
                   </div>
                 </div>
               )}
@@ -544,6 +601,61 @@ export default function QuestionBankPage() {
           </div>
         </div>
       </Modal>
+      )}
+      {/* Full Student Responses Modal */}
+      {viewAllModalQuestion && analytics[viewAllModalQuestion.id] && (
+        <Modal
+          onClose={() => setViewAllModalQuestion(null)}
+          title={`All Student Responses — Question ${viewAllModalQuestion.id}`}
+        >
+          <div style={{ padding: "1.5rem" }}>
+            <div style={{ marginBottom: "1.5rem", padding: "1rem", background: "var(--bg-secondary)", borderRadius: "var(--radius)" }}>
+              <div style={{ fontWeight: 600, fontSize: "1rem", marginBottom: "0.5rem" }}>{viewAllModalQuestion.question_text}</div>
+              <div style={{ display: "flex", gap: "1rem", fontSize: "0.85rem", color: "var(--text-muted)" }}>
+                <span>Success Rate: <strong style={{ color: "var(--primary)" }}>{analytics[viewAllModalQuestion.id].success_rate}%</strong></span>
+                <span>Total Attempts: <strong>{analytics[viewAllModalQuestion.id].total_attempts}</strong></span>
+              </div>
+            </div>
+
+            <div style={{ maxHeight: "350px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              {Object.entries(analytics[viewAllModalQuestion.id].distractor_distribution)
+                .sort((a, b) => b[1] - a[1])
+                .map(([distractor, pct]) => {
+                  const isCorrect = distractor.trim().toLowerCase() === (viewAllModalQuestion.correct_answer || "").trim().toLowerCase();
+                  return (
+                    <div 
+                      key={distractor} 
+                      style={{ 
+                        padding: "1rem", 
+                        background: isCorrect ? "rgba(34, 197, 94, 0.08)" : "var(--bg-secondary)", 
+                        border: isCorrect ? "1px solid rgba(34, 197, 94, 0.25)" : "1px solid var(--border-color)",
+                        borderRadius: "var(--radius)",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "0.5rem"
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span className={`badge ${isCorrect ? "badge-success" : "badge-secondary"}`}>
+                          {isCorrect ? "CORRECT ANSWER" : "STUDENT RESPONSE"}
+                        </span>
+                        <span style={{ fontSize: "1rem", fontWeight: 700, color: isCorrect ? "var(--success)" : "var(--primary)" }}>
+                          {pct}%
+                        </span>
+                      </div>
+                      <div style={{ fontSize: "0.95rem", color: "var(--text-primary)", wordBreak: "break-word", lineHeight: 1.5 }}>
+                        {distractor}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "1.5rem" }}>
+              <button className="btn btn-secondary" onClick={() => setViewAllModalQuestion(null)}>Close</button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );
