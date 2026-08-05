@@ -1,137 +1,137 @@
-# 🎓 Lumora LMS - Learning & Assessment Management System
+# Lumora LMS - Learning & Assessment Management System
 
-Lumora LMS is a modern, full-stack Learning Management System designed to empower teachers, engage students, and streamline administrative workflows. It features interactive course materials, automated & manual quiz building, AI-powered content analysis, and student analytics.
-
----
-
-## 🌟 Key Features
-
-### 👨‍🎓 Student Portal
-- **Interactive Material Viewer**: PDF, Video, Image, and Markdown reader with collapsible sidebars.
-- **Distraction-Free Mode**: Toggleable tools panel for focused reading and video viewing.
-- **Personalized Notes & Flags**: Contextual note-taking and content flagging per material.
-- **Automated Video Transcripts**: AI-extracted transcripts for video lectures.
-- **Quiz System**: Interactive quiz attempts with time-limit countdowns, feedback, and performance tracking.
-
-### 👩‍🏫 Teacher Portal
-- **Course & Lesson Management**: Rich content authoring with attached materials.
-- **Question Bank**: Centralized bank of questions with cognitive levels, difficulty badges, and performance metrics.
-- **Flexible Quiz Builder**: Create quizzes from scratch or import questions directly from the Question Bank.
-- **Organized Grading Queue**: Grouped attempts by quiz/lesson with course filtering for quick evaluation.
-- **Student Analytics**: In-depth analytics tracking student progress, accuracy, and engagement.
-
-### 🛡️ Admin Portal
-- **User Management**: Oversee Teachers, Students, and Administrators.
-- **Enrollments & Billing**: Oversight of course access and payment records.
-- **System Insights**: Platform-wide analytics and system health metrics.
+Lumora LMS is an enterprise-grade, full-stack Learning Management System engineered to streamline institutional instruction, automate assessment workflows, and deliver a zero-scroll, high-impact learning experience for students, teachers, and administrators.
 
 ---
 
-## 🛠️ Technology Stack
+## Executive Summary & Key Systems
+
+### Student Command Portal
+- **Active Learning Hub**: A 360-degree, viewport-locked (`100vh`) course management interface with in-card carousel navigation controls, live progress tracking, and unified deliverable status.
+- **Daily Learning Briefing**: Automated daily digest modal providing priority task summaries, urgent deadlines, and unread notifications upon first daily login.
+- **Interactive Material Viewer**: Unified viewer supporting PDF documents, video lectures with AI speech-to-text transcripts, high-resolution imagery, and Markdown content.
+- **Distraction-Free Workspace**: Toggleable sidebars and distraction-free viewing modes for deep study sessions.
+
+### Educator & Grading Workspace
+- **SpeedGrader Workspace**: High-throughput assessment engine for evaluating written coursework with inline feedback, score breakdowns, and rubric criteria.
+- **WYSIWYG Rich Text Editor**: Full-featured content authoring tool for assignments, lesson materials, and announcements.
+- **Question Bank & Versioning**: Centralized repository of assessment questions tagged by cognitive level, difficulty, and performance analytics.
+- **Flexible Quiz Construction**: Manual and automated quiz generation with custom time limits, instant scoring, and retake controls.
+- **Student Performance Analytics**: Real-time course engagement charts, quiz average distributions, and progress heatmaps.
+
+### Administrative Oversight
+- **User & Role Management**: Administrative controls for student, teacher, and administrator accounts.
+- **Course Enrollment & Access Control**: Centralized course provisioning and student enrollment tracking.
+- **Audit Logging & Job Tracking**: System-wide action audit trails and asynchronous background job management.
+
+---
+
+## Technical Architecture
 
 | Layer | Technology |
 |---|---|
-| **Frontend** | Next.js 16 (Turbopack), React 19, TypeScript, Vanilla CSS Design System |
-| **Backend** | Python 3.11+, FastAPI, SQLAlchemy, Pydantic |
-| **Database** | PostgreSQL |
-| **AI Integration** | Groq API (Speech-to-Text / Whisper, Quiz Generation & Summarization) |
+| **Frontend Framework** | Next.js 16 (App Router with Turbopack), React 19, TypeScript |
+| **Styling & UI** | Modular Vanilla CSS Design System, Custom SVG Icon Architecture |
+| **Backend Framework** | Python 3.11+, FastAPI (Asynchronous REST API) |
+| **Database & ORM** | PostgreSQL 16, SQLAlchemy ORM, Pydantic Schemas |
+| **AI & Vector Engine** | Groq API (Whisper Transcriptions & Summarization), ChromaDB Vector Store |
 | **Containerization** | Docker, Docker Compose |
 
 ---
 
-## 🚀 Quick Start Guide
+## Deployment & Quick Start Guide
 
-### Option 1: Docker Compose (Recommended)
+### Option 1: Docker Container Orchestration (Recommended)
 
-Run the complete stack (PostgreSQL + FastAPI Backend + Next.js Frontend) with a single command:
+To build and run the full stack (PostgreSQL database, FastAPI backend, and Next.js frontend) with Docker Compose:
 
 ```bash
 docker-compose up --build
 ```
 
-- **Frontend UI**: [http://localhost:3000](http://localhost:3000)
-- **Backend API Docs (Swagger)**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **Application Web Interface**: `http://localhost:3000`
+- **Backend API Documentation (Swagger UI)**: `http://localhost:8000/docs`
 
 ---
 
-### Option 2: Manual Setup
+### Option 2: Local Environment Setup
 
 #### Prerequisites
 - **Python 3.11+**
 - **Node.js 18+**
 - **PostgreSQL 16** (Database name: `fdp_db`)
 
-#### 1. Backend Setup
+#### 1. Backend Service Configuration
 ```bash
 # Navigate to backend directory
 cd backend
 
-# Create & activate virtual environment
+# Initialize and activate virtual environment
 python -m venv .venv
-source .venv/bin/activate  # On Windows: .\.venv\Scripts\activate
+source .venv/bin/activate  # Windows: .\.venv\Scripts\activate
 
-# Install dependencies
+# Install Python packages
 pip install -r requirements.txt
 
-# Seed initial database records (Optional)
+# Run initial database migrations and seeding
 python seed.py
 
-# Start FastAPI server
+# Launch FastAPI development server
 python -m uvicorn main:app --reload
 ```
-*Backend API runs at: `http://localhost:8000`*
+*Backend API service endpoint: `http://localhost:8000`*
 
-#### 2. Frontend Setup
+#### 2. Frontend Application Configuration
 ```bash
 # Navigate to frontend directory
 cd frontend
 
-# Install dependencies
+# Install Node modules
 npm install
 
-# Start Next.js development server
+# Launch Next.js development server
 npm run dev
 ```
-*Frontend UI runs at: `http://localhost:3000`*
+*Frontend application endpoint: `http://localhost:3000`*
 
 ---
 
-## 🔑 Test Accounts
+## Initial Verification Credentials
 
-You can log in immediately using the pre-seeded accounts:
+Pre-configured accounts for environment testing:
 
-| Role | Email | Password |
-|---|---|---|
-| **Admin** | `admin@fdp.com` | `admin123` |
-| **Teacher** | `teacher@fdp.com` | `teacher123` |
-| **Student** | `student1@fdp.com` | `student123` |
-| **Student** | `student2@fdp.com` | `student123` |
+| Role | Username / Email | Password | Access Level |
+|---|---|---|---|
+| **Administrator** | `admin@fdp.com` | `admin123` | Full System Administration |
+| **Educator / Teacher** | `teacher@fdp.com` | `teacher123` | Course & Grading Workspace |
+| **Student** | `student1@fdp.com` | `student123` | Active Learning Hub |
+| **Student** | `student2@fdp.com` | `student123` | Active Learning Hub |
 
-*New student accounts can also be registered at `http://localhost:3000/register`.*
+*Public student self-registration is available at `http://localhost:3000/register`.*
 
 ---
 
-## 📂 Project Structure
+## Directory Hierarchy
 
 ```
 Lumora_LMS/
-├── backend/                # FastAPI Application
+├── backend/                # FastAPI Application & Services
 │   ├── app/
-│   │   ├── api/            # API Route Handlers (courses, quizzes, materials, etc.)
-│   │   ├── services/       # AI & Processing services (Groq, OCR, Analytics)
-│   │   ├── models.py       # SQLAlchemy Database Models
-│   │   └── schemas.py      # Pydantic Schemas
+│   │   ├── api/            # REST API Endpoint Controllers
+│   │   ├── services/       # AI, RAG, SpeedGrader & Analytics Engines
+│   │   ├── models.py       # SQLAlchemy ORM Database Schemas
+│   │   └── schemas.py      # Pydantic Request/Response Models
 │   ├── main.py             # FastAPI App Entrypoint
-│   └── seed.py             # Initial database seeder
+│   └── seed.py             # Initial Seeder Script
 ├── frontend/               # Next.js Application
 │   ├── src/
-│   │   ├── app/            # Next.js App Router (Dashboard routes for Admin, Teacher, Student)
-│   │   ├── components/     # UI Components, Charts, Viewers
-│   │   └── lib/            # API Client & Helpers
-└── Docker-compose.yml      # Orchestration config
+│   │   ├── app/            # Next.js App Router Pages (Student, Teacher, Admin)
+│   │   ├── components/     # Reusable Design System & Viewer Components
+│   │   └── lib/            # Centralized API Client & Data Fetching
+└── docker-compose.yml      # Container Orchestration Specification
 ```
 
 ---
 
-## 📄 License
-This project is developed for educational and institutional research purposes.
+## License & Compliance
+This software repository is developed for institutional learning research and academic demonstration purposes.
