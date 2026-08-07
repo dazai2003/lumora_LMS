@@ -13,7 +13,7 @@ import api, { User } from "@/lib/api";
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, rememberMe?: boolean) => Promise<void>;
   register: (data: {
     email: string;
     password: string;
@@ -32,17 +32,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshUser = useCallback(async () => {
     try {
-      const token = localStorage.getItem("access_token");
-      if (!token) {
-        setUser(null);
-        setLoading(false);
-        return;
-      }
       const userData = await api.getMe();
       setUser(userData);
     } catch {
       setUser(null);
-      localStorage.removeItem("access_token");
+      api.logout();
     } finally {
       setLoading(false);
     }
@@ -63,8 +57,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [user]);
 
-  const login = async (email: string, password: string) => {
-    await api.login(email, password);
+  const login = async (email: string, password: string, rememberMe: boolean = false) => {
+    await api.login(email, password, rememberMe);
     await refreshUser();
   };
 

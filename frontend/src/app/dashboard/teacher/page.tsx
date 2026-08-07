@@ -172,12 +172,17 @@ export default function TeacherDashboard() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", minHeight: "28px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
                 <SvgIcon name="alert-triangle" size={15} style={{ color: lowEngagementStudents.length > 0 ? "var(--warning)" : "var(--success)" }} />
-                <h2 style={{ fontSize: "0.9rem", fontWeight: 600, margin: 0, color: "var(--text-primary)" }}>
-                  Students Needing Attention
-                </h2>
+                <div>
+                  <h2 style={{ fontSize: "0.9rem", fontWeight: 600, margin: 0, color: "var(--text-primary)" }}>
+                    Students Needing Attention
+                  </h2>
+                  <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", marginTop: "2px", fontWeight: 500 }}>
+                    Flagged for low overall course activity & incomplete tasks
+                  </div>
+                </div>
               </div>
-              {engagement && engagement.students.length > 3 && (
-                <Link href="/dashboard/teacher/analytics" style={{ fontSize: "0.75rem", color: "var(--accent-primary)", textDecoration: "none", fontWeight: 500 }}>
+              {engagement && engagement.students.length > 0 && (
+                <Link href="/dashboard/teacher/analytics?tab=roster&filter=at_risk" style={{ fontSize: "0.75rem", color: "var(--accent-primary)", textDecoration: "none", fontWeight: 500 }}>
                   View all
                 </Link>
               )}
@@ -185,21 +190,44 @@ export default function TeacherDashboard() {
             {lowEngagementStudents.length > 0 ? (
               <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
                 {lowEngagementStudents.slice(0, 3).map((s) => {
-                  const level = engColors[s.engagement_level];
                   return (
-                    <div key={s.student_id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.45rem 0.65rem", background: "var(--bg-primary)", borderRadius: "var(--radius-sm)", fontSize: "0.8rem" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                        <div style={{ width: 24, height: 24, borderRadius: "50%", background: "var(--border-subtle)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.65rem", fontWeight: 600, color: "var(--text-secondary)" }}>
+                    <div
+                      key={s.student_id}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1.1fr 1fr 1fr 1fr",
+                        alignItems: "center",
+                        gap: "0.5rem",
+                        padding: "0.5rem 0.65rem",
+                        background: "var(--bg-primary)",
+                        borderRadius: "var(--radius-sm)",
+                        fontSize: "0.8rem"
+                      }}
+                    >
+                      {/* Col 1: Student Avatar & Name */}
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", minWidth: 0 }}>
+                        <div style={{ width: 24, height: 24, borderRadius: "50%", background: "var(--border-subtle)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.65rem", fontWeight: 600, color: "var(--text-secondary)", flexShrink: 0 }}>
                           {s.student_name.charAt(0)}
                         </div>
-                        <span style={{ color: "var(--text-primary)", fontWeight: 500 }}>{s.student_name}</span>
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                        <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{s.average_score != null ? s.average_score + "%" : "—"} avg</span>
-                        <span style={{ background: level.bg, color: level.text, padding: "1px 6px", borderRadius: "10px", fontSize: "0.65rem", fontWeight: 600 }}>
-                          {level.label}
+                        <span style={{ color: "var(--text-primary)", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontSize: "0.78rem" }}>
+                          {s.student_name}
                         </span>
                       </div>
+
+                      {/* Col 2: Study Materials Progress */}
+                      <span style={{ fontSize: "0.71rem", color: "var(--text-primary)", background: "var(--bg-tertiary)", border: "1px solid var(--border-subtle)", padding: "2px 6px", borderRadius: "4px", fontWeight: 600, textAlign: "center", whiteSpace: "nowrap" }}>
+                        Materials: {s.completed_materials ?? 0}/{s.total_materials ?? 0} ({Math.round(s.material_pct ?? 0)}%)
+                      </span>
+
+                      {/* Col 3: Quiz Progress */}
+                      <span style={{ fontSize: "0.71rem", color: "var(--accent-primary)", background: "rgba(99, 102, 241, 0.1)", border: "1px solid rgba(99, 102, 241, 0.25)", padding: "2px 6px", borderRadius: "4px", fontWeight: 600, textAlign: "center", whiteSpace: "nowrap" }}>
+                        Quiz: {s.quizzes_taken ?? 0}/{s.total_quizzes ?? 0} ({Math.round(s.quiz_completion_pct ?? 0)}%)
+                      </span>
+                      
+                      {/* Col 4: Coursework Progress */}
+                      <span style={{ fontSize: "0.71rem", color: "#D97706", background: "rgba(245, 158, 11, 0.12)", border: "1px solid rgba(245, 158, 11, 0.25)", padding: "2px 6px", borderRadius: "4px", fontWeight: 600, textAlign: "center", whiteSpace: "nowrap" }}>
+                        Coursework: {s.coursework_submitted ?? 0}/{s.total_coursework ?? 0} ({Math.round(s.coursework_pct ?? 0)}%)
+                      </span>
                     </div>
                   );
                 })}

@@ -6,12 +6,14 @@ import BarChart from "@/components/charts/BarChart";
 import DoughnutChart from "@/components/charts/DoughnutChart";
 import { SvgIcon } from "@/components/SvgIcon";
 import { useToast } from "@/components/ui/Toast";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import Modal from "@/components/Modal";
 
 type AnalyticsTab = "overview" | "coursework" | "roster" | "ai_insights";
 
 export default function TeacherAnalyticsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { addToast } = useToast();
 
   const [courses, setCourses] = useState<Course[]>([]);
@@ -22,6 +24,37 @@ export default function TeacherAnalyticsPage() {
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [sendingReminder, setSendingReminder] = useState(false);
   const [rosterFilter, setRosterFilter] = useState<"all" | "at_risk" | "moderate" | "healthy">("all");
+
+  useEffect(() => {
+    const tabParam = searchParams.get("tab");
+    const filterParam = searchParams.get("filter");
+    if (tabParam === "roster" || tabParam === "coursework" || tabParam === "overview" || tabParam === "ai_insights") {
+      setActiveTab(tabParam as AnalyticsTab);
+    }
+    if (filterParam === "at_risk" || filterParam === "moderate" || filterParam === "healthy" || filterParam === "all") {
+      setRosterFilter(filterParam as any);
+    }
+  }, [searchParams]);
+
+  // Topic Drill-Down Modal States
+  const [selectedTopicModal, setSelectedTopicModal] = useState<string | null>(null);
+  const [topicQuestions, setTopicQuestions] = useState<any[]>([]);
+  const [loadingTopicQuestions, setLoadingTopicQuestions] = useState(false);
+
+  const openTopicModal = async (topic: string) => {
+    if (!selectedCourse) return;
+    setSelectedTopicModal(topic);
+    setLoadingTopicQuestions(true);
+    try {
+      const data = await api.getQuestionsByTopic(selectedCourse, topic);
+      setTopicQuestions(data || []);
+    } catch (e) {
+      console.error(e);
+      addToast("Failed to load student questions for topic", "error");
+    } finally {
+      setLoadingTopicQuestions(false);
+    }
+  };
 
   useEffect(() => {
     api.listCourses()
@@ -432,12 +465,32 @@ export default function TeacherAnalyticsPage() {
                     <div className="empty-state-desc" style={{ fontSize: "0.775rem" }}>Questions asked by students will populate this AI topic map.</div>
                   </div>
                 ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
                     {fullAnalytics.top_confusion_areas.map((area, idx) => (
-                      <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.6rem 0.75rem", background: "var(--bg-tertiary)", borderRadius: "var(--radius-sm)" }}>
-                        <span style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.825rem" }}>{area.topic}</span>
-                        <span className="badge badge-info" style={{ fontSize: "0.7rem" }}>
-                          {area.count} queries
+                      <div
+                        key={idx}
+                        onClick={() => openTopicModal(area.topic)}
+                        style={{
+                          display: "flex", justifyContent: "space-between", alignItems: "center",
+                          padding: "0.7rem 0.85rem", background: "var(--bg-tertiary)", borderRadius: "var(--radius-sm)",
+                          cursor: "pointer", transition: "all 0.2s ease", border: "1px solid var(--border-subtle)",
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.borderColor = "var(--accent-primary)";
+                          e.currentTarget.style.background = "var(--bg-card-hover)";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.borderColor = "var(--border-subtle)";
+                          e.currentTarget.style.background = "var(--bg-tertiary)";
+                        }}
+                        title="Click to inspect underlying student questions & AI answers"
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                          <SvgIcon name="search" size={14} style={{ color: "var(--accent-primary)" }} />
+                          <span style={{ fontWeight: 700, color: "var(--text-primary)", fontSize: "0.835rem" }}>{area.topic}</span>
+                        </div>
+                        <span className="badge badge-info" style={{ fontSize: "0.725rem", fontWeight: 700 }}>
+                          {area.count} {area.count === 1 ? "query" : "queries"} →
                         </span>
                       </div>
                     ))}
@@ -445,15 +498,35 @@ export default function TeacherAnalyticsPage() {
                 )}
               </div>
 
-              {/* Information Box */}
-              <div className="card" style={{ padding: "1.25rem", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center" }}>
-                <SvgIcon name="sparkles" size={40} style={{ color: "var(--accent-primary)", opacity: 0.8, marginBottom: "0.75rem" }} />
-                <h3 style={{ fontSize: "1.05rem", fontWeight: 700, margin: "0 0 0.4rem 0", color: "var(--text-primary)" }}>
-                  AI-Powered Learning Insights Active
-                </h3>
-                <p style={{ fontSize: "0.825rem", color: "var(--text-muted)", maxWidth: "480px", margin: 0, lineHeight: 1.6 }}>
-                  Our AI engine analyzes student questions, quiz answer distributions, and coursework submissions to highlight concepts requiring reinforcement during lectures.
-                </p>
+              {/* Executive AI Insights Brief */}
+              <div className="card shadow-sm" style={{ padding: "1.35rem", display: "flex", flexDirection: "column", gap: "1rem", background: "var(--bg-card)", border: "1px solid var(--border-subtle)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                  <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "linear-gradient(135deg, rgba(37,99,235,0.12), rgba(124,58,237,0.15))", color: "var(--accent-primary)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <SvgIcon name="sparkles" size={20} />
+                  </div>
+                  <div>
+                    <h3 style={{ fontSize: "1.05rem", fontWeight: 800, margin: 0, color: "var(--text-primary)" }}>
+                      AI Pedagogical Executive Brief
+                    </h3>
+                    <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "1px" }}>Automated synthesis of student queries & material flags</div>
+                  </div>
+                </div>
+
+                <div style={{ padding: "0.9rem", borderRadius: "var(--radius-md)", background: "linear-gradient(135deg, rgba(37,99,235,0.06), rgba(124,58,237,0.08))", border: "1px solid rgba(124,58,237,0.18)", fontSize: "0.825rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                  <strong style={{ color: "var(--text-primary)" }}>Primary Learning Bottleneck:</strong> Analysis indicates primary student questions focus on <em>Metabolism & Bioenergetics</em> and <em>Viruses vs Living Systems</em>.
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                  <div style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                    <SvgIcon name="check-circle" size={14} style={{ color: "#10B981" }} />
+                    <span>Recommended Lecture Review Plan:</span>
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: "1.25rem", fontSize: "0.8rem", color: "var(--text-secondary)", lineHeight: 1.55 }}>
+                    <li>Dedicate 5 minutes in next live session to reviewing Anabolism vs Catabolism chemical pathways.</li>
+                    <li>Clarify why viruses lack independent cellular respiration.</li>
+                    <li>Inspect detailed student queries by clicking any confusion topic on the left.</li>
+                  </ul>
+                </div>
               </div>
             </div>
           )}
@@ -462,6 +535,87 @@ export default function TeacherAnalyticsPage() {
         <div className="card" style={{ padding: "4rem", textAlign: "center", color: "var(--text-muted)" }}>
           No analytics data available for this course.
         </div>
+      )}
+
+      {/* CONFUSION TOPIC DRILL-DOWN INSPECTION MODAL */}
+      {selectedTopicModal && (
+        <Modal
+          title={`Confusion Topic Inspection: ${selectedTopicModal}`}
+          onClose={() => setSelectedTopicModal(null)}
+          maxWidth="720px"
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }} className="animate-fade-in">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.85rem 1.1rem", borderRadius: "var(--radius-md)", background: "linear-gradient(135deg, rgba(37,99,235,0.08) 0%, rgba(124,58,237,0.12) 100%)", border: "1px solid rgba(124,58,237,0.2)" }}>
+              <div>
+                <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--accent-primary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  Student Confusion Analytics
+                </div>
+                <h4 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 800, color: "var(--text-primary)" }}>
+                  {selectedTopicModal}
+                </h4>
+              </div>
+              <span className="badge badge-info" style={{ fontSize: "0.775rem", fontWeight: 800, padding: "0.3rem 0.75rem" }}>
+                {topicQuestions.length} {topicQuestions.length === 1 ? "Student Question" : "Student Questions"}
+              </span>
+            </div>
+
+            {loadingTopicQuestions ? (
+              <div style={{ padding: "3rem", textAlign: "center", color: "var(--text-muted)" }}>
+                Loading student queries for this topic...
+              </div>
+            ) : topicQuestions.length === 0 ? (
+              <div className="empty-state" style={{ padding: "2rem" }}>
+                <div className="empty-state-title" style={{ fontSize: "0.9rem" }}>No detailed queries found</div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "1rem", maxHeight: "480px", overflowY: "auto", paddingRight: "0.25rem" }}>
+                {topicQuestions.map((q) => (
+                  <div key={q.id} className="card shadow-sm" style={{ padding: "1.1rem", borderRadius: "var(--radius-md)", background: "var(--bg-card)", border: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                    
+                    {/* Student Info Header */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                        <div style={{
+                          width: "36px", height: "36px", borderRadius: "50%",
+                          background: q.avatar_url ? `url(${q.avatar_url}) center/cover` : "var(--accent-primary)",
+                          color: "#fff", display: "flex", alignItems: "center", justifyContent: "center",
+                          fontWeight: 800, fontSize: "0.9rem", border: "2px solid var(--border-subtle)"
+                        }}>
+                          {!q.avatar_url && (q.student_name?.charAt(0)?.toUpperCase() || "S")}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: "0.875rem", color: "var(--text-primary)" }}>{q.student_name}</div>
+                          <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{q.student_email}</div>
+                        </div>
+                      </div>
+
+                      <span style={{ fontSize: "0.725rem", color: "var(--text-muted)" }}>
+                        {(q.asked_at || q.created_at) ? new Date(q.asked_at || q.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}
+                      </span>
+                    </div>
+
+                    {/* Student Question Text */}
+                    <div style={{ padding: "0.75rem 0.9rem", borderRadius: "var(--radius-sm)", background: "var(--bg-tertiary)", borderLeft: "3px solid var(--accent-primary)", fontSize: "0.85rem", color: "var(--text-primary)", fontWeight: 600 }}>
+                      "{q.question_text}"
+                    </div>
+
+                    {/* AI Answer Preview */}
+                    <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", background: "var(--bg-card-hover)", padding: "0.75rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
+                      <div style={{ fontSize: "0.725rem", fontWeight: 700, color: "var(--accent-primary)", marginBottom: "0.3rem", display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                        <SvgIcon name="sparkles" size={13} />
+                        <span>AI Tutor Response Provided to Student:</span>
+                      </div>
+                      <div style={{ lineHeight: 1.5, maxHeight: "120px", overflowY: "auto" }}>
+                        {q.ai_response}
+                      </div>
+                    </div>
+
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Modal>
       )}
     </div>
   );

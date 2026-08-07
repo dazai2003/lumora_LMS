@@ -748,17 +748,25 @@ export default function StudentQuizTakePage({ params }: { params: Promise<{ id: 
                       )}
                     </div>
 
-                    <Link
-                      href="/dashboard/student/ask"
-                      className="btn-secondary btn-sm"
-                      style={{
-                        textDecoration: "none", fontSize: "0.75rem", display: "inline-flex", alignItems: "center", gap: "0.4rem",
-                        background: "rgba(124, 58, 237, 0.06)", border: "1px solid rgba(124, 58, 237, 0.2)", color: "#7C3AED", fontWeight: 600
-                      }}
-                    >
-                      <SvgIcon name="sparkle" size={14} style={{ color: "#7C3AED" }} />
-                      Ask AI Tutor About This Question
-                    </Link>
+                    {(() => {
+                      const studentSelected = studentAns?.student_answer || "no answer selected";
+                      const correctAnswer = studentAns?.correct_answer || q.correct_answer || "instructor evaluation";
+                      const qPrompt = `Can you explain why the correct answer to: "${q.question_text}" is "${correctAnswer}"? My answer was: "${studentSelected}".`;
+                      const cidParam = quiz?.course_id ? `&courseId=${quiz.course_id}` : "";
+                      return (
+                        <Link
+                          href={`/dashboard/student/ask?initialQuestion=${encodeURIComponent(qPrompt)}${cidParam}`}
+                          className="btn-secondary btn-sm"
+                          style={{
+                            textDecoration: "none", fontSize: "0.75rem", display: "inline-flex", alignItems: "center", gap: "0.4rem",
+                            background: "rgba(124, 58, 237, 0.06)", border: "1px solid rgba(124, 58, 237, 0.2)", color: "#7C3AED", fontWeight: 600
+                          }}
+                        >
+                          <SvgIcon name="sparkle" size={14} style={{ color: "#7C3AED" }} />
+                          Ask AI Tutor About This Question
+                        </Link>
+                      );
+                    })()}
                   </div>
                 </div>
               );
@@ -777,19 +785,26 @@ export default function StudentQuizTakePage({ params }: { params: Promise<{ id: 
               <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)", margin: "0 0 1rem 0", lineHeight: 1.4 }}>
                 Get an instant personalized study plan & conceptual breakdowns based on this quiz result.
               </p>
-              <Link
-                href="/dashboard/student/ask"
-                className="btn-primary"
-                style={{
-                  textDecoration: "none", width: "100%", justifyContent: "center", display: "inline-flex",
-                  alignItems: "center", gap: "0.5rem", padding: "0.75rem", fontSize: "0.875rem", fontWeight: 700,
-                  background: "linear-gradient(135deg, #7C3AED, #6366F1)",
-                  boxShadow: "0 4px 12px rgba(124, 58, 237, 0.25)"
-                }}
-              >
-                <SvgIcon name="sparkle" size={16} style={{ color: "#FDE047" }} />
-                Ask AI Tutor About Full Quiz
-              </Link>
+              {(() => {
+                const scorePct = result?.percentage ?? 0;
+                const fullQuizPrompt = `Can you help me review my performance on the quiz "${quiz?.title}"? My score was ${scorePct.toFixed(0)}%. What key concepts should I focus on studying next?`;
+                const cidParam = quiz?.course_id ? `&courseId=${quiz.course_id}` : "";
+                return (
+                  <Link
+                    href={`/dashboard/student/ask?initialQuestion=${encodeURIComponent(fullQuizPrompt)}${cidParam}`}
+                    className="btn-primary"
+                    style={{
+                      textDecoration: "none", width: "100%", justifyContent: "center", display: "inline-flex",
+                      alignItems: "center", gap: "0.5rem", padding: "0.75rem", fontSize: "0.875rem", fontWeight: 700,
+                      background: "linear-gradient(135deg, #7C3AED, #6366F1)",
+                      boxShadow: "0 4px 12px rgba(124, 58, 237, 0.25)"
+                    }}
+                  >
+                    <SvgIcon name="sparkle" size={16} style={{ color: "#FDE047" }} />
+                    Ask AI Tutor About Full Quiz
+                  </Link>
+                );
+              })()}
             </div>
 
             {/* Question Review Index Palette */}

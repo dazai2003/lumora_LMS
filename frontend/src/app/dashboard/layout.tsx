@@ -4,11 +4,14 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { useEffect, ReactNode, useMemo } from "react";
+import { useEffect, ReactNode, useMemo, useState } from "react";
 import NotificationBell from "@/components/NotificationBell";
 import { SvgIcon } from "@/components/SvgIcon";
 import type { IconName } from "@/components/SvgIcon";
 import lumoraLogo from "@/components/ico/Black_background_Logo.png";
+import StudentAccountModal from "@/components/StudentAccountModal";
+import TeacherAccountModal from "@/components/TeacherAccountModal";
+import api from "@/lib/api";
 
 const navConfig: Record<string, { label: string; items: { href: string; label: string; icon: string }[] }[]> = {
   admin: [
@@ -73,7 +76,6 @@ const navConfig: Record<string, { label: string; items: { href: string; label: s
       label: "Learning",
       items: [
         { href: "/dashboard/student/courses", label: "My Courses", icon: "book" },
-        { href: "/dashboard/student/browse", label: "Browse Courses", icon: "search" },
         { href: "/dashboard/student/assignments", label: "Coursework", icon: "folder" },
         { href: "/dashboard/student/quizzes", label: "Quizzes", icon: "clipboard" },
       ],
@@ -83,12 +85,6 @@ const navConfig: Record<string, { label: string; items: { href: string; label: s
       items: [
         { href: "/dashboard/student/ask", label: "Ask AI", icon: "sparkle" },
         { href: "/dashboard/student/ask-teacher", label: "Ask Teacher", icon: "mail" },
-      ],
-    },
-    {
-      label: "Account",
-      items: [
-        { href: "/dashboard/student/billing", label: "Billing & Subscriptions", icon: "credit-card" },
       ],
     },
   ],
@@ -110,6 +106,8 @@ const labelMap: Record<string, string> = {
   "question-bank": "Question Bank",
   questions: "Student Questions",
   browse: "Browse Courses",
+  billing: "Subscriptions & Receipts",
+  guide: "Platform User Guide",
   ask: "Ask AI",
   "ask-teacher": "Ask Teacher",
   teachers: "Teachers",
@@ -117,7 +115,6 @@ const labelMap: Record<string, string> = {
   lessons: "Lessons",
   inbox: "Student Inbox",
   create: "Create",
-  billing: "Billing & Subscriptions",
   payments: "Payments",
   "password-resets": "Password Resets",
 };
@@ -127,11 +124,24 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
 
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [accountModalTab, setAccountModalTab] = useState<"profile" | "billing" | "guide" | null>(null);
+  const [teacherModalTab, setTeacherModalTab] = useState<"profile" | "guide" | null>(null);
+  const [sidebarBadges, setSidebarBadges] = useState<Record<string, number>>({});
+
   useEffect(() => {
     if (!loading && !user) {
       router.replace("/login");
     }
   }, [user, loading, router]);
+
+  useEffect(() => {
+    if (user) {
+      api.getSidebarBadges()
+        .then((data) => setSidebarBadges(data || {}))
+        .catch(() => {});
+    }
+  }, [user, pathname]);
 
   /* Build breadcrumbs from pathname */
   const breadcrumbs = useMemo(() => {
@@ -241,46 +251,57 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           {sections.map((section) => (
             <div key={section.label}>
               <div className="sidebar-section">{section.label}</div>
-              {section.items.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`sidebar-link ${isNavActive(item.href) ? "active" : ""}`}
-                >
-                  <span style={{ display: "flex", alignItems: "center" }}>
-                    <SvgIcon name={item.icon as IconName} size={18} />
-                  </span>
-                  <span>{item.label}</span>
-                </Link>
-              ))}
+              {section.items.map((item) => {
+                const count = sidebarBadges[item.href] || 0;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`sidebar-link ${isNavActive(item.href) ? "active" : ""}`}
+                  >
+                    <span style={{ display: "flex", alignItems: "center" }}>
+                      <SvgIcon name={item.icon as IconName} size={18} />
+                    </span>
+                    <span>{item.label}</span>
+                    {count > 0 && (
+                      <span className="sidebar-link-indicator">
+                        <span className="sidebar-indicator-dot" />
+                        <span className="sidebar-indicator-count">{count > 99 ? "99+" : count}</span>
+                      </span>
+                    )}
+                  </Link>
+                );
+              })}
             </div>
           ))}
         </nav>
 
-        {/* User Section at bottom */}
-        <div
-          style={{
-            padding: "0.875rem 1.25rem",
-            borderTop: "1px solid var(--border-subtle)",
-          }}
-        >
-          <button
-            onClick={() => {
-              logout();
-              router.push("/login");
-            }}
-            className="btn-secondary"
+        {/* User Section at bottom (Only for roles without top menu logout) */}
+        {user?.role !== "teacher" && user?.role !== "student" && (
+          <div
             style={{
-              width: "100%",
-              padding: "0.5rem",
-              fontSize: "0.8rem",
-              gap: "0.5rem",
+              padding: "0.875rem 1.25rem",
+              borderTop: "1px solid var(--border-subtle)",
             }}
           >
-            <SvgIcon name="log-out" size={15} />
-            Sign Out
-          </button>
-        </div>
+            <button
+              onClick={() => {
+                logout();
+                router.push("/login");
+              }}
+              className="btn-secondary"
+              style={{
+                width: "100%",
+                padding: "0.5rem",
+                fontSize: "0.8rem",
+                gap: "0.5rem",
+              }}
+            >
+              <SvgIcon name="log-out" size={15} />
+              Sign Out
+            </button>
+          </div>
+        )}
       </aside>
 
       {/* Main Area with Top Header */}
@@ -302,40 +323,48 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           </nav>
 
           {/* Right: User info + Notifications */}
-          <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "1rem", position: "relative" }}>
             <NotificationBell />
-            <div
+            
+            <button
+              type="button"
+              onClick={() => setShowProfileMenu(prev => !prev)}
+              aria-expanded={showProfileMenu}
+              aria-label="Account menu"
               style={{
                 display: "flex",
                 alignItems: "center",
                 gap: "0.625rem",
-                padding: "0.375rem 0.5rem",
-                borderRadius: "var(--radius-sm)",
+                padding: "0.375rem 0.65rem",
+                borderRadius: "100px",
+                border: "1px solid var(--border-subtle)",
+                background: showProfileMenu ? "var(--bg-card-hover)" : "var(--bg-card)",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
               }}
             >
               <div
                 style={{
-                  width: "32px",
-                  height: "32px",
+                  width: "30px",
+                  height: "30px",
                   borderRadius: "50%",
-                  background: "var(--bg-primary)",
-                  border: "2px solid var(--border)",
+                  background: "var(--accent-primary)",
+                  color: "#fff",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   fontSize: "0.8rem",
-                  fontWeight: 600,
-                  color: "var(--text-secondary)",
+                  fontWeight: 700,
                   flexShrink: 0,
                 }}
               >
                 {user.full_name.charAt(0).toUpperCase()}
               </div>
-              <div style={{ lineHeight: 1.2 }}>
+              <div style={{ lineHeight: 1.2, textAlign: "left" }}>
                 <div
                   style={{
                     fontSize: "0.8rem",
-                    fontWeight: 500,
+                    fontWeight: 600,
                     color: "var(--text-primary)",
                     whiteSpace: "nowrap",
                   }}
@@ -345,7 +374,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 <div
                   style={{
                     fontSize: "0.65rem",
-                    fontWeight: 500,
+                    fontWeight: 600,
                     color: roleBadgeColor[user.role],
                     textTransform: "capitalize",
                   }}
@@ -353,7 +382,142 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                   {roleLabel[user.role] || user.role}
                 </div>
               </div>
-            </div>
+              <SvgIcon name="chevron-down" size={14} style={{ color: "var(--text-muted)", marginLeft: "2px" }} />
+            </button>
+
+            {/* Google-Style Dropdown Menu */}
+            {showProfileMenu && (
+              <div
+                className="animate-scale-in shadow-lg"
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 0.5rem)",
+                  right: 0,
+                  width: "250px",
+                  borderRadius: "var(--radius-md)",
+                  background: "var(--bg-card)",
+                  border: "1px solid var(--border-subtle)",
+                  zIndex: 999,
+                  overflow: "hidden",
+                  padding: "0.4rem 0",
+                }}
+              >
+                {/* Header Profile Summary */}
+                <div style={{ padding: "0.75rem 1rem", borderBottom: "1px solid var(--border-subtle)", marginBottom: "0.25rem" }}>
+                  <div style={{ fontWeight: 700, fontSize: "0.875rem", color: "var(--text-primary)" }}>{user.full_name}</div>
+                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.email}</div>
+                </div>
+
+                {user.role === "student" && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowProfileMenu(false);
+                        setAccountModalTab("profile");
+                      }}
+                      style={{
+                        width: "100%", padding: "0.55rem 1rem", border: "none", background: "none",
+                        display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "0.825rem",
+                        color: "var(--text-primary)", cursor: "pointer", textAlign: "left"
+                      }}
+                    >
+                      <SvgIcon name="user" size={16} style={{ color: "var(--accent-primary)" }} />
+                      <span>Profile & Security</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowProfileMenu(false);
+                        router.push("/dashboard/student/billing?tab=browse");
+                      }}
+                      style={{
+                        width: "100%", padding: "0.55rem 1rem", border: "none", background: "none",
+                        display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "0.825rem",
+                        color: "var(--text-primary)", cursor: "pointer", textAlign: "left"
+                      }}
+                    >
+                      <SvgIcon name="credit-card" size={16} style={{ color: "#D97706" }} />
+                      <span>Subscriptions & Class Catalog</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowProfileMenu(false);
+                        router.push("/dashboard/student/guide");
+                      }}
+                      style={{
+                        width: "100%", padding: "0.55rem 1rem", border: "none", background: "none",
+                        display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "0.825rem",
+                        color: "var(--text-primary)", cursor: "pointer", textAlign: "left"
+                      }}
+                    >
+                      <SvgIcon name="help-circle" size={16} style={{ color: "#10B981" }} />
+                      <span>Platform User Guide</span>
+                    </button>
+
+                    <div style={{ height: "1px", background: "var(--border-subtle)", margin: "0.25rem 0" }} />
+                  </>
+                )}
+
+                {user.role === "teacher" && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowProfileMenu(false);
+                        setTeacherModalTab("profile");
+                      }}
+                      style={{
+                        width: "100%", padding: "0.55rem 1rem", border: "none", background: "none",
+                        display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "0.825rem",
+                        color: "var(--text-primary)", cursor: "pointer", textAlign: "left"
+                      }}
+                    >
+                      <SvgIcon name="user" size={16} style={{ color: "var(--accent-primary)" }} />
+                      <span>Profile & Security</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowProfileMenu(false);
+                        setTeacherModalTab("guide");
+                      }}
+                      style={{
+                        width: "100%", padding: "0.55rem 1rem", border: "none", background: "none",
+                        display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "0.825rem",
+                        color: "var(--text-primary)", cursor: "pointer", textAlign: "left"
+                      }}
+                    >
+                      <SvgIcon name="help-circle" size={16} style={{ color: "#10B981" }} />
+                      <span>Teacher Platform Guide</span>
+                    </button>
+
+                    <div style={{ height: "1px", background: "var(--border-subtle)", margin: "0.25rem 0" }} />
+                  </>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowProfileMenu(false);
+                    logout();
+                    router.push("/login");
+                  }}
+                  style={{
+                    width: "100%", padding: "0.55rem 1rem", border: "none", background: "none",
+                    display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "0.825rem",
+                    color: "var(--error)", cursor: "pointer", textAlign: "left"
+                  }}
+                >
+                  <SvgIcon name="log-out" size={16} />
+                  <span>Sign Out</span>
+                </button>
+              </div>
+            )}
           </div>
         </header>
 
@@ -362,6 +526,24 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           {children}
         </main>
       </div>
+
+      {/* Student Account & Settings Modal */}
+      {accountModalTab && user && (
+        <StudentAccountModal
+          modalType={accountModalTab}
+          user={user}
+          onClose={() => setAccountModalTab(null)}
+        />
+      )}
+
+      {/* Teacher Account & Settings Modal */}
+      {teacherModalTab && user && (
+        <TeacherAccountModal
+          modalType={teacherModalTab}
+          user={user}
+          onClose={() => setTeacherModalTab(null)}
+        />
+      )}
     </div>
   );
 }

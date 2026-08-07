@@ -340,6 +340,7 @@ async def get_course_engagement(
     
     total_course_quizzes = db.query(func.count(Quiz.id)).filter(Quiz.course_id == course_id).scalar() or 0
     total_course_lessons = db.query(func.count(Lesson.id)).filter(Lesson.course_id == course_id).scalar() or 0
+    total_course_assignments = db.query(func.count(Assignment.id)).filter(Assignment.course_id == course_id).scalar() or 0
 
     for enr in enrollments:
         student = db.query(User).filter(User.id == enr.student_id).first()
@@ -360,16 +361,44 @@ async def get_course_engagement(
             StudentQuestion.course_id == course_id
         ).scalar() or 0
 
+        submitted_assignments = db.query(func.count(AssignmentSubmission.id)).join(
+            Assignment, AssignmentSubmission.assignment_id == Assignment.id
+        ).filter(
+            Assignment.course_id == course_id,
+            AssignmentSubmission.student_id == student.id
+        ).scalar() or 0
+
         # Weighted Engagement Score Component Calculation:
         # 1. Quiz Completion (40% Weight)
         quiz_score_pct = min(100.0, (q_taken / total_course_quizzes * 100.0)) if total_course_quizzes > 0 else (100.0 if q_taken > 0 else 0.0)
         
-        # 2. Material Engagement Logs (40% Weight)
+        # 2. Material Engagement & Progress (40% Weight)
+        total_course_materials = db.query(func.count(Material.id)).join(
+            Lesson, Material.lesson_id == Lesson.id
+        ).filter(Lesson.course_id == course_id).scalar() or 0
+
+        completed_mats = db.query(func.count(StudentMaterialProgress.id)).join(
+            Material, StudentMaterialProgress.material_id == Material.id
+        ).join(
+            Lesson, Material.lesson_id == Lesson.id
+        ).filter(
+            StudentMaterialProgress.student_id == student.id,
+            Lesson.course_id == course_id,
+            StudentMaterialProgress.is_completed == True
+        ).scalar() or 0
+
+        mat_progress_pct = (completed_mats / total_course_materials * 100.0) if total_course_materials > 0 else 0.0
+        coursework_pct = (submitted_assignments / total_course_assignments * 100.0) if total_course_assignments > 0 else 0.0
+
         material_logs = db.query(func.count(ActivityLog.id)).filter(
             ActivityLog.user_id == student.id,
             ActivityLog.action == "view_lesson"
         ).scalar() or 0
-        material_score_pct = min(100.0, (material_logs / total_course_lessons * 100.0)) if total_course_lessons > 0 else (100.0 if material_logs > 0 else 0.0)
+        mat_log_pct = min(100.0, (material_logs / total_course_lessons * 100.0)) if total_course_lessons > 0 else (100.0 if material_logs > 0 else 0.0)
+        
+        material_score_pct = max(mat_progress_pct, mat_log_pct)
+        if total_course_lessons == 0 and total_course_materials == 0:
+            material_score_pct = 100.0
         
         # 3. AI Questions Asked (20% Weight)
         ai_score_pct = min(100.0, (q_asked / 3.0 * 100.0))
@@ -380,13 +409,36 @@ async def get_course_engagement(
         eng_level = "high" if weighted_score >= 70.0 else ("medium" if weighted_score >= 40.0 else "low")
         summary[eng_level] += 1
 
+        # Determine explicit flag reason
+        missing_quizzes = total_course_quizzes - q_taken
+        if missing_quizzes > 0:
+            flag_reason = f"Missing {missing_quizzes} Quiz" if missing_quizzes == 1 else f"Missing {missing_quizzes} Quizzes"
+        elif total_course_materials > 0 and completed_mats < total_course_materials:
+            flag_reason = f"{completed_mats}/{total_course_materials} Materials"
+        elif q_taken == 0:
+            flag_reason = "No Quizzes Taken"
+        elif q_asked == 0:
+            flag_reason = "No AI Queries"
+        else:
+            flag_reason = f"{q_taken}/{total_course_quizzes} Quizzes"
+
         results.append({
             "student_id": student.id,
             "student_name": student.full_name,
-            "average_score": round(avg_score, 2) if avg_score else None,
+            "average_score": round(avg_score, 2) if avg_score is not None else None,
             "quizzes_taken": q_taken,
+            "total_quizzes": total_course_quizzes,
+            "quiz_completion_pct": round(quiz_score_pct, 1),
+            "completed_materials": completed_mats,
+            "total_materials": total_course_materials,
+            "material_pct": round(mat_progress_pct, 1),
+            "coursework_submitted": submitted_assignments,
+            "total_coursework": total_course_assignments,
+            "coursework_pct": round(coursework_pct, 1),
+            "material_completion_pct": round(material_score_pct, 1),
             "questions_asked": q_asked,
             "weighted_score": round(weighted_score, 1),
+            "flag_reason": flag_reason,
             "engagement_level": eng_level,
             "enrolled_at": enr.enrolled_at.isoformat()
         })
@@ -591,16 +643,47 @@ async def get_student_course_performance(
     current_user: User = Depends(require_role(UserRole.STUDENT)),
     db: Session = Depends(get_db),
 ):
-    from app.models import Quiz, QuizAttempt, StudentQuestion
-    
+    from app.models import Quiz, QuizAttempt, StudentQuestion, Material, Lesson, StudentMaterialProgress, Assignment, AssignmentSubmission, Course
+
+    # 1. Study Materials (45% max weight)
+    total_materials = db.query(func.count(Material.id)).join(Lesson).filter(Lesson.course_id == course_id).scalar() or 0
+    completed_materials = db.query(func.count(StudentMaterialProgress.id)).join(
+        Material, StudentMaterialProgress.material_id == Material.id
+    ).join(
+        Lesson, Material.lesson_id == Lesson.id
+    ).filter(
+        Lesson.course_id == course_id,
+        StudentMaterialProgress.student_id == current_user.id,
+        StudentMaterialProgress.is_completed == True
+    ).scalar() or 0
+    materials_ratio = (completed_materials / total_materials) if total_materials > 0 else 1.0
+    materials_completion_pct = round(materials_ratio * 100.0, 1)
+    materials_score = round(materials_ratio * 45.0, 1)
+
+    # 2. Coursework Assignments (35% max weight)
+    total_assignments = db.query(func.count(Assignment.id)).filter(Assignment.course_id == course_id).scalar() or 0
+    submitted_assignments = db.query(func.count(AssignmentSubmission.assignment_id.distinct())).join(Assignment).filter(
+        AssignmentSubmission.student_id == current_user.id,
+        Assignment.course_id == course_id,
+        AssignmentSubmission.status.in_(["submitted", "graded", "returned"])
+    ).scalar() or 0
+    coursework_ratio = (submitted_assignments / total_assignments) if total_assignments > 0 else 1.0
+    coursework_completion_pct = round(coursework_ratio * 100.0, 1)
+    coursework_score = round(coursework_ratio * 35.0, 1)
+
+    # 3. Quizzes (20% max weight)
     total_quizzes = db.query(func.count(Quiz.id)).filter(Quiz.course_id == course_id).scalar() or 0
     completed_quizzes = db.query(func.count(QuizAttempt.quiz_id.distinct())).join(QuizAttempt.quiz).filter(
         QuizAttempt.student_id == current_user.id,
         QuizAttempt.quiz.has(course_id=course_id),
         QuizAttempt.completed_at.isnot(None),
     ).scalar() or 0
-    
-    completion_percentage = int((completed_quizzes / total_quizzes) * 100) if total_quizzes > 0 else 0
+    quiz_ratio = (completed_quizzes / total_quizzes) if total_quizzes > 0 else 1.0
+    quiz_completion_pct = round(quiz_ratio * 100.0, 1)
+    quiz_score = round(quiz_ratio * 20.0, 1)
+
+    # Weighted Total Course Completion Percentage (100% total)
+    completion_percentage = round(materials_score + coursework_score + quiz_score, 1)
     
     questions_asked = db.query(func.count(StudentQuestion.id)).filter(
         StudentQuestion.student_id == current_user.id,
@@ -608,7 +691,6 @@ async def get_student_course_performance(
     ).scalar() or 0
     
     # Get course title
-    from app.models import Course
     course = db.query(Course).filter(Course.id == course_id).first()
     course_title = course.title if course else "Unknown"
     
@@ -654,6 +736,16 @@ async def get_student_course_performance(
         "completion_percentage": completion_percentage,
         "completed_quizzes": completed_quizzes,
         "total_quizzes": total_quizzes,
+        "completed_materials": completed_materials,
+        "total_materials": total_materials,
+        "submitted_assignments": submitted_assignments,
+        "total_assignments": total_assignments,
+        "materials_completion_pct": materials_completion_pct,
+        "coursework_completion_pct": coursework_completion_pct,
+        "quiz_completion_pct": quiz_completion_pct,
+        "materials_score": materials_score,
+        "coursework_score": coursework_score,
+        "quiz_score": quiz_score,
         "questions_asked": questions_asked,
         "quiz_results": quiz_results
     }

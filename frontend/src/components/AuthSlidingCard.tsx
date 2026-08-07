@@ -27,6 +27,7 @@ export default function AuthSlidingCard({ initialMode = "login" }: AuthSlidingCa
   // ---------------- LOGIN: state & submit logic (unchanged from original) ----------------
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const [loginError, setLoginError] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
 
@@ -35,7 +36,7 @@ export default function AuthSlidingCard({ initialMode = "login" }: AuthSlidingCa
     setLoginError("");
     setLoginLoading(true);
     try {
-      await login(loginEmail, loginPassword);
+      await login(loginEmail, loginPassword, rememberMe);
       router.push("/");
     } catch (err) {
       if (err instanceof ApiError) {
@@ -196,7 +197,16 @@ export default function AuthSlidingCard({ initialMode = "login" }: AuthSlidingCa
                       <SvgIcon name={showLoginPassword ? "eye-off" : "eye"} size={18} />
                     </button>
                   </div>
-                  <div style={{ textAlign: "right", marginTop: "0.25rem" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.4rem" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.8rem", color: "var(--text-secondary)", cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={rememberMe}
+                        onChange={(e) => setRememberMe(e.target.checked)}
+                        style={{ accentColor: "var(--accent-primary)", cursor: "pointer" }}
+                      />
+                      Keep me signed in
+                    </label>
                     <button
                       type="button"
                       onClick={() => {
@@ -346,6 +356,41 @@ export default function AuthSlidingCard({ initialMode = "login" }: AuthSlidingCa
                         <SvgIcon name={showRegPassword ? "eye-off" : "eye"} size={18} />
                       </button>
                     </div>
+
+                    {/* Live Password Strength Meter */}
+                    {regPassword.length > 0 && (() => {
+                      let score = 0;
+                      const length = regPassword.length >= 6;
+                      const number = /\d/.test(regPassword);
+                      const upper = /[A-Z]/.test(regPassword) || /[^a-zA-Z0-9]/.test(regPassword);
+                      if (length) score += 1;
+                      if (number) score += 1;
+                      if (upper) score += 1;
+
+                      let label = "Weak";
+                      let color = "#ef4444";
+                      if (score === 2) { label = "Medium"; color = "#f59e0b"; }
+                      else if (score >= 3) { label = "Strong"; color = "#10b981"; }
+
+                      return (
+                        <div style={{ marginTop: "0.35rem" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.72rem", marginBottom: "0.2rem" }}>
+                            <span style={{ color: "var(--text-muted)" }}>Strength:</span>
+                            <span style={{ fontWeight: 600, color }}>{label}</span>
+                          </div>
+                          <div style={{ display: "flex", gap: "4px", height: "4px", borderRadius: "2px", overflow: "hidden", background: "rgba(255,255,255,0.08)" }}>
+                            <div style={{ flex: 1, background: score >= 1 ? color : "transparent", transition: "all 0.3s" }} />
+                            <div style={{ flex: 1, background: score >= 2 ? color : "transparent", transition: "all 0.3s" }} />
+                            <div style={{ flex: 1, background: score >= 3 ? color : "transparent", transition: "all 0.3s" }} />
+                          </div>
+                          <div style={{ display: "flex", gap: "0.6rem", fontSize: "0.68rem", marginTop: "0.25rem", color: "var(--text-muted)" }}>
+                            <span style={{ color: length ? "#10b981" : "inherit" }}>{length ? "✓" : "○"} 6+ chars</span>
+                            <span style={{ color: number ? "#10b981" : "inherit" }}>{number ? "✓" : "○"} Number</span>
+                            <span style={{ color: upper ? "#10b981" : "inherit" }}>{upper ? "✓" : "○"} Capital/Symbol</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   <div className="field">

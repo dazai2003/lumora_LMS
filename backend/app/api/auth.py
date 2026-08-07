@@ -20,14 +20,14 @@ async def register(user_data: UserRegister, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered",
+            detail="An account with this email address already exists. Please sign in instead.",
         )
 
     # Only allow student registration publicly; admin creates teachers
     if user_data.role == UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin accounts cannot be created via registration",
+            detail="Admin accounts cannot be created via public registration.",
         )
 
     new_user = User(
@@ -49,12 +49,12 @@ async def login(credentials: UserLogin, db: Session = Depends(get_db)):
     if not user or not verify_password(credentials.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
+            detail="Incorrect email or password. Please double-check your credentials and try again.",
         )
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Account is deactivated. Please contact an administrator.",
+            detail="Your account has been deactivated. Please contact your instructor or an administrator.",
         )
 
     token = create_access_token(

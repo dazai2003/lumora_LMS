@@ -1,3 +1,4 @@
+import os
 import json
 import logging
 from sqlalchemy.orm import Session
@@ -8,54 +9,74 @@ logger = logging.getLogger(__name__)
 def categorize_student_question(question_id: int, db: Session):
     """
     Background task to categorize a student's question and determine sentiment/difficulty.
-    Uses Groq LLM to classify.
+    Uses Groq LLM to classify with keyword-matching fallback.
     """
     try:
-        from app.services.llm_service import call_llm
-
         question = db.query(StudentQuestion).filter(StudentQuestion.id == question_id).first()
         if not question:
             logger.warning(f"Question {question_id} not found for categorization.")
             return
 
         course = db.query(Course).filter(Course.id == question.course_id).first()
-        course_title = course.title if course else "Unknown"
+        course_title = course.title if course else "Biology"
+        q_text = question.question_text.lower()
 
-        prompt = f"""You are an educational AI classifying student questions.
+        # Step 1: Fast Rule/Keyword Based Classifier
+        topic_category = "General Course Query"
+        sentiment_difficulty = "Confusion"
+
+        if any(w in q_text for w in ["anabolism", "catabolism", "metabolism", "exothermic", "endothermic"]):
+            topic_category = "Metabolism & Bioenergetics"
+        elif any(w in q_text for w in ["virus", "bacteria", "living", "non-living", "cell organization"]):
+            topic_category = "Viruses & Cellular Organization"
+        elif any(w in q_text for w in ["emergent", "hierarchy", "organelle", "tissue", "ecosystem"]):
+            topic_category = "Emergent Properties & Hierarchy"
+        elif any(w in q_text for w in ["homeostasis", "irritability", "stimuli", "phototropism"]):
+            topic_category = "Homeostasis & Irritability"
+        elif any(w in q_text for w in ["mitosis", "meiosis", "cell division"]):
+            topic_category = "Cell Division & Genetics"
+        elif any(w in q_text for w in ["newton", "force", "gravity"]):
+            topic_category = "Newtonian Mechanics"
+
+        # Step 2: Try Groq LLM for fine-grained classification
+        api_key = os.getenv("GROQ_API_KEY")
+        if api_key:
+            try:
+                from groq import Groq
+                client = Groq(api_key=api_key)
+                prompt = f"""You are an educational AI classifying student questions.
 Course: {course_title}
 Student Question: "{question.question_text}"
 
-Classify this question by outputting ONLY a valid JSON object with the following fields:
-- topic_category: A short string (1-4 words) describing the main concept or topic (e.g. "Cell Division", "Newton's Laws", "Exam Prep").
-- sentiment_difficulty: A short string (1-3 words) describing the implied difficulty or student's sentiment (e.g. "Confusion", "Definition Request", "Advanced Query", "Syllabus Question").
+Classify this question by outputting ONLY a valid JSON object with:
+- topic_category: A short string (1-4 words) describing the main concept (e.g. "Metabolism & Bioenergetics", "Cell Division", "Viruses & Cell Organization").
+- sentiment_difficulty: A short string (1-3 words) (e.g. "Confusion", "Definition Request").
 
-Do NOT include markdown formatting or backticks. Return raw JSON.
+Do NOT include markdown backticks. Return raw JSON.
 """
-        response = call_llm(prompt, temperature=0.1, max_tokens=150)
-        
-        try:
-            # Try to parse the response
-            # Remove any markdown formatting if present despite instructions
-            cleaned = response.strip()
-            if cleaned.startswith("```json"):
-                cleaned = cleaned[7:]
-            if cleaned.startswith("```"):
-                cleaned = cleaned[3:]
-            if cleaned.endswith("```"):
-                cleaned = cleaned[:-3]
+                resp = client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                    max_tokens=100
+                )
+                cleaned = resp.choices[0].message.content.strip()
+                if cleaned.startswith("```"):
+                    cleaned = cleaned.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
                 
-            data = json.loads(cleaned.strip())
-            
-            question.topic_category = data.get("topic_category", "Uncategorized")[:100]
-            question.sentiment_difficulty = data.get("sentiment_difficulty", "Unknown")[:100]
-            
-            # Note: course_material_id is optional and can be linked if needed later.
-            
-            db.commit()
-            logger.info(f"Categorized question {question_id}: {question.topic_category} / {question.sentiment_difficulty}")
-            
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse categorization JSON: {e} - Response was: {response}")
-            
+                parsed = json.loads(cleaned)
+                if parsed.get("topic_category"):
+                    topic_category = parsed["topic_category"][:100]
+                if parsed.get("sentiment_difficulty"):
+                    sentiment_difficulty = parsed["sentiment_difficulty"][:100]
+            except Exception as llm_err:
+                logger.warning(f"Groq categorization fallback to rule engine: {llm_err}")
+
+        question.topic_category = topic_category
+        question.sentiment_difficulty = sentiment_difficulty
+        db.commit()
+        logger.info(f"Categorized question {question_id}: {topic_category} / {sentiment_difficulty}")
+
     except Exception as e:
         logger.error(f"Error in categorize_student_question: {e}")
+

@@ -645,6 +645,7 @@ class QuestionAsk(BaseModel):
     course_id: int
     question: str = Field(..., min_length=5, max_length=2000)
     session_id: Optional[int] = None
+    existing_question_id: Optional[int] = None
 
 
 class StudentQuestionItem(BaseModel):

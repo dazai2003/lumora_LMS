@@ -21,7 +21,7 @@ from app.schemas import (
     QuestionAsk, StudentQuestionItem, AIResponseDetail, MessageResponse, TeacherCorrectionCreate,
     TeacherQuestionCreate, TeacherQuestionReply, TeacherQuestionResponse
 )
-from app.auth import get_current_user, require_role
+from app.auth import get_current_user, require_role, require_admin_or_teacher
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -159,23 +159,60 @@ async def ask_question_stream(
     if not enrollment:
         raise HTTPException(status_code=403, detail="You are not enrolled in this course")
 
-    # Save the question
-    question = StudentQuestion(
-        student_id=current_user.id,
-        course_id=data.course_id,
-        question_text=data.question,
-    )
-    db.add(question)
-    db.commit()
-    db.refresh(question)
+    # Check if an existing question ID is provided for retry or if identical recent question exists
+    question = None
+    if data.existing_question_id:
+        question = db.query(StudentQuestion).filter(
+            StudentQuestion.id == data.existing_question_id,
+            StudentQuestion.student_id == current_user.id
+        ).first()
 
-    # Search vector store for relevant context
+    if not question:
+        from datetime import datetime, timedelta
+        recent_cutoff = datetime.utcnow() - timedelta(minutes=3)
+        recent_q = db.query(StudentQuestion).filter(
+            StudentQuestion.student_id == current_user.id,
+            StudentQuestion.course_id == data.course_id,
+            StudentQuestion.question_text == data.question,
+            StudentQuestion.asked_at >= recent_cutoff
+        ).first()
+
+        if recent_q:
+            question = recent_q
+        else:
+            question = StudentQuestion(
+                student_id=current_user.id,
+                course_id=data.course_id,
+                question_text=data.question,
+            )
+            db.add(question)
+            db.commit()
+            db.refresh(question)
+
+    # Search vector store for relevant context (with 1.5s timeout & SQL fallback)
     context_chunks = []
     context_sources = []
     seen_material_ids = set()
+
+    def _do_vector_search():
+        try:
+            from app.services.vector import search_similar
+            return search_similar(query=data.question, course_id=data.course_id, n_results=5)
+        except Exception as e:
+            logger.warning(f"Vector search failed: {e}")
+            return []
+
+    results = []
     try:
-        from app.services.vector import search_similar
-        results = search_similar(query=data.question, course_id=data.course_id, n_results=5)
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_do_vector_search)
+            results = future.result(timeout=1.5)
+    except Exception as timeout_err:
+        logger.warning(f"Vector search timed out or failed: {timeout_err}")
+
+    # Process vector search results
+    if results:
         for hit in results:
             context_chunks.append(hit["text"])
             meta = hit.get("metadata", {})
@@ -196,17 +233,43 @@ async def ask_question_stream(
                     "file_url": file_url,
                     "relevance": round(1 - hit.get("distance", 0), 3),
                 })
-    except Exception as e:
-        logger.warning(f"Vector search failed: {e}")
+
+    # Fast SQL Fallback if no vector search results found
+    if not context_chunks:
+        try:
+            keywords = [w.strip() for w in data.question.split() if len(w.strip()) > 3]
+            if keywords:
+                from sqlalchemy import or_
+                mat_matches = db.query(Material).filter(
+                    Material.course_id == data.course_id,
+                    or_(*[Material.title.ilike(f"%{kw}%") for kw in keywords[:3]])
+                ).limit(3).all()
+
+                for mat in mat_matches:
+                    if mat.content_text:
+                        context_chunks.append(mat.content_text[:800])
+                    mat_type = mat.material_type.value if mat.material_type else "note"
+                    file_url = f"/uploads/{mat_type}/{os.path.basename(mat.file_path)}" if mat.file_path else None
+                    if mat.id not in seen_material_ids:
+                        seen_material_ids.add(mat.id)
+                        context_sources.append({
+                            "material_id": mat.id,
+                            "title": mat.title,
+                            "material_type": mat_type,
+                            "file_url": file_url,
+                            "relevance": 0.75,
+                        })
+        except Exception as sql_err:
+            logger.warning(f"SQL fallback failed: {sql_err}")
 
     # Build prompt
     course = db.query(Course).filter(Course.id == data.course_id).first()
     course_title = course.title if course else "this course"
     if context_chunks:
         context = "\n\n---\n\n".join(context_chunks[:5])
-        system_prompt = f"""You are an AI tutor for the course "{course_title}". Answer the student's question using ONLY the provided course materials below. If the materials don't contain enough information to answer, say so honestly. Be clear, concise, and educational.\n\nCOURSE MATERIALS:\n{context}"""
+        system_prompt = f"""You are an AI tutor for the course "{course_title}". Answer the student's question clearly, concisely, and educationally using the course context below.\n\nCOURSE MATERIALS:\n{context}"""
     else:
-        system_prompt = f"""You are an AI tutor for the course "{course_title}". The student asked a question but no relevant course materials were found in the database. Provide a helpful general answer, but clearly note that this answer is not based on specific course materials."""
+        system_prompt = f"""You are an AI tutor for the course "{course_title}". Answer the student's question clearly, accurately, and educationally."""
 
     def generate():
         # First yield the sources and question ID immediately
@@ -215,59 +278,90 @@ async def ask_question_stream(
             "question_id": question.id,
             "context_sources": context_sources
         }
-        yield f"data: {json.dumps(initial_data)}\\n\\n"
+        yield f"data: {json.dumps(initial_data)}\n\n"
 
         full_response = ""
         try:
             from groq import Groq
             api_key = os.getenv("GROQ_API_KEY")
-            model = os.getenv("GROQ_CHAT_MODEL", "llama-3.3-70b-versatile")
-            client = Groq(api_key=api_key)
+            model = os.getenv("GROQ_CHAT_MODEL", "llama-3.1-8b-instant")
+            client = Groq(api_key=api_key, timeout=8.0)
             
-            stream = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": data.question},
-                ],
-                temperature=0.3,
-                max_tokens=1024,
-                stream=True
-            )
-            for chunk in stream:
-                content = chunk.choices[0].delta.content
-                if content:
-                    full_response += content
-                    yield f"data: {json.dumps({'type': 'chunk', 'text': content})}\\n\\n"
-        except Exception as e:
-            logger.error(f"Groq streaming failed: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'text': 'Sorry, I encountered an error while generating the response.'})}\\n\\n"
-        
-        # After streaming completes, save to DB in background
-        def save_response(q_id, r_text, sources, chunks, db_gen):
             try:
-                db_session = next(db_gen)
-                q = db_session.query(StudentQuestion).filter(StudentQuestion.id == q_id).first()
-                if q:
+                stream = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": data.question},
+                    ],
+                    temperature=0.3,
+                    max_tokens=1024,
+                    stream=True
+                )
+                for chunk in stream:
+                    content = chunk.choices[0].delta.content
+                    if content:
+                        full_response += content
+                        yield f"data: {json.dumps({'type': 'chunk', 'text': content})}\n\n"
+            except Exception as stream_err:
+                logger.warning(f"Primary Groq stream model {model} failed: {stream_err}. Trying secondary model...")
+                # Secondary model fallback
+                stream = client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": data.question},
+                    ],
+                    temperature=0.3,
+                    max_tokens=1024,
+                    stream=True
+                )
+                for chunk in stream:
+                    content = chunk.choices[0].delta.content
+                    if content:
+                        full_response += content
+                        yield f"data: {json.dumps({'type': 'chunk', 'text': content})}\n\n"
+        except Exception as e:
+            logger.error(f"Groq API call failed completely: {e}")
+
+        # Tier 3 Fallback: If LLM APIs failed or returned empty response, synthesize direct answer from course materials
+        if not full_response:
+            logger.info("Using Tier 3 Course Context Material Synthesis fallback...")
+            if context_chunks:
+                full_response = "Based on your course study materials:\n\n" + "\n\n".join(context_chunks[:2])
+            else:
+                full_response = f"Thank you for your question regarding '{data.question}'. Please check the video lessons and downloadable study notes under My Courses, or send a direct question to your teacher using the 'Ask Teacher' tab for personalized guidance."
+
+            yield f"data: {json.dumps({'type': 'chunk', 'text': full_response})}\n\n"
+        
+        # After streaming completes, save to DB and categorize
+        try:
+            db_session = next(get_db())
+            q = db_session.query(StudentQuestion).filter(StudentQuestion.id == question.id).first()
+            if q:
+                existing_ai_resp = db_session.query(AIResponse).filter(AIResponse.student_question_id == question.id).first()
+                if existing_ai_resp:
+                    existing_ai_resp.response_text = full_response
+                    existing_ai_resp.context_sources = context_sources if context_sources else None
+                    existing_ai_resp.confidence_score = _calculate_confidence(context_chunks)
+                else:
                     ai_resp = AIResponse(
-                        student_question_id=q_id,
-                        response_text=r_text,
-                        context_sources=sources if sources else None,
-                        confidence_score=_calculate_confidence(chunks),
+                        student_question_id=question.id,
+                        response_text=full_response,
+                        context_sources=context_sources if context_sources else None,
+                        confidence_score=_calculate_confidence(context_chunks),
                     )
                     db_session.add(ai_resp)
-                    q.is_answered = True
-                    db_session.commit()
-                    
-                    # Also categorize
-                    from app.services.analytics import categorize_student_question
-                    categorize_student_question(q_id, db_session)
-            except Exception as e:
-                logger.error(f"Failed to save streamed response: {e}")
+                q.is_answered = True
+                db_session.commit()
+                
+                # Categorize question immediately
+                from app.services.analytics import categorize_student_question
+                categorize_student_question(question.id, db_session)
+        except Exception as e:
+            logger.error(f"Failed to save streamed response & categorize: {e}")
 
-        # Use background tasks to save DB without blocking the stream close
-        background_tasks.add_task(save_response, question.id, full_response, context_sources, context_chunks, get_db())
-        yield f"data: {json.dumps({'type': 'done'})}\\n\\n"
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -778,3 +872,49 @@ def delete_ai_tutor_session(
     session.is_active = False
     db.commit()
     return {"message": "Session deleted successfully"}
+
+
+@router.get("/teacher/course/{course_id}/topic-questions")
+def get_questions_by_topic(
+    course_id: int,
+    topic: str,
+    current_user: User = Depends(require_admin_or_teacher),
+    db: Session = Depends(get_db),
+):
+    """Retrieves all student questions and AI answers categorized under a specific topic."""
+    try:
+        query = db.query(StudentQuestion).filter(StudentQuestion.course_id == course_id)
+        
+        if topic and topic.strip():
+            clean_topic = topic.strip()
+            if clean_topic.lower() == "general":
+                query = query.filter(
+                    (StudentQuestion.topic_category == None) | 
+                    (StudentQuestion.topic_category == "") | 
+                    (StudentQuestion.topic_category.ilike("general"))
+                )
+            else:
+                query = query.filter(StudentQuestion.topic_category.ilike(f"%{clean_topic}%"))
+                
+        questions = query.order_by(StudentQuestion.asked_at.desc()).all()
+
+        res = []
+        for q in questions:
+            student = db.query(User).filter(User.id == q.student_id).first()
+            ai_resp = db.query(AIResponse).filter(AIResponse.student_question_id == q.id).first()
+            time_iso = q.asked_at.isoformat() if getattr(q, 'asked_at', None) else None
+            res.append({
+                "id": q.id,
+                "question_text": q.question_text,
+                "created_at": time_iso,
+                "asked_at": time_iso,
+                "student_name": student.full_name if (student and student.full_name) else "Student",
+                "student_email": student.email if student else "",
+                "avatar_url": getattr(student, "avatar_url", None),
+                "ai_response": ai_resp.response_text if ai_resp else "No AI response recorded.",
+                "sentiment_difficulty": q.sentiment_difficulty or "Confusion",
+            })
+        return res
+    except Exception as e:
+        logger.error(f"Error in get_questions_by_topic: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve topic questions: {str(e)}")

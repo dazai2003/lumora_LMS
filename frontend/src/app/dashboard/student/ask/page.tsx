@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import api, { Course, QAResponse } from "@/lib/api";
 import MaterialViewer from "@/components/viewer/MaterialViewer";
 import ReactMarkdown from "react-markdown";
 import { SvgIcon } from "@/components/SvgIcon";
+import { useSearchParams } from "next/navigation";
 
-export default function AskAIPage() {
+function AskAIPageContent() {
+  const searchParams = useSearchParams();
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourse, setSelectedCourse] = useState<number | "">("");
   const [question, setQuestion] = useState("");
@@ -21,13 +23,23 @@ export default function AskAIPage() {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const initQ = searchParams.get("initialQuestion");
+    const courseIdParam = searchParams.get("courseId");
+
     api.getMyEnrolledCourses().then((data) => {
       setCourses(data);
-      if (data.length > 0 && !selectedCourse) {
+      if (courseIdParam) {
+        setSelectedCourse(Number(courseIdParam));
+      } else if (data.length > 0 && !selectedCourse) {
         setSelectedCourse(data[0].id);
       }
     }).catch(console.error).finally(() => setLoading(false));
-  }, []);
+
+    if (initQ) {
+      setQuestion(initQ);
+      setTimeout(() => textareaRef.current?.focus(), 200);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -93,13 +105,68 @@ export default function AskAIPage() {
         setConversation((prev) =>
           prev.map((item) =>
             item.question_id === tempEntry.question_id
-              ? { ...item, response_text: "Sorry, something went wrong. Please try again." }
+              ? { 
+                  ...item, 
+                  response_text: item.response_text && item.response_text.trim().length > 0 
+                    ? item.response_text 
+                    : "Sorry, I encountered a temporary connection issue. Please check your course materials or ask your question again." 
+                }
               : item
           )
         );
         setAsking(false);
       },
       () => setAsking(false)
+    );
+  };
+
+  const handleRetryQuestion = (targetQuestionId: number, questionText: string) => {
+    if (!selectedCourse || asking) return;
+    setAsking(true);
+
+    // Reset target item in conversation in-place
+    setConversation(prev => prev.map(item => 
+      item.question_id === targetQuestionId 
+        ? { ...item, response_text: "", context_sources: [] }
+        : item
+    ));
+
+    api.askQuestionStream(
+      selectedCourse as number,
+      questionText,
+      (data) => {
+        if (data.type === 'start') {
+          setConversation(prev => prev.map(item => 
+            item.question_id === targetQuestionId 
+              ? { ...item, question_id: data.question_id, context_sources: data.context_sources, response_text: "" } 
+              : item
+          ));
+        } else if (data.type === 'chunk') {
+          setConversation(prev => prev.map(item => 
+            item.question_id === targetQuestionId 
+              ? { ...item, response_text: (item.response_text || "") + data.text } 
+              : item
+          ));
+        }
+      },
+      (err) => {
+        console.error(err);
+        setConversation((prev) =>
+          prev.map((item) =>
+            item.question_id === targetQuestionId
+              ? { 
+                  ...item, 
+                  response_text: item.response_text && item.response_text.trim().length > 0 
+                    ? item.response_text 
+                    : "Sorry, I encountered a temporary connection issue. Please check your course materials or ask your question again." 
+                }
+              : item
+          )
+        );
+        setAsking(false);
+      },
+      () => setAsking(false),
+      targetQuestionId
     );
   };
 
@@ -425,6 +492,30 @@ export default function AskAIPage() {
                                     ))}
                                   </div>
                                 )}
+
+                                {/* Retry / Resend Action Button */}
+                                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "0.65rem", paddingTop: "0.4rem" }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRetryQuestion(item.question_id, item.question_text)}
+                                    disabled={asking}
+                                    style={{
+                                      fontSize: "0.74rem",
+                                      fontWeight: 600,
+                                      color: "var(--accent-primary)",
+                                      background: "transparent",
+                                      border: "none",
+                                      cursor: asking ? "not-allowed" : "pointer",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: "0.3rem",
+                                      opacity: asking ? 0.5 : 1
+                                    }}
+                                  >
+                                    <SvgIcon name="refresh" size={13} />
+                                    <span>Resend Question to AI</span>
+                                  </button>
+                                </div>
                               </>
                             )}
                           </div>
@@ -500,5 +591,13 @@ export default function AskAIPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function AskAIPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: "3rem", textAlign: "center", color: "var(--text-muted)" }}>Loading AI Tutor...</div>}>
+      <AskAIPageContent />
+    </Suspense>
   );
 }

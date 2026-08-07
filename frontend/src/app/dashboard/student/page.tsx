@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/components/ui/Toast";
 import { SvgIcon } from "@/components/SvgIcon";
 import Modal from "@/components/Modal";
+import StudentOnboardingModal from "@/components/StudentOnboardingModal";
 import Link from "next/link";
 import { DashboardSkeleton } from "@/components/Skeleton";
 
@@ -20,9 +21,19 @@ export default function StudentDashboard() {
   const [pendingAssignments, setPendingAssignments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Daily Briefing Modal State
+  // Daily Briefing & Onboarding Modal State
   const [showBriefingModal, setShowBriefingModal] = useState(false);
+  const [showOnboardingModal, setShowOnboardingModal] = useState(false);
   const [markingAllRead, setMarkingAllRead] = useState(false);
+
+  useEffect(() => {
+    if (!loading && user) {
+      const onboarded = localStorage.getItem(`lms_student_onboarded_${user.id}`);
+      if (!onboarded && courses.length === 0) {
+        setShowOnboardingModal(true);
+      }
+    }
+  }, [loading, user, courses.length]);
 
   useEffect(() => {
     Promise.all([
@@ -300,19 +311,41 @@ export default function StudentDashboard() {
               {activeSnapshot.course.description ? (activeSnapshot.course.description.length > 130 ? activeSnapshot.course.description.slice(0, 130) + "…" : activeSnapshot.course.description) : "Resume your learning path and track all deliverables for this course."}
             </p>
 
-            {/* Visual Course Progress Bar */}
+            {/* Visual Course Progress Bar & Tri-Factor Breakdown */}
             <div>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.78rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.3rem" }}>
-                <span>Course Completion Progress</span>
+                <span>Weighted Course Progress</span>
                 <span style={{ color: "var(--accent-primary)" }}>{(activeSnapshot.perf?.completion_percentage ?? 0).toFixed(0)}%</span>
               </div>
-              <div style={{ height: "6px", borderRadius: "3px", background: "var(--border-subtle)", overflow: "hidden" }}>
+              <div style={{ height: "7px", borderRadius: "4px", background: "var(--border-subtle)", overflow: "hidden", marginBottom: "0.6rem" }}>
                 <div style={{
-                  height: "100%", borderRadius: "3px",
+                  height: "100%", borderRadius: "4px",
                   width: `${activeSnapshot.perf?.completion_percentage ?? 0}%`,
-                  background: (activeSnapshot.perf?.completion_percentage ?? 0) === 100 ? "#10B981" : "var(--accent-primary)",
+                  background: (activeSnapshot.perf?.completion_percentage ?? 0) === 100 ? "#10B981" : "linear-gradient(90deg, #3B82F6 0%, #6366F1 100%)",
                   transition: "width 0.8s ease",
                 }} />
+              </div>
+
+              {/* Tri-Factor Breakdown Pills */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.5rem" }}>
+                <div style={{ padding: "0.4rem 0.6rem", borderRadius: "var(--radius-sm)", background: "var(--bg-tertiary)", border: "1px solid var(--border-subtle)", fontSize: "0.725rem" }}>
+                  <div style={{ color: "var(--text-muted)", fontSize: "0.675rem", fontWeight: 700 }}>📘 Materials (45%)</div>
+                  <div style={{ fontWeight: 800, color: "var(--text-primary)" }}>
+                    {activeSnapshot.perf?.materials_score ?? 45.0}% <span style={{ fontSize: "0.675rem", color: "var(--text-muted)", fontWeight: 500 }}>({activeSnapshot.perf?.completed_materials ?? 0}/{activeSnapshot.perf?.total_materials ?? 0})</span>
+                  </div>
+                </div>
+                <div style={{ padding: "0.4rem 0.6rem", borderRadius: "var(--radius-sm)", background: "var(--bg-tertiary)", border: "1px solid var(--border-subtle)", fontSize: "0.725rem" }}>
+                  <div style={{ color: "var(--text-muted)", fontSize: "0.675rem", fontWeight: 700 }}>📝 Coursework (35%)</div>
+                  <div style={{ fontWeight: 800, color: "var(--text-primary)" }}>
+                    {activeSnapshot.perf?.coursework_score ?? 35.0}% <span style={{ fontSize: "0.675rem", color: "var(--text-muted)", fontWeight: 500 }}>({activeSnapshot.perf?.submitted_assignments ?? 0}/{activeSnapshot.perf?.total_assignments ?? 0})</span>
+                  </div>
+                </div>
+                <div style={{ padding: "0.4rem 0.6rem", borderRadius: "var(--radius-sm)", background: "var(--bg-tertiary)", border: "1px solid var(--border-subtle)", fontSize: "0.725rem" }}>
+                  <div style={{ color: "var(--text-muted)", fontSize: "0.675rem", fontWeight: 700 }}>🧩 Quizzes (20%)</div>
+                  <div style={{ fontWeight: 800, color: "var(--text-primary)" }}>
+                    {activeSnapshot.perf?.quiz_score ?? 20.0}% <span style={{ fontSize: "0.675rem", color: "var(--text-muted)", fontWeight: 500 }}>({activeSnapshot.perf?.completed_quizzes ?? 0}/{activeSnapshot.perf?.total_quizzes ?? 0})</span>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -418,8 +451,8 @@ export default function StudentDashboard() {
             <SvgIcon name="book" className="empty-state-icon" style={{ opacity: 0.3 }} />
             <div className="empty-state-title" style={{ fontSize: "1.1rem" }}>You are not enrolled in any courses yet.</div>
             <div className="empty-state-desc" style={{ fontSize: "0.85rem" }}>Explore the course catalog to start learning.</div>
-            <Link href="/dashboard/student/browse" className="btn-primary btn-sm" style={{ textDecoration: "none", marginTop: "1rem" }}>
-              Browse Courses
+            <Link href="/dashboard/student/billing?tab=browse" className="btn-primary btn-sm" style={{ textDecoration: "none", marginTop: "1rem" }}>
+              Browse & Enroll Classes
             </Link>
           </div>
         )}
@@ -653,6 +686,16 @@ export default function StudentDashboard() {
           </div>
         </Modal>
       )}
+
+      {/* First-Time Student Stream Onboarding Wizard */}
+      <StudentOnboardingModal
+        open={showOnboardingModal}
+        onClose={() => setShowOnboardingModal(false)}
+        onComplete={() => {
+          api.getMyEnrolledCourses().then(c => setCourses(c || [])).catch(() => {});
+        }}
+        userId={user?.id}
+      />
     </div>
   );
 }

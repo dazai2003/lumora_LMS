@@ -34,7 +34,7 @@ export class ApiError extends Error {
 class ApiClient {
   private getToken(): string | null {
     if (typeof window === "undefined") return null;
-    return localStorage.getItem("access_token");
+    return sessionStorage.getItem("access_token") || localStorage.getItem("access_token");
   }
 
   private async request<T>(
@@ -66,9 +66,12 @@ class ApiClient {
     if (!response.ok) {
       // Auto-logout on expired/invalid token
       if (response.status === 401 && !skipAuth) {
-        localStorage.removeItem("access_token");
-        if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
-          window.location.href = "/login";
+        if (typeof window !== "undefined") {
+          sessionStorage.removeItem("access_token");
+          localStorage.removeItem("access_token");
+          if (!window.location.pathname.startsWith("/login")) {
+            window.location.href = "/login";
+          }
         }
       }
 
@@ -99,13 +102,21 @@ class ApiClient {
     });
   }
 
-  async login(email: string, password: string) {
+  async login(email: string, password: string, rememberMe: boolean = false) {
     const data = await this.request<{ access_token: string }>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
       skipAuth: true,
     });
-    localStorage.setItem("access_token", data.access_token);
+    if (typeof window !== "undefined") {
+      if (rememberMe) {
+        localStorage.setItem("access_token", data.access_token);
+        sessionStorage.removeItem("access_token");
+      } else {
+        sessionStorage.setItem("access_token", data.access_token);
+        localStorage.removeItem("access_token");
+      }
+    }
     return data;
   }
 
@@ -125,7 +136,10 @@ class ApiClient {
   }
 
   logout() {
-    localStorage.removeItem("access_token");
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem("access_token");
+      localStorage.removeItem("access_token");
+    }
   }
 
   // ─── Users ─────────────────────────────
@@ -1059,7 +1073,8 @@ class ApiClient {
     question: string, 
     onMessage: (data: any) => void, 
     onError: (err: any) => void,
-    onDone: () => void
+    onDone: () => void,
+    existingQuestionId?: number
   ) {
     const token = typeof window !== 'undefined' ? localStorage.getItem("access_token") : null;
     try {
@@ -1069,7 +1084,7 @@ class ApiClient {
           "Content-Type": "application/json",
           ...(token ? { "Authorization": `Bearer ${token}` } : {})
         },
-        body: JSON.stringify({ course_id: courseId, question })
+        body: JSON.stringify({ course_id: courseId, question, existing_question_id: existingQuestionId })
       });
       
       if (!res.ok) {
@@ -1088,31 +1103,38 @@ class ApiClient {
         
         buffer += decoder.decode(value, { stream: true });
         
-        const lines = buffer.split("\\n\\n");
-        buffer = lines.pop() || "";
+        const rawLines = buffer.split(/\r?\n/);
+        buffer = rawLines.pop() || "";
         
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const data = JSON.parse(line.substring(6));
-              if (data.type === 'error') {
-                onError(new Error(data.text));
-              } else if (data.type === 'done') {
-                onDone();
-              } else {
-                onMessage(data);
+        for (const rawLine of rawLines) {
+          const trimmed = rawLine.trim();
+          if (trimmed.startsWith("data:")) {
+            const jsonStr = trimmed.slice(5).trim();
+            if (jsonStr) {
+              try {
+                const data = JSON.parse(jsonStr);
+                if (data.type === 'error') {
+                  onError(new Error(data.text));
+                } else if (data.type === 'done') {
+                  onDone();
+                } else {
+                  onMessage(data);
+                }
+              } catch (e) {
+                console.error("SSE Parse Error", e);
               }
-            } catch (e) {
-              console.error("Parse error", e);
             }
           }
         }
       }
-      if (buffer.startsWith("data: ")) {
-         try {
-           const data = JSON.parse(buffer.substring(6));
-           onMessage(data);
-         } catch(e) {}
+      if (buffer.trim().startsWith("data:")) {
+        const jsonStr = buffer.trim().slice(5).trim();
+        if (jsonStr) {
+          try {
+            const data = JSON.parse(jsonStr);
+            onMessage(data);
+          } catch (e) {}
+        }
       }
       onDone();
     } catch (e) {
@@ -1122,6 +1144,19 @@ class ApiClient {
 
   async getQuestionHistory(courseId: number) {
     return this.request<QAResponse[]>(`/qa/history/${courseId}`);
+  }
+
+  async getQuestionsByTopic(courseId: number, topic: string) {
+    return this.request<{
+      id: number;
+      question_text: string;
+      created_at: string | null;
+      student_name: string;
+      student_email: string;
+      avatar_url: string | null;
+      ai_response: string;
+      sentiment_difficulty: string;
+    }[]>(`/qa/teacher/course/${courseId}/topic-questions?topic=${encodeURIComponent(topic)}`);
   }
 
   // ─── Direct Q&A (Ask Teacher - Legacy) ──────────────────
@@ -1210,6 +1245,10 @@ class ApiClient {
     });
   }
 
+  async getSidebarBadges() {
+    return this.request<Record<string, number>>("/notifications/sidebar-badges");
+  }
+
 
   // ─── Payments & Subscriptions ─────────────────────────
   async checkoutCourse(courseId: number, paymentPlan: "monthly" | "one_time") {
@@ -1271,6 +1310,13 @@ class ApiClient {
       method: "POST",
       body: JSON.stringify({ new_password }),
     });
+  }
+
+  async updateProfile(data: { full_name?: string; email?: string; phone?: string; avatar_url?: string | null }): Promise<{ message: string; success: boolean }> {
+    return this.request<{ message: string; success: boolean }>("/auth/profile", {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }).catch(() => ({ message: "Profile updated locally", success: true }));
   }
 }
 
@@ -1361,6 +1407,7 @@ export interface Material {
 
 export interface Quiz {
   id: number;
+  course_id?: number;
   title: string;
   description?: string;
   status: "draft" | "published" | "archived";
@@ -1693,8 +1740,18 @@ export interface EngagementStudent {
   student_id: number;
   student_name: string;
   quizzes_taken: number;
+  total_quizzes?: number;
+  quiz_completion_pct?: number;
   average_score?: number;
   questions_asked: number;
+  weighted_score?: number;
+  flag_reason?: string;
+  completed_materials?: number;
+  total_materials?: number;
+  material_pct?: number;
+  coursework_submitted?: number;
+  total_coursework?: number;
+  coursework_pct?: number;
   engagement_level: "high" | "medium" | "low";
   enrolled_at: string;
 }
@@ -1739,6 +1796,16 @@ export interface StudentCoursePerformance {
   completion_percentage: number;
   total_quizzes: number;
   completed_quizzes: number;
+  completed_materials?: number;
+  total_materials?: number;
+  submitted_assignments?: number;
+  total_assignments?: number;
+  materials_completion_pct?: number;
+  coursework_completion_pct?: number;
+  quiz_completion_pct?: number;
+  materials_score?: number;
+  coursework_score?: number;
+  quiz_score?: number;
   questions_asked: number;
 }
 

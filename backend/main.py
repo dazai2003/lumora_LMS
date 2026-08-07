@@ -9,6 +9,14 @@ import os
 # regardless of where uvicorn is launched from.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Fix passlib bcrypt 4.x compatibility
+try:
+    import bcrypt
+    if not hasattr(bcrypt, "__about__"):
+        bcrypt.__about__ = type("about", (), {"__version__": getattr(bcrypt, "__version__", "4.0.0")})()
+except Exception:
+    pass
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
