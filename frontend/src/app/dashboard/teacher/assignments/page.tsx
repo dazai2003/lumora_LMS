@@ -435,7 +435,7 @@ export default function TeacherAssignmentsPage() {
                 </button>
 
                 {aiGenerated && (
-                  <div style={{ background: "var(--bg-tertiary)", borderRadius: "var(--radius-md)", padding: "1.25rem", borderLeft: "4px solid var(--accent-primary)" }}>
+                  <div style={{ background: "var(--bg-tertiary)", borderRadius: "var(--radius-md)", padding: "1.25rem", border: "1px solid var(--border-subtle)" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
                       <h3 style={{ fontSize: "0.9rem", fontWeight: 700, margin: 0, color: "var(--accent-primary)" }}>AI Blueprint</h3>
                       <button className="btn-primary btn-sm" onClick={applyAIBlueprint} style={{ fontSize: "0.75rem" }}>Apply & Edit</button>

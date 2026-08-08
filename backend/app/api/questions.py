@@ -333,6 +333,40 @@ def check_duplicate_endpoint(
     }
 
 
+@router.post("/scan-duplicates")
+def scan_duplicates_endpoint(
+    request: dict = {},
+    current_user: User = Depends(require_admin_or_teacher),
+    db: Session = Depends(get_db),
+):
+    from app.services.vector import scan_all_duplicates
+
+    lesson_id = request.get("lesson_id")
+    threshold = request.get("threshold", 0.85)
+
+    query = db.query(QuestionVersion).join(Question).filter(Question.is_active == True)
+    if lesson_id:
+        query = query.filter(Question.lesson_id == lesson_id)
+
+    all_versions = query.all()
+    latest_versions = {}
+    for v in all_versions:
+        if v.question_id not in latest_versions or v.id > latest_versions[v.question_id].id:
+            latest_versions[v.question_id] = v
+
+    questions_data = [
+        {"id": qv.question_id, "text": qv.question_text}
+        for qv in latest_versions.values()
+    ]
+
+    duplicate_groups = scan_all_duplicates(questions_data, threshold=threshold)
+
+    return {
+        "total_scanned": len(questions_data),
+        "duplicate_groups": duplicate_groups
+    }
+
+
 # ──────────────────────────────────────────────
 # Phase 2 Moderation & Import/Export Endpoints
 # ──────────────────────────────────────────────

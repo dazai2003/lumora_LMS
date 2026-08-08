@@ -479,7 +479,7 @@ export default function TeacherInsightsPage() {
                       marginBottom: "1.25rem",
                       background: "var(--bg-secondary)",
                       borderRadius: "var(--radius-md)",
-                      borderLeft: "4px solid #6366F1",
+                      border: "1px solid var(--border-subtle)",
                     }}
                   >
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.4rem" }}>

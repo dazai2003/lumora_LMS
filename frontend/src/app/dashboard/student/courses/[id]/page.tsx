@@ -74,7 +74,7 @@ export default function StudentCourseDetailPage({ params }: { params: Promise<{ 
         <span style={{ color: "var(--text-primary)", fontWeight: 500 }}>{course.title}</span>
       </div>
 
-      <div className="card" style={{ marginBottom: "2rem", padding: "2rem", borderTop: "4px solid var(--accent-primary)" }}>
+      <div className="card" style={{ marginBottom: "2rem", padding: "2rem" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "2rem" }}>
           <div style={{ flex: 1 }}>
             {course.subject && <span className="badge badge-info" style={{ marginBottom: "0.75rem" }}>{course.subject}</span>}

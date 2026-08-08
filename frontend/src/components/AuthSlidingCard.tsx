@@ -743,8 +743,15 @@ function BrandPanel({ mode }: { mode: Mode }) {
       </div>
 
       <div className="brand-content">
-        <div className="brand-logo">
-          <Image src={lumoraLogo} alt="Lumora Logo" style={{ width: "100%", height: "100%", objectFit: "contain", borderRadius: "10px" }} />
+        <div className="brand-logo" style={{ width: 56, height: 56, minWidth: 56, minHeight: 56, flexShrink: 0 }}>
+          <Image
+            src={lumoraLogo}
+            alt="Lumora Logo"
+            width={56}
+            height={56}
+            priority
+            style={{ width: "100%", height: "100%", objectFit: "contain", borderRadius: "10px" }}
+          />
         </div>
         <h2 className="brand-heading">{heading}</h2>
         <p className="brand-desc">AI powered smarter education.</p>

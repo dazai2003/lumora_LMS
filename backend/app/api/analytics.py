@@ -785,28 +785,58 @@ async def get_admin_overview(
     db: Session = Depends(get_db),
 ):
     from datetime import timedelta
-    today = datetime.utcnow().date()
-    
-    # 30-day trends mock (real implementation requires group_by date which varies by SQL dialect)
-    # We will generate a basic mock for the last 7 days for now to populate the chart
-    enrollment_trend = []
-    registration_trend = []
-    quiz_attempt_trend = []
-    qa_trend = []
-    for i in range(7, -1, -1):
-        d = (today - timedelta(days=i)).isoformat()
-        enrollment_trend.append({"date": d, "count": 0})
-        registration_trend.append({"date": d, "count": 0})
-        quiz_attempt_trend.append({"date": d, "count": 0})
-        qa_trend.append({"date": d, "count": 0})
-        
-    # Replace the last day with actual counts for simple trend
-    enrollment_trend[-1]["count"] = db.query(func.count(Enrollment.id)).scalar() or 0
-    registration_trend[-1]["count"] = db.query(func.count(User.id)).scalar() or 0
+    from app.models import Lesson, Quiz, Enrollment, User, QuizAttempt, StudentQuestion, Course
+
+    today_dt = datetime.utcnow()
+    # 14-day rolling window
+    days = 14
+    date_keys = [(today_dt.date() - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
+
+    enrollment_counts = {d: 0 for d in date_keys}
+    registration_counts = {d: 0 for d in date_keys}
+    quiz_counts = {d: 0 for d in date_keys}
+    qa_counts = {d: 0 for d in date_keys}
+
+    # Query Enrollments
+    enrollments = db.query(Enrollment).all()
+    for e in enrollments:
+        if e.enrolled_at:
+            d_str = e.enrolled_at.date().isoformat()
+            if d_str in enrollment_counts:
+                enrollment_counts[d_str] += 1
+
+    # Query Registrations (Users)
+    users = db.query(User).all()
+    for u in users:
+        if u.created_at:
+            d_str = u.created_at.date().isoformat()
+            if d_str in registration_counts:
+                registration_counts[d_str] += 1
+
+    # Query Quiz Attempts
+    attempts = db.query(QuizAttempt).all()
+    for a in attempts:
+        ts = a.started_at or a.completed_at
+        if ts:
+            d_str = ts.date().isoformat()
+            if d_str in quiz_counts:
+                quiz_counts[d_str] += 1
+
+    # Query Q&A Questions
+    questions = db.query(StudentQuestion).all()
+    for q in questions:
+        if q.asked_at:
+            d_str = q.asked_at.date().isoformat()
+            if d_str in qa_counts:
+                qa_counts[d_str] += 1
+
+    enrollment_trend = [{"date": d, "count": enrollment_counts[d]} for d in date_keys]
+    registration_trend = [{"date": d, "count": registration_counts[d]} for d in date_keys]
+    quiz_attempt_trend = [{"date": d, "count": quiz_counts[d]} for d in date_keys]
+    qa_trend = [{"date": d, "count": qa_counts[d]} for d in date_keys]
 
     # Course breakdown
-    courses = db.query(Course).limit(5).all()
-    from app.models import Lesson, Quiz
+    courses = db.query(Course).limit(10).all()
     course_breakdown = []
     for c in courses:
         students = db.query(func.count(Enrollment.id)).filter(Enrollment.course_id == c.id).scalar() or 0
@@ -820,35 +850,147 @@ async def get_admin_overview(
             "quizzes": quizzes
         })
 
+    # Dynamic Activity Feed
+    activity_items = []
+
+    # 1. Registered users
+    recent_users = db.query(User).order_by(User.created_at.desc()).limit(10).all()
+    for u in recent_users:
+        if u.created_at:
+            role_val = u.role.value if hasattr(u.role, 'value') else str(u.role)
+            activity_items.append({
+                "type": "user_register",
+                "message": f"New {role_val} registered: {u.full_name or u.email}",
+                "timestamp": u.created_at.isoformat()
+            })
+
+    # 2. Created courses
+    recent_courses = db.query(Course).order_by(Course.created_at.desc()).limit(10).all()
+    for c in recent_courses:
+        if c.created_at:
+            activity_items.append({
+                "type": "course_create",
+                "message": f"Course created: {c.title}",
+                "timestamp": c.created_at.isoformat()
+            })
+
+    # 3. Quiz submissions
+    recent_attempts = db.query(QuizAttempt).order_by(QuizAttempt.started_at.desc()).limit(10).all()
+    for qa in recent_attempts:
+        ts = qa.completed_at or qa.started_at
+        if ts:
+            quiz_title = qa.quiz.title if qa.quiz else "Quiz"
+            score_str = f" ({qa.score:.0f}%)" if qa.score is not None else ""
+            activity_items.append({
+                "type": "quiz_submit",
+                "message": f"Quiz attempt on '{quiz_title}'{score_str}",
+                "timestamp": ts.isoformat()
+            })
+
+    # 4. AI questions
+    recent_questions = db.query(StudentQuestion).order_by(StudentQuestion.asked_at.desc()).limit(10).all()
+    for q in recent_questions:
+        if q.asked_at:
+            txt = q.question_text[:50] + "..." if len(q.question_text) > 50 else q.question_text
+            activity_items.append({
+                "type": "ai_question",
+                "message": f"Student asked AI tutor: \"{txt}\"",
+                "timestamp": q.asked_at.isoformat()
+            })
+
+    # Sort combined activities by timestamp descending
+    activity_items.sort(key=lambda x: x["timestamp"], reverse=True)
+    activity_feed = activity_items[:10] if activity_items else [
+        {"type": "user_register", "message": "System operational", "timestamp": datetime.utcnow().isoformat()}
+    ]
+
     return {
         "enrollment_trend": enrollment_trend,
         "registration_trend": registration_trend,
         "quiz_attempt_trend": quiz_attempt_trend,
         "qa_trend": qa_trend,
-        "activity_feed": [
-            {"type": "user_register", "message": "System operational", "timestamp": datetime.utcnow().isoformat()}
-        ],
+        "activity_feed": activity_feed,
         "course_breakdown": course_breakdown
     }
+
 
 @router.get("/admin/ai-performance")
 async def get_admin_ai_performance(
     current_user: User = Depends(require_role(UserRole.ADMIN)),
     db: Session = Depends(get_db),
 ):
+    from datetime import timedelta
+    from app.models import AILog, StudentQuestion
+
+    ai_logs = db.query(AILog).all()
     total_qa = db.query(func.count(StudentQuestion.id)).scalar() or 0
-    return {
-        "total_operations": total_qa,
-        "completed": total_qa,
-        "failed": 0,
-        "success_rate": 100.0,
-        "avg_response_time_ms": 1200,
-        "action_breakdown": [
+
+    if ai_logs:
+        total_ops = len(ai_logs)
+        completed = len([l for l in ai_logs if l.status == "completed"])
+        failed = len([l for l in ai_logs if l.status == "failed"])
+        success_rate = round((completed / total_ops * 100), 1) if total_ops > 0 else 100.0
+        
+        times = [l.processing_time_ms for l in ai_logs if l.processing_time_ms]
+        avg_time = round(sum(times) / len(times)) if times else 1200
+
+        action_map: Dict[str, Dict[str, Any]] = {}
+        for l in ai_logs:
+            act = l.action or "other"
+            if act not in action_map:
+                action_map[act] = {"count": 0, "total_time": 0}
+            action_map[act]["count"] += 1
+            if l.processing_time_ms:
+                action_map[act]["total_time"] += l.processing_time_ms
+
+        action_breakdown = [
+            {
+                "action": act,
+                "count": data["count"],
+                "avg_time_ms": round(data["total_time"] / data["count"]) if data["count"] > 0 else 0
+            }
+            for act, data in action_map.items()
+        ]
+    else:
+        total_ops = max(total_qa, 1)
+        completed = total_ops
+        failed = 0
+        success_rate = 100.0
+        avg_time = 1200
+        action_breakdown = [
             {"action": "q_and_a", "count": total_qa, "avg_time_ms": 1200},
             {"action": "quiz_generation", "count": 0, "avg_time_ms": 0},
             {"action": "summarization", "count": 0, "avg_time_ms": 0}
-        ],
-        "usage_trend": []
+        ]
+
+    today_dt = datetime.utcnow()
+    date_keys = [(today_dt.date() - timedelta(days=i)).isoformat() for i in range(13, -1, -1)]
+    trend_counts = {d: 0 for d in date_keys}
+
+    if ai_logs:
+        for l in ai_logs:
+            if l.created_at:
+                d_str = l.created_at.date().isoformat()
+                if d_str in trend_counts:
+                    trend_counts[d_str] += 1
+    else:
+        questions = db.query(StudentQuestion).all()
+        for q in questions:
+            if q.asked_at:
+                d_str = q.asked_at.date().isoformat()
+                if d_str in trend_counts:
+                    trend_counts[d_str] += 1
+
+    usage_trend = [{"date": d, "count": trend_counts[d]} for d in date_keys]
+
+    return {
+        "total_operations": total_ops,
+        "completed": completed,
+        "failed": failed,
+        "success_rate": success_rate,
+        "avg_response_time_ms": avg_time,
+        "action_breakdown": action_breakdown,
+        "usage_trend": usage_trend
     }
 
 @router.get("/ai-insights", response_model=Dict[str, Any])

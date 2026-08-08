@@ -223,7 +223,7 @@ export default function StudentAssignmentsPage() {
         </div>
 
         {/* Question Prompt & Problem Statement Header Card */}
-        <div className="card" style={{ padding: "1.25rem", marginBottom: "1.25rem", borderLeft: "4px solid var(--accent-primary)", background: "var(--bg-card)" }}>
+        <div className="card" style={{ padding: "1.25rem", marginBottom: "1.25rem", background: "var(--bg-card)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "1rem" }}>
             <div>
               <div style={{ fontSize: "0.725rem", fontWeight: 700, textTransform: "uppercase", color: "var(--accent-primary)", letterSpacing: "0.5px", marginBottom: "4px" }}>
@@ -396,7 +396,7 @@ export default function StudentAssignmentsPage() {
 
             {/* Group Assignment Banner for linked member */}
             {wsAssignment.my_submission?.is_group_submission && (
-              <div className="card" style={{ padding: "0.85rem", borderLeft: "4px solid var(--accent-primary)", background: "var(--bg-tertiary)" }}>
+              <div className="card" style={{ padding: "0.85rem", background: "var(--bg-tertiary)" }}>
                 <div style={{ fontSize: "0.775rem", fontWeight: 700, color: "var(--accent-primary)", marginBottom: "4px" }}>
                   Group Submission Linked
                 </div>

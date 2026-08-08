@@ -218,6 +218,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 <Image
                   src={lumoraLogo}
                   alt="Lumora"
+                  width={32}
+                  height={32}
+                  priority
                   style={{ width: "100%", height: "100%", objectFit: "contain" }}
                 />
               </div>

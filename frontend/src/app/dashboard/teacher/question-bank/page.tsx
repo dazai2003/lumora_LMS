@@ -134,40 +134,9 @@ export default function QuestionBankPage() {
     setDuplicatesList([]);
     
     try {
-      // For demonstration, scan the currently visible filtered questions
-      // In a real app, this might just scan the entire bank.
-      const found: any[] = [];
-      const seenPairs = new Set<string>(); // to avoid duplicate pairs
-      
-      for (const q of filteredQuestions) {
-        const res = await api.checkDuplicateQuestion(q.question_text, q.lesson_id);
-        if (res.is_duplicate) {
-          // Filter out the exact same question
-          const trueDups = res.duplicates.filter((d: any) => d.id !== q.question_id && d.similarity > 0.85);
-          if (trueDups.length > 0) {
-            // Check if we already found this pair
-            let alreadyAdded = false;
-            for (const t of trueDups) {
-              const pairKey = [q.question_id, t.id].sort().join('-');
-              if (seenPairs.has(pairKey)) {
-                alreadyAdded = true;
-                break;
-              }
-              seenPairs.add(pairKey);
-            }
-            
-            if (!alreadyAdded) {
-              found.push({
-                originalId: q.question_id,
-                text: q.question_text,
-                duplicates: trueDups
-              });
-            }
-          }
-        }
-      }
-      
-      setDuplicatesList(found);
+      const selectedLessonId = lessonFilter !== "all" ? Number(lessonFilter) : undefined;
+      const res = await api.scanDuplicateQuestions(selectedLessonId);
+      setDuplicatesList(res.duplicate_groups || []);
     } catch (e: any) {
       addToast(e.message || "Failed to scan duplicates", "error");
       setDuplicateModalOpen(false);
@@ -228,32 +197,6 @@ export default function QuestionBankPage() {
           >
             <SvgIcon name="layers" size={16} /> 
             {isScanningDuplicates ? "Scanning..." : "Scan for Duplicates"}
-          </button>
-          <button
-            className="btn btn-outline"
-            onClick={() => {
-              const fileInput = document.createElement("input");
-              fileInput.type = "file";
-              fileInput.accept = ".json";
-              fileInput.onchange = async (e: any) => {
-                const file = e.target.files?.[0];
-                if (file) {
-                  const text = await file.text();
-                  try {
-                    const parsed = JSON.parse(text);
-                    await api.importQuestions(parsed);
-                    addToast("Questions imported successfully", "success");
-                    fetchQuestions();
-                  } catch (err: any) {
-                    addToast("Import failed: " + err.message, "error");
-                  }
-                }
-              };
-              fileInput.click();
-            }}
-            style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
-          >
-            <SvgIcon name="download" size={16} /> Import JSON
           </button>
         </div>
       </div>

@@ -232,7 +232,7 @@ function InboxPageContent() {
 
         {/* Quick Stat Badges */}
         <div style={{ display: "flex", gap: "0.75rem" }}>
-          <div className="stat-card" style={{ padding: "0.6rem 1.25rem", display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          <div className="card" style={{ padding: "0.6rem 1.25rem", display: "flex", alignItems: "center", gap: "0.75rem" }}>
             <div style={{ padding: "0.4rem", borderRadius: "8px", background: "rgba(99, 102, 241, 0.15)", color: "var(--accent-primary)" }}>
               <SvgIcon name="graduation" size={18} />
             </div>
@@ -242,7 +242,7 @@ function InboxPageContent() {
             </div>
           </div>
 
-          <div className="stat-card" style={{ padding: "0.6rem 1.25rem", display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          <div className="card" style={{ padding: "0.6rem 1.25rem", display: "flex", alignItems: "center", gap: "0.75rem" }}>
             <div style={{ padding: "0.4rem", borderRadius: "8px", background: totalUnread > 0 ? "rgba(239, 68, 68, 0.15)" : "rgba(16, 185, 129, 0.15)", color: totalUnread > 0 ? "#ef4444" : "#10b981" }}>
               <SvgIcon name="bell" size={18} />
             </div>

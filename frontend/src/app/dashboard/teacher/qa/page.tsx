@@ -127,7 +127,7 @@ export default function QAModerationPage() {
 
       {/* Metrics Row */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem" }}>
-        <div className="stat-card" style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+        <div className="card" style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
           <div style={{ padding: "0.6rem", borderRadius: "10px", background: "rgba(99,102,241,0.15)", color: "var(--accent-primary)" }}>
             <SvgIcon name="help-circle" size={22} />
           </div>
@@ -137,7 +137,7 @@ export default function QAModerationPage() {
           </div>
         </div>
 
-        <div className="stat-card" style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+        <div className="card" style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
           <div style={{ padding: "0.6rem", borderRadius: "10px", background: "rgba(245,158,11,0.15)", color: "#f59e0b" }}>
             <SvgIcon name="alert-triangle" size={22} />
           </div>
@@ -147,7 +147,7 @@ export default function QAModerationPage() {
           </div>
         </div>
 
-        <div className="stat-card" style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+        <div className="card" style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
           <div style={{ padding: "0.6rem", borderRadius: "10px", background: "rgba(239,68,68,0.15)", color: "#ef4444" }}>
             <SvgIcon name="flag" size={22} />
           </div>
@@ -157,7 +157,7 @@ export default function QAModerationPage() {
           </div>
         </div>
 
-        <div className="stat-card" style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+        <div className="card" style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
           <div style={{ padding: "0.6rem", borderRadius: "10px", background: "rgba(16,185,129,0.15)", color: "#10b981" }}>
             <SvgIcon name="check-circle" size={22} />
           </div>

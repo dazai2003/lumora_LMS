@@ -483,11 +483,6 @@ export default function StudentQuizTakePage({ params }: { params: Promise<{ id: 
           background: "var(--bg-card)", borderRadius: "var(--radius-lg)",
           border: "1px solid var(--border-subtle)", overflow: "hidden",
         }}>
-          <div style={{
-            position: "absolute", top: 0, left: 0, right: 0, height: 4,
-            background: `linear-gradient(90deg, ${scoreColor}, #7C3AED)`,
-          }} />
-
           <SvgIcon name="award" size={42} style={{ color: scoreColor, marginBottom: "0.5rem" }} />
           <h1 style={{ fontSize: "1.75rem", fontWeight: 800, color: "var(--text-primary)", marginBottom: "0.25rem" }}>
             {pct >= 70 ? "Great Job!" : pct >= 50 ? "Good Effort!" : "Keep Practicing!"}
@@ -575,7 +570,7 @@ export default function StudentQuizTakePage({ params }: { params: Promise<{ id: 
 
         {/* Pending Evaluation Notice Card */}
         {pendingCount > 0 && (
-          <div className="card shadow-sm animate-fade-in" style={{ padding: "1.25rem 1.5rem", marginBottom: "1.5rem", borderLeft: "4px solid #F59E0B", background: "var(--bg-card)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div className="card shadow-sm animate-fade-in" style={{ padding: "1.25rem 1.5rem", marginBottom: "1.5rem", border: "1px solid var(--border-subtle)", background: "var(--bg-card)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
               <div style={{ width: 40, height: 40, borderRadius: "10px", background: "rgba(245,158,11,0.12)", color: "#F59E0B", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 <SvgIcon name="clock" size={20} />
@@ -617,7 +612,7 @@ export default function StudentQuizTakePage({ params }: { params: Promise<{ id: 
 
               return (
                 <div id={`question-${q.id}`} key={q.id} className="card shadow-sm" style={{
-                  borderLeft: `4px solid ${borderColor}`, padding: "1.5rem",
+                  border: "1px solid var(--border-subtle)", padding: "1.5rem",
                   transition: "transform 0.15s ease", scrollMarginTop: "2rem"
                 }}>
                   {/* Question Card Header */}

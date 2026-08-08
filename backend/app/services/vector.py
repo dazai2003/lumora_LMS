@@ -226,3 +226,76 @@ def check_duplicate_question(new_text: str, existing_questions: List[Dict], thre
     except Exception as e:
         logger.error(f"Duplicate check failed: {e}")
         return []
+
+
+def scan_all_duplicates(questions_list: List[Dict], threshold: float = 0.85) -> List[Dict]:
+    """
+    Perform a fast batch vector scan across all questions to find duplicate pairs.
+    Returns a list of duplicate groups:
+    [
+        {
+            "originalId": 1,
+            "text": "What is cell?",
+            "duplicates": [{"id": 5, "text": "What is a cell?", "similarity": 0.95}]
+        }
+    ]
+    """
+    if not questions_list or len(questions_list) < 2:
+        return []
+
+    try:
+        model = _get_embedding_model()
+        import numpy as np
+
+        valid_questions = [q for q in questions_list if q.get("text", "").strip()]
+        if len(valid_questions) < 2:
+            return []
+
+        texts = [q["text"] for q in valid_questions]
+        embeddings = model.encode(texts)
+
+        # Normalize rows
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+        norms[norms == 0] = 1e-10
+        normed_embeddings = embeddings / norms
+
+        # Cosine similarity matrix (N x N)
+        sim_matrix = np.dot(normed_embeddings, normed_embeddings.T)
+
+        found_groups = []
+        seen_pairs = set()
+
+        for i in range(len(valid_questions)):
+            q_i = valid_questions[i]
+            q_i_id = q_i["id"]
+            dups = []
+
+            for j in range(i + 1, len(valid_questions)):
+                q_j = valid_questions[j]
+                q_j_id = q_j["id"]
+                pair_key = tuple(sorted([q_i_id, q_j_id]))
+                if pair_key in seen_pairs:
+                    continue
+
+                sim = float(sim_matrix[i, j])
+                if sim >= threshold:
+                    seen_pairs.add(pair_key)
+                    dups.append({
+                        "id": q_j_id,
+                        "text": q_j["text"],
+                        "similarity": round(sim, 4)
+                    })
+
+            if dups:
+                found_groups.append({
+                    "originalId": q_i_id,
+                    "text": q_i["text"],
+                    "duplicates": dups
+                })
+
+        return found_groups
+
+    except Exception as e:
+        logger.error(f"Batch duplicate scan failed: {e}")
+        return []
+

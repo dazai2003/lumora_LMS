@@ -551,6 +551,20 @@ class ApiClient {
     });
   }
 
+  async checkDuplicateQuestion(questionText: string, lessonId?: number) {
+    return this.request<{ is_duplicate: boolean; duplicates: any[] }>("/questions/check-duplicate", {
+      method: "POST",
+      body: JSON.stringify({ question_text: questionText, lesson_id: lessonId }),
+    });
+  }
+
+  async scanDuplicateQuestions(lessonId?: number) {
+    return this.request<{ total_scanned: number; duplicate_groups: any[] }>("/questions/scan-duplicates", {
+      method: "POST",
+      body: JSON.stringify({ lesson_id: lessonId }),
+    });
+  }
+
   // ─── Phase 2 Question Pools ─────────────────
   async getQuestionPools(courseId?: number) {
     const url = courseId ? `/pools?course_id=${courseId}` : "/pools";
