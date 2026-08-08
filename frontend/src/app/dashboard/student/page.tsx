@@ -329,19 +329,19 @@ export default function StudentDashboard() {
               {/* Tri-Factor Breakdown Pills */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.5rem" }}>
                 <div style={{ padding: "0.4rem 0.6rem", borderRadius: "var(--radius-sm)", background: "var(--bg-tertiary)", border: "1px solid var(--border-subtle)", fontSize: "0.725rem" }}>
-                  <div style={{ color: "var(--text-muted)", fontSize: "0.675rem", fontWeight: 700 }}>📘 Materials (45%)</div>
+                  <div style={{ color: "var(--text-muted)", fontSize: "0.675rem", fontWeight: 700 }}>Materials (45%)</div>
                   <div style={{ fontWeight: 800, color: "var(--text-primary)" }}>
                     {activeSnapshot.perf?.materials_score ?? 45.0}% <span style={{ fontSize: "0.675rem", color: "var(--text-muted)", fontWeight: 500 }}>({activeSnapshot.perf?.completed_materials ?? 0}/{activeSnapshot.perf?.total_materials ?? 0})</span>
                   </div>
                 </div>
                 <div style={{ padding: "0.4rem 0.6rem", borderRadius: "var(--radius-sm)", background: "var(--bg-tertiary)", border: "1px solid var(--border-subtle)", fontSize: "0.725rem" }}>
-                  <div style={{ color: "var(--text-muted)", fontSize: "0.675rem", fontWeight: 700 }}>📝 Coursework (35%)</div>
+                  <div style={{ color: "var(--text-muted)", fontSize: "0.675rem", fontWeight: 700 }}>Coursework (35%)</div>
                   <div style={{ fontWeight: 800, color: "var(--text-primary)" }}>
                     {activeSnapshot.perf?.coursework_score ?? 35.0}% <span style={{ fontSize: "0.675rem", color: "var(--text-muted)", fontWeight: 500 }}>({activeSnapshot.perf?.submitted_assignments ?? 0}/{activeSnapshot.perf?.total_assignments ?? 0})</span>
                   </div>
                 </div>
                 <div style={{ padding: "0.4rem 0.6rem", borderRadius: "var(--radius-sm)", background: "var(--bg-tertiary)", border: "1px solid var(--border-subtle)", fontSize: "0.725rem" }}>
-                  <div style={{ color: "var(--text-muted)", fontSize: "0.675rem", fontWeight: 700 }}>🧩 Quizzes (20%)</div>
+                  <div style={{ color: "var(--text-muted)", fontSize: "0.675rem", fontWeight: 700 }}>Quizzes (20%)</div>
                   <div style={{ fontWeight: 800, color: "var(--text-primary)" }}>
                     {activeSnapshot.perf?.quiz_score ?? 20.0}% <span style={{ fontSize: "0.675rem", color: "var(--text-muted)", fontWeight: 500 }}>({activeSnapshot.perf?.completed_quizzes ?? 0}/{activeSnapshot.perf?.total_quizzes ?? 0})</span>
                   </div>
