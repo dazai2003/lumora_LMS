@@ -70,6 +70,35 @@ export default function StudentDashboard() {
 
   const [briefingTab, setBriefingTab] = useState<"priority" | "assignments" | "notifications">("priority");
   const [activeCourseIndex, setActiveCourseIndex] = useState(0);
+  const [slideDirection, setSlideDirection] = useState<"right" | "left" | "">("");
+  const [touchStartX, setTouchStartX] = useState<number | null>(null);
+
+  const handleNextCourse = (total: number) => {
+    setSlideDirection("right");
+    setActiveCourseIndex(prev => (prev === total - 1 ? 0 : prev + 1));
+  };
+
+  const handlePrevCourse = (total: number) => {
+    setSlideDirection("left");
+    setActiveCourseIndex(prev => (prev === 0 ? total - 1 : prev - 1));
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setTouchStartX(e.touches[0].clientX);
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent, total: number) => {
+    if (touchStartX === null || total <= 1) return;
+    const diff = touchStartX - e.changedTouches[0].clientX;
+    if (Math.abs(diff) > 35) {
+      if (diff > 0) {
+        handleNextCourse(total);
+      } else {
+        handlePrevCourse(total);
+      }
+    }
+    setTouchStartX(null);
+  };
 
   const unreadNotifs = notifications.filter((n: any) => !n.is_read);
   const todayDate = new Date().toISOString().slice(0, 10);
@@ -253,12 +282,19 @@ export default function StudentDashboard() {
         </div>
 
         {activeSnapshot ? (
-          <div className="card shadow-sm animate-fade-in" style={{
-            padding: "1.15rem 1.4rem", borderRadius: "var(--radius-lg)",
-            background: "linear-gradient(135deg, rgba(37,99,235,0.05) 0%, rgba(124,58,237,0.07) 100%)",
-            border: "1px solid rgba(124,58,237,0.25)",
-            display: "flex", flexDirection: "column", justifyContent: "space-between", flex: 1, gap: "0.85rem"
-          }}>
+          <div 
+            key={`${activeSnapshot.course.id}-${activeCourseIndex}`}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={(e) => handleTouchEnd(e, courseSnapshots.length)}
+            className={`card shadow-sm ${slideDirection === 'right' ? 'animate-slide-right' : slideDirection === 'left' ? 'animate-slide-left' : 'animate-fade-in'}`}
+            style={{
+              padding: "1.15rem 1.4rem", borderRadius: "var(--radius-lg)",
+              background: "linear-gradient(135deg, rgba(37,99,235,0.05) 0%, rgba(124,58,237,0.07) 100%)",
+              border: "1px solid rgba(124,58,237,0.25)",
+              display: "flex", flexDirection: "column", justifyContent: "space-between", flex: 1, gap: "0.85rem",
+              touchAction: "pan-y"
+            }}
+          >
             
             {/* Top Row: Course Header + In-Card Arrow Carousel Navigation */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "1rem", flexWrap: "wrap" }}>
@@ -279,15 +315,40 @@ export default function StudentDashboard() {
               {/* In-Card Arrow Controls for swapping courses */}
               {courseSnapshots.length > 1 && (
                 <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "var(--bg-card)", padding: "0.3rem 0.55rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border-subtle)" }}>
+                  {/* Pagination Dots */}
+                  <div style={{ display: "flex", gap: "0.25rem", alignItems: "center", marginRight: "0.2rem" }}>
+                    {courseSnapshots.map((_, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => {
+                          setSlideDirection(idx > activeCourseIndex ? "right" : "left");
+                          setActiveCourseIndex(idx);
+                        }}
+                        style={{
+                          width: idx === activeCourseIndex ? "12px" : "6px",
+                          height: "6px",
+                          borderRadius: "3px",
+                          background: idx === activeCourseIndex ? "var(--accent-primary)" : "var(--border-subtle)",
+                          border: "none",
+                          padding: 0,
+                          cursor: "pointer",
+                          transition: "all 0.25s ease"
+                        }}
+                        aria-label={`Go to course ${idx + 1}`}
+                      />
+                    ))}
+                  </div>
+
                   <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-muted)" }}>
-                    Course {activeCourseIndex + 1} of {courseSnapshots.length}
+                    {activeCourseIndex + 1}/{courseSnapshots.length}
                   </span>
                   <div style={{ display: "flex", gap: "0.25rem" }}>
                     <button
                       type="button"
                       className="btn-secondary btn-sm"
                       aria-label="Previous course"
-                      onClick={() => setActiveCourseIndex(prev => (prev === 0 ? courseSnapshots.length - 1 : prev - 1))}
+                      onClick={() => handlePrevCourse(courseSnapshots.length)}
                       style={{ padding: "0.15rem 0.4rem", display: "inline-flex", alignItems: "center" }}
                     >
                       <SvgIcon name="chevron-left" size={13} />
@@ -296,7 +357,7 @@ export default function StudentDashboard() {
                       type="button"
                       className="btn-secondary btn-sm"
                       aria-label="Next course"
-                      onClick={() => setActiveCourseIndex(prev => (prev === courseSnapshots.length - 1 ? 0 : prev + 1))}
+                      onClick={() => handleNextCourse(courseSnapshots.length)}
                       style={{ padding: "0.15rem 0.4rem", display: "inline-flex", alignItems: "center" }}
                     >
                       <SvgIcon name="chevron-right" size={13} />

@@ -595,7 +595,7 @@ export default function TeacherAnalyticsPage() {
                     </div>
 
                     {/* Student Question Text */}
-                    <div style={{ padding: "0.75rem 0.9rem", borderRadius: "var(--radius-sm)", background: "var(--bg-tertiary)", borderLeft: "3px solid var(--accent-primary)", fontSize: "0.85rem", color: "var(--text-primary)", fontWeight: 600 }}>
+                    <div style={{ padding: "0.75rem 0.9rem", borderRadius: "var(--radius-sm)", background: "var(--bg-tertiary)", border: "1px solid var(--border-subtle)", fontSize: "0.85rem", color: "var(--text-primary)", fontWeight: 600 }}>
                       "{q.question_text}"
                     </div>
 

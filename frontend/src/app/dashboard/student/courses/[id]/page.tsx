@@ -122,7 +122,7 @@ export default function StudentCourseDetailPage({ params }: { params: Promise<{ 
               <Link key={lesson.id} href={`/dashboard/student/courses/${courseId}/lessons/${lesson.id}`} style={{ textDecoration: "none" }}>
                 <div className="card" style={{ 
                   display: "flex", alignItems: "center", gap: "1.25rem", padding: "1.25rem", 
-                  borderLeft: isCurrent ? "4px solid var(--accent-primary)" : "1px solid var(--border-subtle)",
+                  border: isCurrent ? "1px solid var(--accent-primary)" : "1px solid var(--border-subtle)",
                   background: isCurrent ? "rgba(37, 99, 235, 0.02)" : "var(--bg-primary)",
                   transition: "all 0.2s ease"
                 }}>
