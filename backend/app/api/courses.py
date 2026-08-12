@@ -200,16 +200,130 @@ async def delete_course(
     current_user: User = Depends(require_admin_or_teacher),
     db: Session = Depends(get_db),
 ):
-    """Delete a course and all its data."""
+    """Delete a course and all its data cleanly."""
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
     if current_user.role == UserRole.TEACHER and course.teacher_id != current_user.id:
         raise HTTPException(status_code=403, detail="You can only delete your own courses")
 
-    db.delete(course)
-    db.commit()
-    return {"message": f"Course '{course.title}' has been deleted", "success": True}
+    course_title = course.title
+
+    try:
+        # Import models locally to avoid circular dependencies
+        from app.models import (
+            Assignment, AssignmentSubmission, SubmissionFile, SubmissionHistory,
+            AssignmentFile, AssignmentResource, AssignmentGroup, GroupMember,
+            AssignmentRubric, RubricCriteria, RubricScoreDetail, PlagiarismReport,
+            SubmissionVersion, SubmissionComment, SubmissionSuggestion, SubmissionSectionFeedback,
+            DocumentExtraction, Quiz, QuizAttempt, Answer, QuizQuestion, IntegrityEvent,
+            Lesson, Material, MaterialFlag, MaterialNote, StudentMaterialProgress,
+            Enrollment, Subscription, Payment, TeacherQuestion, DirectMessage,
+            QuestionPool, QuestionPoolItem, QuizPoolRule, StudentRecommendation,
+            AITutorSession, StudentQuestion, AIResponse, GradingRubric, RubricScore
+        )
+
+        # 1. Assignments & Submissions
+        assignments = db.query(Assignment).filter(Assignment.course_id == course_id).all()
+        for asgn in assignments:
+            submissions = db.query(AssignmentSubmission).filter(AssignmentSubmission.assignment_id == asgn.id).all()
+            for sub in submissions:
+                db.query(SubmissionFile).filter(SubmissionFile.submission_id == sub.id).delete(synchronize_session=False)
+                db.query(SubmissionHistory).filter(SubmissionHistory.submission_id == sub.id).delete(synchronize_session=False)
+                db.query(PlagiarismReport).filter(PlagiarismReport.submission_id == sub.id).delete(synchronize_session=False)
+                db.query(SubmissionVersion).filter(SubmissionVersion.submission_id == sub.id).delete(synchronize_session=False)
+                db.query(SubmissionComment).filter(SubmissionComment.submission_id == sub.id).delete(synchronize_session=False)
+                db.query(SubmissionSuggestion).filter(SubmissionSuggestion.submission_id == sub.id).delete(synchronize_session=False)
+                db.query(SubmissionSectionFeedback).filter(SubmissionSectionFeedback.submission_id == sub.id).delete(synchronize_session=False)
+                db.query(DocumentExtraction).filter(DocumentExtraction.submission_id == sub.id).delete(synchronize_session=False)
+                db.query(RubricScoreDetail).filter(RubricScoreDetail.submission_id == sub.id).delete(synchronize_session=False)
+                db.delete(sub)
+            db.flush()
+
+            # Rubrics & Files for assignment
+            rubrics = db.query(AssignmentRubric).filter(AssignmentRubric.assignment_id == asgn.id).all()
+            for r in rubrics:
+                db.query(RubricCriteria).filter(RubricCriteria.rubric_id == r.id).delete(synchronize_session=False)
+                db.delete(r)
+            db.query(AssignmentFile).filter(AssignmentFile.assignment_id == asgn.id).delete(synchronize_session=False)
+            db.query(AssignmentResource).filter(AssignmentResource.assignment_id == asgn.id).delete(synchronize_session=False)
+            
+            groups = db.query(AssignmentGroup).filter(AssignmentGroup.assignment_id == asgn.id).all()
+            for grp in groups:
+                db.query(GroupMember).filter(GroupMember.group_id == grp.id).delete(synchronize_session=False)
+                db.delete(grp)
+            db.delete(asgn)
+        db.flush()
+
+        # 2. Quizzes & Attempts
+        quizzes = db.query(Quiz).filter(Quiz.course_id == course_id).all()
+        for qz in quizzes:
+            attempts = db.query(QuizAttempt).filter(QuizAttempt.quiz_id == qz.id).all()
+            for att in attempts:
+                answers = db.query(Answer).filter(Answer.attempt_id == att.id).all()
+                for ans in answers:
+                    db.query(RubricScore).filter(RubricScore.answer_id == ans.id).delete(synchronize_session=False)
+                    db.delete(ans)
+                db.query(IntegrityEvent).filter(IntegrityEvent.attempt_id == att.id).delete(synchronize_session=False)
+                db.delete(att)
+            db.query(QuizQuestion).filter(QuizQuestion.quiz_id == qz.id).delete(synchronize_session=False)
+            db.query(QuizPoolRule).filter(QuizPoolRule.quiz_id == qz.id).delete(synchronize_session=False)
+            db.delete(qz)
+        db.flush()
+
+        # 3. Question Pools
+        pools = db.query(QuestionPool).filter(QuestionPool.course_id == course_id).all()
+        for pool in pools:
+            db.query(QuestionPoolItem).filter(QuestionPoolItem.pool_id == pool.id).delete(synchronize_session=False)
+            db.delete(pool)
+        db.flush()
+
+        # 4. Grading Rubrics for course
+        g_rubrics = db.query(GradingRubric).filter(GradingRubric.course_id == course_id).all()
+        for gr in g_rubrics:
+            db.delete(gr)
+        db.flush()
+
+        # 5. Lessons & Materials
+        lessons = db.query(Lesson).filter(Lesson.course_id == course_id).all()
+        for les in lessons:
+            materials = db.query(Material).filter(Material.lesson_id == les.id).all()
+            for mat in materials:
+                db.query(MaterialFlag).filter(MaterialFlag.material_id == mat.id).delete(synchronize_session=False)
+                db.query(MaterialNote).filter(MaterialNote.material_id == mat.id).delete(synchronize_session=False)
+                db.query(StudentMaterialProgress).filter(StudentMaterialProgress.material_id == mat.id).delete(synchronize_session=False)
+                db.delete(mat)
+            db.delete(les)
+        db.flush()
+
+        # 6. Enrollments, Subscriptions, Payments
+        db.query(Enrollment).filter(Enrollment.course_id == course_id).delete(synchronize_session=False)
+        db.query(Subscription).filter(Subscription.course_id == course_id).delete(synchronize_session=False)
+        db.query(Payment).filter(Payment.course_id == course_id).delete(synchronize_session=False)
+
+        # 7. Communications & Q&A
+        db.query(TeacherQuestion).filter(TeacherQuestion.course_id == course_id).delete(synchronize_session=False)
+        db.query(DirectMessage).filter(DirectMessage.course_id == course_id).delete(synchronize_session=False)
+        db.query(StudentRecommendation).filter(StudentRecommendation.course_id == course_id).delete(synchronize_session=False)
+
+        sqs = db.query(StudentQuestion).filter(StudentQuestion.course_id == course_id).all()
+        for sq in sqs:
+            db.query(AIResponse).filter(AIResponse.student_question_id == sq.id).delete(synchronize_session=False)
+            db.delete(sq)
+
+        t_sessions = db.query(AITutorSession).filter(AITutorSession.course_id == course_id).all()
+        for ts in t_sessions:
+            db.delete(ts)
+        db.flush()
+
+        # Finally delete course
+        db.delete(course)
+        db.commit()
+        return {"message": f"Course '{course_title}' has been deleted", "success": True}
+    except Exception as err:
+        db.rollback()
+        logger.error(f"Error deleting course {course_id}: {err}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to delete course: {str(err)}")
 
 
 # ──────────────────────────────────────────────

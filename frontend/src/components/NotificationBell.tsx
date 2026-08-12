@@ -71,7 +71,7 @@ export default function NotificationBell() {
     } else if (n.type === "course") {
       if (role === "student") {
         if (n.title.toLowerCase().includes("material")) {
-          router.push(n.related_entity_id ? `/dashboard/student/courses/${n.related_entity_id}` : "/dashboard/student/billing?tab=browse");
+          router.push(n.related_entity_id ? `/dashboard/student/courses/${n.related_entity_id}` : "/dashboard/student/browse");
         } else {
           router.push("/dashboard/student/assessments");
         }

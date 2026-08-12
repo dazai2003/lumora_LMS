@@ -122,9 +122,7 @@ export default function StudentOnboardingModal({
       onComplete();
       onClose();
 
-      if (paymentOption === "pay_now") {
-        window.location.href = "/dashboard/student/billing?tab=browse";
-      }
+      window.location.href = "/dashboard/student/browse";
     } catch (err: any) {
       addToast(err.message || "Failed to complete class enrollment.", "error");
     } finally {

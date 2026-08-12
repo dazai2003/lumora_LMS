@@ -519,3 +519,60 @@ def import_questions_endpoint(
     count = import_questions_from_json(db, json_str)
     return {"message": f"Successfully imported {count} questions", "count": count, "success": True}
 
+
+@router.delete("/{question_id}")
+def delete_question_endpoint(
+    question_id: int,
+    current_user: User = Depends(require_admin_or_teacher),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a question (or question version) from the question bank completely.
+    """
+    from app.models import QuestionPoolItem, QuizQuestion, QuestionAnalytics, Answer, RubricScore, GradingRubric
+    
+    # Try finding parent Question first
+    q = db.query(Question).filter(Question.id == question_id).first()
+    if not q:
+        # If not found by question_id, check if question_id is actually a QuestionVersion.id
+        v = db.query(QuestionVersion).filter(QuestionVersion.id == question_id).first()
+        if v:
+            q = db.query(Question).filter(Question.id == v.question_id).first()
+
+    if not q:
+        raise HTTPException(status_code=404, detail="Question not found")
+
+    target_question_id = q.id
+
+    try:
+        # 1. Clean analytics & pool items
+        db.query(QuestionAnalytics).filter(QuestionAnalytics.question_id == target_question_id).delete(synchronize_session=False)
+        db.query(QuestionPoolItem).filter(QuestionPoolItem.question_id == target_question_id).delete(synchronize_session=False)
+        db.query(GradingRubric).filter(GradingRubric.question_id == target_question_id).delete(synchronize_session=False)
+        db.flush()
+
+        # 2. Clean versions and their answers/quiz_questions
+        for v in q.versions:
+            answers = db.query(Answer).filter(Answer.question_version_id == v.id).all()
+            for ans in answers:
+                db.query(RubricScore).filter(RubricScore.answer_id == ans.id).delete(synchronize_session=False)
+                db.delete(ans)
+            db.query(QuizQuestion).filter(QuizQuestion.question_version_id == v.id).delete(synchronize_session=False)
+            db.delete(v)
+        db.flush()
+
+        # 3. Delete parent question
+        db.delete(q)
+        db.commit()
+
+        from app.services.audit import log_audit_event
+        log_audit_event(
+            db=db, action="QUESTION_DELETED", entity_type="question", entity_id=target_question_id,
+            actor_id=current_user.id, actor_email=current_user.email
+        )
+        return {"message": "Question deleted successfully", "success": True}
+    except Exception as err:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete question: {str(err)}")
+
+

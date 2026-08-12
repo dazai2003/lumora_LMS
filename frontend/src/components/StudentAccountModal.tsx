@@ -3,9 +3,8 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import Modal from "@/components/Modal";
 import { SvgIcon } from "@/components/SvgIcon";
-import api, { PaymentResponse, SubscriptionResponse } from "@/lib/api";
+import api from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
-import ReceiptModal from "@/components/ReceiptModal";
 import Link from "next/link";
 
 interface StudentAccountModalProps {
@@ -924,9 +923,6 @@ export default function StudentAccountModal({
   onClose,
   user,
 }: StudentAccountModalProps) {
-  if (modalType === "billing") {
-    return <SubscriptionsReceiptsModal onClose={onClose} user={user} />;
-  }
   if (modalType === "guide") {
     return <PlatformGuideModal onClose={onClose} />;
   }

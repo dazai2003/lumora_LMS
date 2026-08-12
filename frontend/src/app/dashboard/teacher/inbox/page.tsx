@@ -296,12 +296,6 @@ function InboxPageContent() {
               >
                 Students ({conversations.filter(c => c.course_id > 0 && c.course_title !== "System Admin Support").length})
               </button>
-              <button 
-                onClick={() => setTabFilter("admin")}
-                style={{ flex: 1, padding: "0.35rem 0.4rem", borderRadius: "6px", fontSize: "0.75rem", fontWeight: 600, border: "none", cursor: "pointer", background: tabFilter === "admin" ? "#ef4444" : "transparent", color: tabFilter === "admin" ? "white" : "var(--text-secondary)", transition: "all 0.15s ease" }}
-              >
-                Admin ({conversations.filter(c => c.course_id === 0 || c.course_title === "System Admin Support").length})
-              </button>
             </div>
             <div style={{ position: "relative" }}>
               <input 

@@ -104,7 +104,7 @@ async def delete_lesson(
     current_user: User = Depends(require_admin_or_teacher),
     db: Session = Depends(get_db),
 ):
-    """Delete a lesson and all its materials."""
+    """Delete a lesson and all its dependent materials/assessments cleanly."""
     lesson = db.query(Lesson).filter(Lesson.id == lesson_id).first()
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
@@ -113,9 +113,56 @@ async def delete_lesson(
     if current_user.role == UserRole.TEACHER and course.teacher_id != current_user.id:
         raise HTTPException(status_code=403, detail="You can only delete lessons in your own courses")
 
-    db.delete(lesson)
-    db.commit()
-    return {"message": f"Lesson '{lesson.title}' has been deleted", "success": True}
+    lesson_title = lesson.title
+
+    try:
+        from app.models import (
+            Material, MaterialFlag, MaterialNote, StudentMaterialProgress,
+            Quiz, QuizAttempt, Answer, QuizQuestion, IntegrityEvent,
+            Assignment, AssignmentSubmission, SubmissionFile, Question
+        )
+
+        # 1. Unlink questions referencing this lesson
+        db.query(Question).filter(Question.lesson_id == lesson_id).update({"lesson_id": None}, synchronize_session=False)
+
+        # 2. Delete materials & student progress
+        materials = db.query(Material).filter(Material.lesson_id == lesson_id).all()
+        for mat in materials:
+            db.query(MaterialFlag).filter(MaterialFlag.material_id == mat.id).delete(synchronize_session=False)
+            db.query(MaterialNote).filter(MaterialNote.material_id == mat.id).delete(synchronize_session=False)
+            db.query(StudentMaterialProgress).filter(StudentMaterialProgress.material_id == mat.id).delete(synchronize_session=False)
+            db.delete(mat)
+        db.flush()
+
+        # 3. Delete quizzes & attempts
+        quizzes = db.query(Quiz).filter(Quiz.lesson_id == lesson_id).all()
+        for qz in quizzes:
+            attempts = db.query(QuizAttempt).filter(QuizAttempt.quiz_id == qz.id).all()
+            for att in attempts:
+                db.query(Answer).filter(Answer.attempt_id == att.id).delete(synchronize_session=False)
+                db.query(IntegrityEvent).filter(IntegrityEvent.attempt_id == att.id).delete(synchronize_session=False)
+                db.delete(att)
+            db.query(QuizQuestion).filter(QuizQuestion.quiz_id == qz.id).delete(synchronize_session=False)
+            db.delete(qz)
+        db.flush()
+
+        # 4. Delete assignments & submissions
+        assignments = db.query(Assignment).filter(Assignment.lesson_id == lesson_id).all()
+        for asgn in assignments:
+            submissions = db.query(AssignmentSubmission).filter(AssignmentSubmission.assignment_id == asgn.id).all()
+            for sub in submissions:
+                db.query(SubmissionFile).filter(SubmissionFile.submission_id == sub.id).delete(synchronize_session=False)
+                db.delete(sub)
+            db.delete(asgn)
+        db.flush()
+
+        # Delete lesson
+        db.delete(lesson)
+        db.commit()
+        return {"message": f"Lesson '{lesson_title}' has been deleted", "success": True}
+    except Exception as err:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete lesson: {str(err)}")
 
 
 def _build_lesson_response(lesson: Lesson, db: Session) -> LessonResponse:

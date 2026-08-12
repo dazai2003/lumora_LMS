@@ -173,24 +173,6 @@ class ApiClient {
     });
   }
 
-  async adminCreateUser(data: { email: string; full_name: string; password: string; role: "admin" | "teacher" | "student" }) {
-    return this.request<User>("/users/", {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
-  }
-
-  async adminDeleteUser(userId: number) {
-    return this.request<{ message: string; success: boolean }>(`/users/${userId}`, { method: "DELETE" });
-  }
-
-  async adminUpdateUser(userId: number, data: { full_name?: string }) {
-    return this.request<User>(`/users/${userId}`, {
-      method: "PATCH",
-      body: JSON.stringify(data)
-    });
-  }
-
   async deleteUser(userId: number) {
     return this.request(`/users/${userId}`, { method: "DELETE" });
   }
@@ -217,10 +199,6 @@ class ApiClient {
       method: "POST",
       body: JSON.stringify(data),
     });
-  }
-
-  async adminDeleteCourse(courseId: number) {
-    return this.request<{ message: string; success: boolean }>(`/courses/${courseId}`, { method: "DELETE" });
   }
 
   async updateCourse(
@@ -258,6 +236,45 @@ class ApiClient {
     return this.request(`/courses/${courseId}/students`);
   }
 
+  // ─── Units ─────────────────────────────
+  async listUnits(courseId: number) {
+    return this.request<UnitWithLessons[]>(`/units/course/${courseId}`);
+  }
+
+  async getUnit(unitId: number) {
+    return this.request<Unit>(`/units/${unitId}`);
+  }
+
+  async createUnit(data: {
+    title: string;
+    description?: string;
+    order?: number;
+    course_id: number;
+  }) {
+    return this.request<Unit>("/units/", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateUnit(
+    unitId: number,
+    data: Partial<{
+      title: string;
+      description: string;
+      order: number;
+    }>
+  ) {
+    return this.request<Unit>(`/units/${unitId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteUnit(unitId: number) {
+    return this.request<{ message: string; success: boolean }>(`/units/${unitId}`, { method: "DELETE" });
+  }
+
   // ─── Lessons ───────────────────────────
   async listLessons(courseId: number) {
     return this.request<Lesson[]>(`/lessons/course/${courseId}`);
@@ -272,6 +289,7 @@ class ApiClient {
     description?: string;
     order?: number;
     course_id: number;
+    unit_id?: number;
   }) {
     return this.request<Lesson>("/lessons/", {
       method: "POST",
@@ -303,8 +321,19 @@ class ApiClient {
     return this.request<Material[]>(`/materials/lesson/${lessonId}`);
   }
 
+  async listCourseMaterials(courseId: number) {
+    return this.request<Material[]>(`/materials/course/${courseId}`);
+  }
+
   async uploadMaterial(formData: FormData) {
     return this.request<Material>("/materials/upload", {
+      method: "POST",
+      body: formData,
+    });
+  }
+
+  async uploadCourseMaterial(formData: FormData) {
+    return this.request<Material>("/materials/course-upload", {
       method: "POST",
       body: formData,
     });
@@ -535,6 +564,10 @@ class ApiClient {
 
   async archiveQuestion(questionId: number) {
     return this.request<{ message: string; success: boolean }>(`/questions/${questionId}/archive`, { method: "POST" });
+  }
+
+  async deleteBankQuestion(questionId: number) {
+    return this.request<{ message: string; success: boolean }>(`/questions/${questionId}`, { method: "DELETE" });
   }
 
   async bulkModerateQuestions(questionIds: number[], action: "approve" | "reject" | "archive") {
@@ -1388,6 +1421,20 @@ export interface PaymentOverview {
   active_subscriptions: number;
 }
 
+export interface Unit {
+  id: number;
+  title: string;
+  description?: string;
+  order: number;
+  course_id: number;
+  created_at: string;
+  lesson_count?: number;
+}
+
+export interface UnitWithLessons extends Unit {
+  lessons: Lesson[];
+}
+
 export interface Lesson {
   id: number;
   title: string;
@@ -1395,8 +1442,9 @@ export interface Lesson {
   order: number;
   is_published: boolean;
   course_id: number;
+  unit_id?: number;
   created_at: string;
-  material_count: number;
+  material_count?: number;
 }
 
 export interface Material {
@@ -1404,11 +1452,13 @@ export interface Material {
   title: string;
   description?: string;
   material_type: "note" | "pdf" | "image" | "video";
+  category?: string;
   file_path?: string;
   content?: string;
   extracted_text?: string;
-  processing_status: string;
-  lesson_id: number;
+  processing_status: "pending" | "processing" | "completed" | "failed";
+  course_id?: number;
+  lesson_id?: number;
   created_at: string;
 }
 

@@ -173,6 +173,36 @@ class EnrollmentResponse(BaseModel):
 
 
 # ──────────────────────────────────────────────
+# Unit Schemas
+# ──────────────────────────────────────────────
+
+class UnitCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = None
+    order: Optional[int] = 0
+    course_id: int
+
+
+class UnitUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    order: Optional[int] = None
+
+
+class UnitResponse(BaseModel):
+    id: int
+    title: str
+    description: Optional[str] = None
+    order: int
+    course_id: int
+    created_at: datetime
+    lesson_count: Optional[int] = 0
+
+    class Config:
+        from_attributes = True
+
+
+# ──────────────────────────────────────────────
 # Lesson Schemas
 # ──────────────────────────────────────────────
 
@@ -181,6 +211,7 @@ class LessonCreate(BaseModel):
     description: Optional[str] = None
     order: Optional[int] = 0
     course_id: int
+    unit_id: Optional[int] = None
 
 
 class LessonUpdate(BaseModel):
@@ -188,6 +219,7 @@ class LessonUpdate(BaseModel):
     description: Optional[str] = None
     order: Optional[int] = None
     is_published: Optional[bool] = None
+    unit_id: Optional[int] = None
 
 
 class LessonResponse(BaseModel):
@@ -197,11 +229,16 @@ class LessonResponse(BaseModel):
     order: int
     is_published: bool
     course_id: int
+    unit_id: Optional[int] = None
     created_at: datetime
     material_count: Optional[int] = 0
 
     class Config:
         from_attributes = True
+
+
+class UnitWithLessonsResponse(UnitResponse):
+    lessons: List[LessonResponse] = []
 
 
 # ──────────────────────────────────────────────
@@ -221,11 +258,13 @@ class MaterialResponse(BaseModel):
     title: str
     description: Optional[str] = None
     material_type: MaterialType
+    category: Optional[str] = "general"
     file_path: Optional[str] = None
     content: Optional[str] = None
     extracted_text: Optional[str] = None
     processing_status: str
-    lesson_id: int
+    course_id: Optional[int] = None
+    lesson_id: Optional[int] = None
     created_at: datetime
 
     class Config:

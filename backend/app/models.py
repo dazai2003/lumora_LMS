@@ -229,6 +229,7 @@ class Course(Base):
 
     # Relationships
     teacher = relationship("User", back_populates="taught_courses")
+    units = relationship("Unit", back_populates="course", cascade="all, delete-orphan")
     lessons = relationship("Lesson", back_populates="course", cascade="all, delete-orphan")
     quizzes = relationship("Quiz", back_populates="course", cascade="all, delete-orphan")
     enrollments = relationship("Enrollment", back_populates="course", cascade="all, delete-orphan")
@@ -249,8 +250,24 @@ class Enrollment(Base):
 
 
 # ──────────────────────────────────────────────
-# Lessons & Materials
+# Units, Lessons & Materials
 # ──────────────────────────────────────────────
+
+class Unit(Base):
+    __tablename__ = "units"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    order = Column(Integer, default=0)
+    course_id = Column(Integer, ForeignKey("courses.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    course = relationship("Course", back_populates="units")
+    lessons = relationship("Lesson", back_populates="unit", cascade="all, delete-orphan")
+
 
 class Lesson(Base):
     __tablename__ = "lessons"
@@ -261,11 +278,13 @@ class Lesson(Base):
     order = Column(Integer, default=0)
     is_published = Column(Boolean, default=False)
     course_id = Column(Integer, ForeignKey("courses.id"), nullable=False)
+    unit_id = Column(Integer, ForeignKey("units.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
     course = relationship("Course", back_populates="lessons")
+    unit = relationship("Unit", back_populates="lessons")
     materials = relationship("Material", back_populates="lesson", cascade="all, delete-orphan")
     quizzes = relationship("Quiz", back_populates="lesson", cascade="all, delete-orphan")
 
@@ -277,15 +296,18 @@ class Material(Base):
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     material_type = Column(Enum(MaterialType), nullable=False)
+    category = Column(String(100), nullable=True, default="general")  # past_paper, marking_scheme, resource_book, syllabus, general
     file_path = Column(String(500), nullable=True)
     content = Column(Text, nullable=True)  # For notes / extracted text
     extracted_text = Column(Text, nullable=True)  # OCR / Whisper output
     processing_status = Column(Enum(ProcessingStatus), default=ProcessingStatus.PENDING)
-    lesson_id = Column(Integer, ForeignKey("lessons.id"), nullable=False)
+    course_id = Column(Integer, ForeignKey("courses.id"), nullable=True)
+    lesson_id = Column(Integer, ForeignKey("lessons.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
+    course = relationship("Course", foreign_keys=[course_id])
     lesson = relationship("Lesson", back_populates="materials")
     flags = relationship("MaterialFlag", back_populates="material", cascade="all, delete-orphan")
     notes = relationship("MaterialNote", back_populates="material", cascade="all, delete-orphan")

@@ -512,7 +512,7 @@ export default function StudentDashboard() {
             <SvgIcon name="book" className="empty-state-icon" style={{ opacity: 0.3 }} />
             <div className="empty-state-title" style={{ fontSize: "1.1rem" }}>You are not enrolled in any courses yet.</div>
             <div className="empty-state-desc" style={{ fontSize: "0.85rem" }}>Explore the course catalog to start learning.</div>
-            <Link href="/dashboard/student/billing?tab=browse" className="btn-primary btn-sm" style={{ textDecoration: "none", marginTop: "1rem" }}>
+            <Link href="/dashboard/student/browse" className="btn-primary btn-sm" style={{ textDecoration: "none", marginTop: "1rem" }}>
               Browse & Enroll Classes
             </Link>
           </div>

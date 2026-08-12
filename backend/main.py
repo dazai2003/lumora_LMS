@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
-from app.api import auth, users, courses, lessons, materials, quizzes, analytics, qa, notifications, messages, payments, questions, jobs, audit, pools, rubrics, recommendations, students, materials_ai, admin_ai, assignments
+from app.api import auth, users, courses, units, lessons, materials, quizzes, analytics, qa, notifications, messages, payments, questions, jobs, audit, pools, rubrics, recommendations, students, materials_ai, admin_ai, assignments
 from sqlalchemy import text
 from app.database import engine, Base
 
@@ -62,12 +62,14 @@ app.add_middleware(
 )
 
 # Mount uploads directory static files
+os.makedirs("uploads", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # Include API routers
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(users.router, prefix="/api/users", tags=["Users"])
 app.include_router(courses.router, prefix="/api/courses", tags=["Courses"])
+app.include_router(units.router, prefix="/api/units", tags=["Units"])
 app.include_router(lessons.router, prefix="/api/lessons", tags=["Lessons"])
 app.include_router(materials.router, prefix="/api/materials", tags=["Materials"])
 app.include_router(materials_ai.router, prefix="/api/materials", tags=["Material AI Insights"])

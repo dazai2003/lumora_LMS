@@ -93,7 +93,7 @@ export default function StudentCoursesPage() {
           <SvgIcon name="book" className="empty-state-icon" style={{ opacity: 0.3 }} />
           <div className="empty-state-title">No courses yet</div>
           <div className="empty-state-desc">Browse available courses and enroll to start learning.</div>
-          <Link href="/dashboard/student/billing?tab=browse" className="btn-primary" style={{ marginTop: "1rem", textDecoration: "none" }}>Browse & Enroll Classes</Link>
+          <Link href="/dashboard/student/browse" className="btn-primary" style={{ marginTop: "1rem", textDecoration: "none" }}>Browse & Enroll Classes</Link>
         </div>
       )}
     </div>

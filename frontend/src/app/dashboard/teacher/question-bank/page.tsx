@@ -4,12 +4,17 @@ import { useState, useEffect } from "react";
 import api, { QuestionVersionResponse, QuestionAnalyticsResponse } from "@/lib/api";
 import { SvgIcon } from "@/components/SvgIcon";
 import Modal from "@/components/Modal";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 
 export default function QuestionBankPage() {
   const { addToast } = useToast();
   const [questions, setQuestions] = useState<QuestionVersionResponse[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Delete state
+  const [deleteTarget, setDeleteTarget] = useState<QuestionVersionResponse | null>(null);
+  const [deleting, setDeleting] = useState(false);
   
   // AI Actions state
   const [improveModalOpen, setImproveModalOpen] = useState(false);
@@ -69,6 +74,22 @@ export default function QuestionBankPage() {
       .then(setQuestions)
       .catch(console.error)
       .finally(() => setLoading(false));
+  };
+
+  const handleDeleteQuestion = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await api.deleteBankQuestion(deleteTarget.question_id || deleteTarget.id);
+      addToast("Question deleted from Question Bank", "success");
+      setDeleteTarget(null);
+      fetchQuestions();
+    } catch (err) {
+      console.error("Failed to delete question", err);
+      addToast("Failed to delete question", "error");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleImproveClick = (qId: number) => {
@@ -264,6 +285,17 @@ export default function QuestionBankPage() {
                     </span>
                   </div>
                 </div>
+                <button 
+                  className="btn-icon btn-icon-danger"
+                  style={{ padding: "0.35rem", flexShrink: 0 }}
+                  title="Delete Question"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDeleteTarget(q);
+                  }}
+                >
+                  <SvgIcon name="trash" size={16} />
+                </button>
               </div>
 
               {expandedId === q.id && (
@@ -599,6 +631,17 @@ export default function QuestionBankPage() {
             </div>
           </div>
         </Modal>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete Question"
+          message={`Are you sure you want to delete this question? "${deleteTarget.question_text}"`}
+          onConfirm={handleDeleteQuestion}
+          onCancel={() => setDeleteTarget(null)}
+          loading={deleting}
+        />
       )}
     </div>
   );

@@ -155,6 +155,69 @@ async def create_note(
     return material
 
 
+@router.post("/course-upload", response_model=MaterialResponse, status_code=status.HTTP_201_CREATED)
+async def upload_course_material(
+    course_id: int = Form(...),
+    title: str = Form(...),
+    category: Optional[str] = Form("general"),
+    material_type: MaterialType = Form(MaterialType.PDF),
+    description: Optional[str] = Form(None),
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_admin_or_teacher),
+    db: Session = Depends(get_db),
+):
+    """Upload course-level reference material (PDFs, Word docs, past papers, marking schemes)."""
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    if current_user.role == UserRole.TEACHER and course.teacher_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only upload materials to your own courses")
+
+    file_ext = os.path.splitext(file.filename)[1].lower()
+    unique_filename = f"{uuid.uuid4()}{file_ext}"
+    course_dir = os.path.join(UPLOAD_DIR, "course_materials", f"course_{course_id}")
+    os.makedirs(course_dir, exist_ok=True)
+    file_path = os.path.join(course_dir, unique_filename)
+
+    with open(file_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    relative_file_path = f"uploads/course_materials/course_{course_id}/{unique_filename}"
+
+    material = Material(
+        title=title,
+        description=description,
+        material_type=material_type,
+        category=category or "general",
+        file_path=relative_file_path,
+        processing_status=ProcessingStatus.COMPLETED,
+        course_id=course_id,
+        lesson_id=None,
+    )
+    db.add(material)
+    db.commit()
+    db.refresh(material)
+    return material
+
+
+@router.get("/course/{course_id}", response_model=List[MaterialResponse])
+async def list_course_materials(
+    course_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """List all course-level reference materials (past papers, marking schemes, resource books)."""
+    check_course_access(course_id, current_user, db)
+    materials = (
+        db.query(Material)
+        .filter(Material.course_id == course_id)
+        .order_by(Material.created_at.desc())
+        .all()
+    )
+    return materials
+
+
 @router.get("/lesson/{lesson_id}", response_model=List[MaterialResponse])
 async def list_materials(
     lesson_id: int,

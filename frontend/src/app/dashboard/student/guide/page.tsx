@@ -29,23 +29,8 @@ const GUIDE_TOPICS: GuideTopic[] = [
       "Select your subject classes (e.g. Biology, Chemistry, Physics) to add them to your dashboard.",
       "Choose 3-Day Free Grace Access or pay monthly tuition immediately."
     ],
-    tips: ["Add more classes anytime under Subscriptions & Class Catalog."],
-    actionLink: { href: "/dashboard/student/billing?tab=browse", label: "Class Catalog" }
-  },
-  {
-    id: "grace-access",
-    category: "getting-started",
-    title: "3-Day Free Grace Access Pass",
-    badge: "TRIAL ACCESS",
-    icon: "sparkle",
-    summary: "Enjoy 3 full days of free access to theory lessons, coursework, and AI Tutor before paying tuition.",
-    steps: [
-      "3-Day Grace Access activates automatically upon joining a subject class.",
-      "Full access to theory videos, PDF notes, and coursework assignments.",
-      "Settle monthly tuition pass anytime during or after the 3 days."
-    ],
-    tips: ["Track fee status anytime in Subscriptions & Receipts."],
-    actionLink: { href: "/dashboard/student/billing?tab=subscriptions", label: "Subscriptions" }
+    tips: ["Add more classes anytime under Browse & Enroll Classes."],
+    actionLink: { href: "/dashboard/student/browse", label: "Browse Classes" }
   },
   {
     id: "viewing-lessons",
@@ -133,22 +118,6 @@ const GUIDE_TOPICS: GuideTopic[] = [
       "Type your question, attach working files, and receive direct teacher replies."
     ],
     actionLink: { href: "/dashboard/student/ask-teacher", label: "Ask Teacher" }
-  },
-  {
-    id: "subscriptions-hub",
-    category: "billing",
-    title: "Subscriptions, Combos & Receipts",
-    badge: "TUITION & BILLING",
-    icon: "credit-card",
-    summary: "Browse classes, unlock 20% 3-Subject Stream Combo discounts, and download official receipts.",
-    steps: [
-      "Click your Profile Avatar (top-right menu) -> 'Subscriptions & Class Catalog'.",
-      "Tab 1: Browse & Enroll in Subject Classes.",
-      "Tab 2: View Active Passes & 20% Stream Combo Discounts.",
-      "Tab 3: View, print, and save official PDF tuition receipts."
-    ],
-    tips: ["Enrolling in 3 core stream subjects automatically unlocks a 20% Combo Discount!"],
-    actionLink: { href: "/dashboard/student/billing?tab=browse", label: "Subscriptions" }
   }
 ];
 
@@ -239,8 +208,7 @@ export default function StudentGuidePage() {
           { id: "coursework", label: "Coursework", icon: "folder" },
           { id: "quizzes", label: "Quizzes", icon: "clipboard" },
           { id: "ai", label: "AI Tutor", icon: "sparkle" },
-          { id: "teacher", label: "Teacher Q&A", icon: "mail" },
-          { id: "billing", label: "Subscriptions", icon: "credit-card" }
+          { id: "teacher", label: "Teacher Q&A", icon: "mail" }
         ].map(cat => {
           const isSelected = selectedCategory === cat.id;
           return (

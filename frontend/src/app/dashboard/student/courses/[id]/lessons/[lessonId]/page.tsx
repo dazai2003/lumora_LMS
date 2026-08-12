@@ -51,8 +51,8 @@ export default function StudentLessonDetailPage({ params }: { params: Promise<{ 
         <p style={{ color: "var(--text-secondary)", fontSize: "1.05rem", lineHeight: 1.6, marginBottom: "2rem" }}>
           Your subscription for this course is overdue. You must resolve your outstanding balance before accessing course content.
         </p>
-        <Link href="/dashboard/student/billing" className="btn-danger" style={{ textDecoration: "none", padding: "0.75rem 2rem", display: "inline-flex", fontSize: "1.05rem" }}>
-          Resolve Overdue Balance
+        <Link href="/dashboard/student/browse" className="btn-primary" style={{ textDecoration: "none", padding: "0.75rem 2rem", display: "inline-flex", fontSize: "1.05rem" }}>
+          Browse & Enroll Classes
         </Link>
       </div>
     );

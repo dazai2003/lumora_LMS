@@ -14,30 +14,6 @@ import TeacherAccountModal from "@/components/TeacherAccountModal";
 import api from "@/lib/api";
 
 const navConfig: Record<string, { label: string; items: { href: string; label: string; icon: string }[] }[]> = {
-  admin: [
-    {
-      label: "Overview",
-      items: [
-        { href: "/dashboard/admin", label: "Dashboard", icon: "grid" },
-        { href: "/dashboard/admin/payments", label: "Payments", icon: "dollar-sign" },
-      ],
-    },
-    {
-      label: "Management",
-      items: [
-        { href: "/dashboard/admin/teachers", label: "Teachers", icon: "users" },
-        { href: "/dashboard/admin/students", label: "Students", icon: "graduation" },
-        { href: "/dashboard/admin/courses", label: "Courses", icon: "book" },
-        { href: "/dashboard/admin/password-resets", label: "Password Resets", icon: "lock" },
-      ],
-    },
-    {
-      label: "Communication",
-      items: [
-        { href: "/dashboard/admin/messages", label: "Teacher Messages", icon: "mail" },
-      ],
-    },
-  ],
   teacher: [
     {
       label: "Overview",
@@ -105,8 +81,7 @@ const labelMap: Record<string, string> = {
   grading: "Grading Queue",
   "question-bank": "Question Bank",
   questions: "Student Questions",
-  browse: "Browse Courses",
-  billing: "Subscriptions & Receipts",
+  browse: "Browse & Enroll Classes",
   guide: "Platform User Guide",
   ask: "Ask AI",
   "ask-teacher": "Ask Teacher",
@@ -174,19 +149,17 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const sections = navConfig[user.role] || [];
 
   const roleBadgeColor: Record<string, string> = {
-    admin: "var(--error)",
     teacher: "var(--accent-primary)",
     student: "var(--accent-secondary)",
   };
 
   const roleLabel: Record<string, string> = {
-    admin: "Administrator",
     teacher: "Teacher",
     student: "Student",
   };
 
   const isNavActive = (href: string) => {
-    if (href === "/dashboard/admin" || href === "/dashboard/teacher" || href === "/dashboard/student") {
+    if (href === "/dashboard/teacher" || href === "/dashboard/student") {
       return pathname === href;
     }
     return pathname === href || pathname.startsWith(href + "/");
@@ -433,7 +406,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                       type="button"
                       onClick={() => {
                         setShowProfileMenu(false);
-                        router.push("/dashboard/student/billing?tab=browse");
+                        router.push("/dashboard/student/browse");
                       }}
                       style={{
                         width: "100%", padding: "0.55rem 1rem", border: "none", background: "none",
@@ -441,8 +414,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                         color: "var(--text-primary)", cursor: "pointer", textAlign: "left"
                       }}
                     >
-                      <SvgIcon name="credit-card" size={16} style={{ color: "#D97706" }} />
-                      <span>Subscriptions & Class Catalog</span>
+                      <SvgIcon name="search" size={16} style={{ color: "var(--accent-primary)" }} />
+                      <span>Browse & Enroll Classes</span>
                     </button>
 
                     <button

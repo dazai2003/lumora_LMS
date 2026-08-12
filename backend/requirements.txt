@@ -21,7 +21,8 @@ python-dotenv==1.1.0
 # (included in FastAPI/Starlette)
 
 # File handling
-python-magic==0.4.27
+python-magic-bin>=0.4.14; sys_platform == 'win32'
+python-magic>=0.4.27; sys_platform != 'win32'
 aiofiles==24.1.0
 
 # AI & ML (Phase 3)
