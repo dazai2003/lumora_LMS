@@ -43,9 +43,15 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const addToast = useCallback(
     (message: string, variant: ToastVariant = "info", duration: number = 4000) => {
-      const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      setToasts((prev) => [...prev, { id, message, variant, duration }]);
-      setTimeout(() => removeToast(id), duration);
+      setToasts((prev) => {
+        // Deduplicate identical active toast messages
+        if (prev.some((t) => t.message === message && t.variant === variant)) {
+          return prev;
+        }
+        const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        setTimeout(() => removeToast(id), duration);
+        return [...prev, { id, message, variant, duration }];
+      });
     },
     [removeToast]
   );

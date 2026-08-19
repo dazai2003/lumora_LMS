@@ -55,17 +55,23 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 def decode_token(token: str) -> TokenData:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id_str = payload.get("sub")
-        email: str = payload.get("email")
-        role: str = payload.get("role")
-        if user_id_str is None:
+        sub = payload.get("sub")
+        email: Optional[str] = payload.get("email")
+        role: Optional[str] = payload.get("role")
+        if sub is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token",
             )
-        user_id = int(user_id_str)
+        
+        user_id: Optional[int] = None
+        if isinstance(sub, int) or (isinstance(sub, str) and sub.isdigit()):
+            user_id = int(sub)
+        elif isinstance(sub, str) and "@" in sub:
+            email = sub
+
         return TokenData(user_id=user_id, email=email, role=role)
-    except JWTError:
+    except (JWTError, ValueError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
@@ -79,7 +85,12 @@ async def get_current_user(
     db: Session = Depends(get_db),
 ) -> User:
     token_data = decode_token(token)
-    user = db.query(User).filter(User.id == token_data.user_id).first()
+    user = None
+    if token_data.user_id is not None:
+        user = db.query(User).filter(User.id == token_data.user_id).first()
+    if user is None and token_data.email:
+        user = db.query(User).filter(User.email == token_data.email).first()
+
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

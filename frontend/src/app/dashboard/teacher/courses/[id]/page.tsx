@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, use, useRef } from "react";
-import api, { Course, Lesson, UnitWithLessons, Material, QuizBreakdown, QuizBreakdownItem } from "@/lib/api";
+import api, { Course, Lesson, UnitWithLessons, Material, QuizBreakdown, QuizBreakdownItem, ALExam } from "@/lib/api";
 import Link from "next/link";
 import Modal from "@/components/Modal";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -22,6 +22,7 @@ const UNIT_COLORS = [
 const MATERIAL_CATEGORIES = [
   { id: "all", label: "All Files", icon: "folder" },
   { id: "past_paper", label: "Past Papers", icon: "file-text" },
+  { id: "model_paper", label: "Model Papers", icon: "clipboard" },
   { id: "marking_scheme", label: "Marking Schemes", icon: "check-circle" },
   { id: "resource_book", label: "Resource Books", icon: "book" },
   { id: "syllabus", label: "Syllabus & Notes", icon: "clipboard" },
@@ -37,9 +38,10 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
   const [standaloneLessons, setStandaloneLessons] = useState<Lesson[]>([]);
   const [courseMaterials, setCourseMaterials] = useState<Material[]>([]);
   const [students, setStudents] = useState<{ student_id: number; student_name: string; student_email: string; enrolled_at: string }[]>([]);
+  const [alExams, setAlExams] = useState<ALExam[]>([]);
   const [quizBreakdown, setQuizBreakdown] = useState<QuizBreakdown | null>(null);
   
-  const [activeTab, setActiveTab] = useState<"units" | "materials" | "quizzes" | "students" | "settings">("units");
+  const [activeTab, setActiveTab] = useState<"units" | "materials" | "assessments" | "students" | "settings">("units");
   const [loading, setLoading] = useState(true);
   const { addToast } = useToast();
 
@@ -79,6 +81,8 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
   const [showUploadMaterialModal, setShowUploadMaterialModal] = useState(false);
   const [matTitle, setMatTitle] = useState("");
   const [matCategory, setMatCategory] = useState("past_paper");
+  const [matPaperType, setMatPaperType] = useState<"paper_1_mcq" | "paper_2_structured" | "paper_2_essay" | "full_paper">("full_paper");
+  const [matYear, setMatYear] = useState("2024");
   const [matDesc, setMatDesc] = useState("");
   const [matFile, setMatFile] = useState<File | null>(null);
   const [uploadingMat, setUploadingMat] = useState(false);
@@ -98,13 +102,14 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
 
   const loadData = async () => {
     try {
-      const [c, uList, allLessons, cMats, s, qb] = await Promise.all([
+      const [c, uList, allLessons, cMats, s, qb, exams] = await Promise.all([
         api.getCourse(courseId),
         api.listUnits(courseId).catch(() => []),
         api.listLessons(courseId).catch(() => []),
         api.listCourseMaterials(courseId).catch(() => []),
         api.getCourseStudents(courseId).catch(() => []),
         api.getCourseQuizBreakdown(courseId).catch(() => null),
+        api.listALExams(courseId).catch(() => []),
       ]);
       setCourse(c);
       setUnits(uList || []);
@@ -112,6 +117,7 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
       setCourseMaterials(cMats || []);
       setStudents(s as typeof students);
       setQuizBreakdown(qb);
+      setAlExams(exams || []);
       setEditTitle(c.title);
       setEditDesc(c.description || "");
       setEditSubject(c.subject || "");
@@ -188,6 +194,32 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
       addToast("Failed to update unit.", "error");
     } finally {
       setSavingUnit(false);
+    }
+  };
+
+  const handleMoveUnit = async (unitId: number, direction: "up" | "down", e: React.MouseEvent) => {
+    e.stopPropagation();
+    const currentIndex = units.findIndex(u => u.id === unitId);
+    if (currentIndex === -1) return;
+
+    const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= units.length) return;
+
+    const newUnits = [...units];
+    const [movedUnit] = newUnits.splice(currentIndex, 1);
+    newUnits.splice(targetIndex, 0, movedUnit);
+
+    // Optimistically update local state immediately so UI updates instantly
+    setUnits(newUnits);
+
+    try {
+      const orderedIds = newUnits.map(u => u.id);
+      await api.reorderUnits(courseId, orderedIds);
+      addToast(`Moved "${movedUnit.title}" to Unit ${targetIndex + 1}`, "success");
+    } catch (err) {
+      console.error(err);
+      addToast("Failed to reorder units. Reverting...", "error");
+      loadData();
     }
   };
 
@@ -272,6 +304,10 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
       formData.append("title", matTitle.trim());
       formData.append("category", matCategory);
       formData.append("material_type", matFile.name.endsWith(".pdf") ? "pdf" : "note");
+      if (matCategory === "past_paper" || matCategory === "model_paper") {
+        formData.append("paper_type", matPaperType);
+        formData.append("year", matYear.trim());
+      }
       if (matDesc.trim()) formData.append("description", matDesc.trim());
       formData.append("file", matFile);
 
@@ -384,7 +420,8 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
             <SvgIcon name="chevron-right" size={14} />
             <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{course.title}</span>
           </div>
-          <h1 style={{ fontSize: "1.75rem", fontWeight: 700, margin: 0, display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          <h1 style={{ fontSize: "1.75rem", fontWeight: 700, margin: 0, display: "flex", alignItems: "center", gap: "0.6rem" }}>
+            <SvgIcon name="book" size={24} />
             {course.title}
             <span className={`badge ${course.is_active ? "badge-success" : "badge-secondary"}`}>
               {course.is_active ? "Active" : "Draft"}
@@ -404,8 +441,8 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
           { label: "Curriculum Units", value: units.length, icon: "layers" as const, color: "#2563EB" },
           { label: "Total Lessons", value: totalLessons, icon: "book" as const, color: "#8B5CF6" },
           { label: "Course Materials", value: courseMaterials.length, icon: "folder" as const, color: "#EC4899" },
-          { label: "Active Quizzes", value: quizBreakdown?.quizzes.length || 0, icon: "clipboard" as const, color: "#10B981" },
-          { label: "Enrolled Students", value: students.length, icon: "users" as const, color: "#F59E0B" },
+          { label: "A/L Assessments", value: alExams.length > 0 ? alExams.length : (quizBreakdown?.quizzes.length || 0), icon: "award" as const, color: "#6366F1" },
+          { label: "Enrolled Students", value: students.length, icon: "users" as const, color: "#10B981" },
         ].map(s => (
           <div key={s.label} style={{
             padding: "1.15rem 1.25rem",
@@ -434,7 +471,7 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
         {[
           { key: "units", label: `Units & Lessons (${units.length})`, icon: "layers" as const },
           { key: "materials", label: `Course Materials (${courseMaterials.length})`, icon: "folder" as const },
-          { key: "quizzes", label: `Quizzes (${quizBreakdown?.quizzes.length || 0})`, icon: "clipboard" as const },
+          { key: "assessments", label: `A/L Assessments (${alExams.length > 0 ? alExams.length : (quizBreakdown?.quizzes.length || 0)})`, icon: "award" as const },
           { key: "students", label: `Students (${students.length})`, icon: "users" as const },
           { key: "settings", label: "Course Settings", icon: "settings" as const },
         ].map((tab) => {
@@ -616,6 +653,57 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
                           {unit.lessons.length} lesson{unit.lessons.length !== 1 ? "s" : ""}
                         </span>
 
+                        {/* Move Up / Move Down Unit Sequence Controls */}
+                        <div style={{
+                          display: "flex",
+                          alignItems: "center",
+                          background: "var(--bg-secondary)",
+                          borderRadius: "var(--radius-sm)",
+                          padding: "2px",
+                          border: "1px solid var(--border)",
+                          marginLeft: "0.25rem",
+                          marginRight: "0.25rem",
+                        }} onClick={e => e.stopPropagation()}>
+                          <button
+                            className="btn-icon"
+                            title={index === 0 ? "First unit" : `Move "${unit.title}" Up (to Unit ${index})`}
+                            aria-label={`Move unit ${unit.title} up`}
+                            style={{
+                              padding: "0.25rem 0.35rem",
+                              color: index === 0 ? "var(--text-disabled, rgba(150,150,150,0.35))" : "var(--text-primary)",
+                              cursor: index === 0 ? "not-allowed" : "pointer",
+                              opacity: index === 0 ? 0.3 : 1,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              borderRadius: "3px",
+                            }}
+                            disabled={index === 0}
+                            onClick={(e) => handleMoveUnit(unit.id, "up", e)}
+                          >
+                            <SvgIcon name="chevron-up" size={14} />
+                          </button>
+                          <button
+                            className="btn-icon"
+                            title={index === units.length - 1 ? "Last unit" : `Move "${unit.title}" Down (to Unit ${index + 2})`}
+                            aria-label={`Move unit ${unit.title} down`}
+                            style={{
+                              padding: "0.25rem 0.35rem",
+                              color: index === units.length - 1 ? "var(--text-disabled, rgba(150,150,150,0.35))" : "var(--text-primary)",
+                              cursor: index === units.length - 1 ? "not-allowed" : "pointer",
+                              opacity: index === units.length - 1 ? 0.3 : 1,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              borderRadius: "3px",
+                            }}
+                            disabled={index === units.length - 1}
+                            onClick={(e) => handleMoveUnit(unit.id, "down", e)}
+                          >
+                            <SvgIcon name="chevron-down" size={14} />
+                          </button>
+                        </div>
+
                         <button
                           className="btn-icon"
                           title="Add Lesson"
@@ -688,7 +776,10 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
                                   transition: "all 0.15s ease",
                                 }}
                               >
-                                <div style={{ display: "flex", alignItems: "center", gap: "0.85rem", flex: 1, minWidth: 0 }}>
+                                <Link
+                                  href={`/dashboard/teacher/courses/${courseId}/lessons/${lesson.id}`}
+                                  style={{ textDecoration: "none", flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: "0.85rem" }}
+                                >
                                   <div style={{
                                     width: "28px", height: "28px", borderRadius: "50%",
                                     background: "var(--bg-secondary)",
@@ -700,7 +791,7 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
                                     {lIdx + 1}
                                   </div>
                                   <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ fontWeight: 600, fontSize: "0.92rem", color: "var(--text-primary)" }}>
+                                    <div style={{ fontWeight: 600, fontSize: "0.92rem", color: "var(--accent-primary)" }}>
                                       {lesson.title}
                                     </div>
                                     {lesson.description && (
@@ -709,9 +800,16 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
                                       </div>
                                     )}
                                   </div>
-                                </div>
+                                </Link>
 
                                 <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexShrink: 0, marginLeft: "0.75rem" }}>
+                                  <Link
+                                    href={`/dashboard/teacher/courses/${courseId}/lessons/${lesson.id}`}
+                                    className="btn btn-secondary"
+                                    style={{ fontSize: "0.75rem", padding: "0.25rem 0.65rem", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
+                                  >
+                                    <SvgIcon name="book" size={12} /> Manage Materials
+                                  </Link>
                                   <span style={{
                                     fontSize: "0.72rem", fontWeight: 500, padding: "0.15rem 0.5rem",
                                     borderRadius: "var(--radius-sm)", background: "var(--bg-secondary)",
@@ -903,7 +1001,7 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
                       borderRadius: "var(--radius-md)",
                       display: "flex",
                       flexDirection: "column",
-                      justify: "space-between",
+                      justifyContent: "space-between",
                       gap: "1rem",
                       boxShadow: "var(--shadow-sm)",
                     }}
@@ -977,43 +1075,151 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
       )}
 
       {/* ════════════════════════════════════════════ */}
-      {/*  TAB 3: QUIZZES & ANALYTICS                 */}
+      {/*  TAB 3: A/L ASSESSMENTS & EXAMS              */}
       {/* ════════════════════════════════════════════ */}
-      {activeTab === "quizzes" && (
-        <div>
-          {(!quizBreakdown || quizBreakdown.quizzes.length === 0) ? (
+      {activeTab === "assessments" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+          {/* Header Action Strip */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem", background: "var(--bg-card)", padding: "1rem 1.25rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border)" }}>
+            <div>
+              <h3 style={{ fontSize: "1.05rem", fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
+                A/L Assessment Papers &amp; Examination Hub
+              </h3>
+              <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: "2px 0 0 0" }}>
+                Manage Paper I (MCQ), Paper II-A (Structured), and Paper II-B (Essay) papers
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+              <Link href={`/dashboard/teacher/al-exams/analytics`} className="btn-secondary btn-sm" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+                <SvgIcon name="bar-chart" size={14} /> Exam Analytics
+              </Link>
+              <Link href={`/dashboard/teacher/al-exams/marking`} className="btn-secondary btn-sm" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+                <SvgIcon name="check-circle" size={14} /> Marking Studio
+              </Link>
+              <Link href={`/dashboard/teacher/al-exams/create?course_id=${courseId}`} className="btn-primary btn-sm" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+                <SvgIcon name="plus" size={14} /> Create Assessment
+              </Link>
+            </div>
+          </div>
+
+          {alExams.length > 0 ? (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: "1rem" }}>
+              {alExams.map((ex) => {
+                const exTypeStr = (ex.exam_type || "").toLowerCase();
+                const isMcq = exTypeStr.includes("mcq") || exTypeStr.includes("paper_1");
+                const isStructured = exTypeStr.includes("structured") || exTypeStr.includes("part_a");
+                const isEssay = exTypeStr.includes("essay") || exTypeStr.includes("part_b");
+
+                const typeBadge = isMcq 
+                  ? { label: "Paper I (MCQ)", bg: "rgba(16, 185, 129, 0.1)", text: "#10B981", border: "rgba(16, 185, 129, 0.25)" }
+                  : isStructured
+                  ? { label: "Paper II-A (Structured)", bg: "rgba(59, 130, 246, 0.1)", text: "#3B82F6", border: "rgba(59, 130, 246, 0.25)" }
+                  : isEssay
+                  ? { label: "Paper II-B (Essay)", bg: "rgba(139, 92, 246, 0.1)", text: "#8B5CF6", border: "rgba(139, 92, 246, 0.25)" }
+                  : { label: "A/L Full Assessment", bg: "rgba(245, 158, 11, 0.1)", text: "#F59E0B", border: "rgba(245, 158, 11, 0.25)" };
+
+                return (
+                  <div key={ex.id} className="card animate-fade-in" style={{ padding: "1.25rem", display: "flex", flexDirection: "column", justifyContent: "space-between", gap: "1rem" }}>
+                    <div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                        <span style={{ 
+                          fontSize: "0.72rem", 
+                          fontWeight: 700, 
+                          padding: "3px 8px", 
+                          borderRadius: "4px", 
+                          background: typeBadge.bg, 
+                          color: typeBadge.text,
+                          border: `1px solid ${typeBadge.border}`
+                        }}>
+                          {typeBadge.label}
+                        </span>
+                        <span className={`badge ${ex.is_published ? "badge-success" : "badge-warning"}`} style={{ fontSize: "0.7rem" }}>
+                          {ex.is_published ? "Published" : "Draft"}
+                        </span>
+                      </div>
+
+                      <h4 style={{ fontSize: "1.05rem", fontWeight: 700, margin: "0 0 0.35rem 0", color: "var(--text-primary)" }}>
+                        {ex.title}
+                      </h4>
+                      {ex.description && (
+                        <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", margin: "0 0 0.75rem 0", lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                          {ex.description}
+                        </p>
+                      )}
+
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", background: "var(--bg-primary)", padding: "0.6rem 0.75rem", borderRadius: "var(--radius-sm)", fontSize: "0.78rem" }}>
+                        <div>
+                          <span style={{ color: "var(--text-muted)", display: "block", fontSize: "0.7rem" }}>Questions</span>
+                          <strong>{ex.total_questions || ex.questions?.length || 0} items</strong>
+                        </div>
+                        <div>
+                          <span style={{ color: "var(--text-muted)", display: "block", fontSize: "0.7rem" }}>Duration</span>
+                          <strong>{ex.time_limit_minutes || 120} mins</strong>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Actions Bar */}
+                    <div style={{ display: "flex", gap: "0.4rem", borderTop: "1px solid var(--border-subtle)", paddingTop: "0.75rem" }}>
+                      <Link 
+                        href={`/dashboard/teacher/al-exams/analytics?exam_id=${ex.id}`}
+                        className="btn-secondary btn-sm"
+                        style={{ flex: 1, textAlign: "center", textDecoration: "none", fontSize: "0.75rem", padding: "0.35rem 0.5rem" }}
+                      >
+                        Analytics
+                      </Link>
+                      <Link 
+                        href={`/dashboard/teacher/al-exams/marking?exam_id=${ex.id}`}
+                        className="btn-secondary btn-sm"
+                        style={{ flex: 1, textAlign: "center", textDecoration: "none", fontSize: "0.75rem", padding: "0.35rem 0.5rem" }}
+                      >
+                        Marking
+                      </Link>
+                      <Link 
+                        href={`/dashboard/teacher/al-exams/${ex.id}/authoring`}
+                        className="btn-primary btn-sm"
+                        style={{ flex: 1, textAlign: "center", textDecoration: "none", fontSize: "0.75rem", padding: "0.35rem 0.5rem" }}
+                      >
+                        Edit Paper
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (!quizBreakdown || quizBreakdown.quizzes.length === 0) ? (
             <div style={{
               padding: "4rem 2rem", background: "var(--bg-card)",
               border: "2px dashed var(--border)", borderRadius: "var(--radius-lg)", textAlign: "center",
             }}>
               <div style={{
                 width: "72px", height: "72px", borderRadius: "50%",
-                background: "rgba(16, 185, 129, 0.08)",
+                background: "rgba(99, 102, 241, 0.08)",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 margin: "0 auto 1.5rem"
               }}>
-                <SvgIcon name="clipboard" size={32} style={{ color: "#10B981" }} />
+                <SvgIcon name="award" size={32} style={{ color: "#6366F1" }} />
               </div>
-              <h3 style={{ fontSize: "1.15rem", fontWeight: 700, marginBottom: "0.5rem" }}>No Quizzes Created</h3>
-              <p style={{ fontSize: "0.9rem", color: "var(--text-secondary)", maxWidth: "420px", margin: "0 auto 1.5rem", lineHeight: 1.6 }}>
-                Quizzes from the AI Quiz Builder will appear here with performance analytics.
+              <h3 style={{ fontSize: "1.15rem", fontWeight: 700, marginBottom: "0.5rem" }}>No A/L Assessments Created</h3>
+              <p style={{ fontSize: "0.9rem", color: "var(--text-secondary)", maxWidth: "460px", margin: "0 auto 1.5rem", lineHeight: 1.6 }}>
+                Create official Paper I (MCQ), Paper II-A (Structured), and Paper II-B (Essay) assessment containers for this course.
               </p>
-              <Link href="/dashboard/teacher/quizzes" className="btn btn-primary" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
-                <SvgIcon name="sparkle" size={16} /> Go to Quiz Builder
+              <Link href={`/dashboard/teacher/al-exams/create?course_id=${courseId}`} className="btn btn-primary" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
+                <SvgIcon name="plus" size={16} /> Create A/L Assessment
               </Link>
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
               {quizBreakdown.quizzes.map((qz: QuizBreakdownItem) => (
-                <div key={qz.id} className="card" style={{ padding: "1.25rem", background: "var(--bg-card)" }}>
+                <div key={qz.quiz_id} className="card" style={{ padding: "1.25rem", background: "var(--bg-card)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                     <div>
-                      <h4 style={{ fontSize: "1.05rem", fontWeight: 700, margin: 0 }}>{qz.title}</h4>
+                      <h4 style={{ fontSize: "1.05rem", fontWeight: 700, margin: 0 }}>{qz.quiz_title}</h4>
                       <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
-                        Time Limit: {qz.time_limit_minutes} mins | Total Attempts: {qz.total_attempts}
+                        Submissions: {qz.total_attempts} | Avg Score: {qz.average_score != null ? `${qz.average_score}%` : 'N/A'}
                       </p>
                     </div>
-                    <span className="badge badge-info">{qz.status.toUpperCase()}</span>
+                    <span className="badge badge-info">{qz.total_attempts} Submissions</span>
                   </div>
                 </div>
               ))}
@@ -1659,10 +1865,10 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
                     accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.zip"
                     onChange={e => {
                       if (e.target.files && e.target.files[0]) {
-                        setMatFile(e.target.files[0]);
-                        if (!matTitle) {
-                          setMatTitle(e.target.files[0].name.replace(/\.[^/.]+$/, ""));
-                        }
+                        const selected = e.target.files[0];
+                        setMatFile(selected);
+                        const cleanTitle = selected.name.replace(/\.[^/.]+$/, "").replace(/[_]/g, " ").replace(/\s+/g, " ").trim();
+                        setMatTitle(cleanTitle);
                       }
                     }}
                   />
@@ -1711,12 +1917,61 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
                   }}
                 >
                   <option value="past_paper">Past Papers</option>
+                  <option value="model_paper">Model Papers</option>
                   <option value="marking_scheme">Marking Schemes</option>
                   <option value="resource_book">Resource Books</option>
                   <option value="syllabus">Syllabus & Revision Notes</option>
                   <option value="general">General Reference Documents</option>
                 </select>
               </div>
+
+              {/* Past Paper / Model Paper Classification Controls */}
+              {(matCategory === "past_paper" || matCategory === "model_paper") && (
+                <div style={{
+                  padding: "1.15rem 1.25rem",
+                  background: "linear-gradient(135deg, rgba(37,99,235,0.06) 0%, rgba(139,92,246,0.06) 100%)",
+                  border: "1px solid rgba(37,99,235,0.18)",
+                  borderRadius: "var(--radius-md)",
+                  display: "flex", flexDirection: "column", gap: "1rem"
+                }}>
+                  <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--accent-primary)", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                    <SvgIcon name="sparkle" size={14} /> Automatic Question Bank Ingestion & Classification
+                  </div>
+                  
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+                    <div>
+                      <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, marginBottom: "0.4rem", color: "var(--text-primary)" }}>
+                        Paper Format / Part
+                      </label>
+                      <select
+                        className="select"
+                        value={matPaperType}
+                        onChange={e => setMatPaperType(e.target.value as any)}
+                        style={{ fontSize: "0.85rem", padding: "0.55rem 0.85rem", width: "100%", background: "var(--bg-card)", border: "1px solid var(--border)" }}
+                      >
+                        <option value="full_paper">Full Paper (Parts I, II-A & II-B)</option>
+                        <option value="paper_1_mcq">Paper I (MCQs)</option>
+                        <option value="paper_2_structured">Paper II-A (Structured)</option>
+                        <option value="paper_2_essay">Paper II-B (Essay Studio)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, marginBottom: "0.4rem", color: "var(--text-primary)" }}>
+                        Examination Year / Session
+                      </label>
+                      <input
+                        type="text"
+                        className="input-field"
+                        placeholder="e.g. 2024, 2023, Model Paper 1"
+                        value={matYear}
+                        onChange={e => setMatYear(e.target.value)}
+                        style={{ fontSize: "0.85rem", padding: "0.55rem 0.85rem", width: "100%", background: "var(--bg-card)", border: "1px solid var(--border)" }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Description Textarea */}
               <div>

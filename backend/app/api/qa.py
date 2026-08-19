@@ -118,15 +118,19 @@ def ask_question(
     elapsed_ms = int((time.time() - start_time) * 1000)
     ai_log = AILog(
         action="qa_answer",
-        input_summary=f"Q: {data.question[:100]}",
-        output_summary=f"A: {response_text[:100]}",
-        processing_time_ms=elapsed_ms,
-        status=ProcessingStatus.COMPLETED,
+        details={
+            "question_id": question.id,
+            "course_id": data.course_id,
+            "sources_count": len(context_sources),
+            "grounded": len(context_chunks) > 0,
+            "elapsed_ms": elapsed_ms,
+        },
     )
     db.add(ai_log)
     db.commit()
 
     return {
+        "id": ai_response.id,
         "question_id": question.id,
         "question_text": question.question_text,
         "response_text": ai_response.response_text,
@@ -193,11 +197,12 @@ async def ask_question_stream(
     context_chunks = []
     context_sources = []
     seen_material_ids = set()
+    is_grounded = False
 
     def _do_vector_search():
         try:
             from app.services.vector import search_similar
-            return search_similar(query=data.question, course_id=data.course_id, n_results=5)
+            return search_similar(query=data.question, course_id=data.course_id, n_results=4)
         except Exception as e:
             logger.warning(f"Vector search failed: {e}")
             return []
@@ -211,127 +216,183 @@ async def ask_question_stream(
     except Exception as timeout_err:
         logger.warning(f"Vector search timed out or failed: {timeout_err}")
 
-    # Process vector search results
+    # Process vector search results with strict relevance filtering
+    question_keywords = [w.lower().strip() for w in data.question.split() if len(w.strip()) > 3]
+
     if results:
         for hit in results:
-            context_chunks.append(hit["text"])
+            distance = hit.get("distance", 1.0)
+            text_snippet = hit.get("text", "")
             meta = hit.get("metadata", {})
             mat_id = meta.get("material_id")
-            if mat_id and mat_id not in seen_material_ids:
-                seen_material_ids.add(mat_id)
-                material = db.query(Material).filter(Material.id == mat_id).first()
-                file_url = None
-                mat_type = "note"
-                if material:
-                    mat_type = material.material_type.value if material.material_type else "note"
-                    if material.file_path:
-                        file_url = f"/uploads/{mat_type}/{os.path.basename(material.file_path)}"
-                context_sources.append({
-                    "material_id": mat_id,
-                    "title": meta.get("title", material.title if material else "Unknown"),
-                    "material_type": mat_type,
-                    "file_url": file_url,
-                    "relevance": round(1 - hit.get("distance", 0), 3),
-                })
 
-    # Fast SQL Fallback if no vector search results found
-    if not context_chunks:
+            # Check if snippet has high semantic similarity OR contains direct question keywords
+            has_keyword_match = any(kw in text_snippet.lower() for kw in question_keywords)
+            is_relevant_distance = distance < 0.45
+
+            if (is_relevant_distance or (has_keyword_match and distance < 0.60)) and text_snippet:
+                context_chunks.append(text_snippet)
+                if mat_id and mat_id not in seen_material_ids:
+                    seen_material_ids.add(mat_id)
+                    material = db.query(Material).filter(Material.id == mat_id).first()
+                    file_url = None
+                    mat_type = "note"
+                    lesson_title = None
+                    unit_name = None
+                    lesson_id = None
+
+                    if material:
+                        mat_type = material.material_type.value if material.material_type else "note"
+                        lesson_id = material.lesson_id
+                        if material.file_path:
+                            file_url = f"/uploads/{mat_type}/{os.path.basename(material.file_path)}"
+                        if material.lesson:
+                            lesson_title = material.lesson.title
+                            if material.lesson.unit:
+                                u = material.lesson.unit
+                                unit_name = f"Unit {u.unit_number}: {u.name}" if u.unit_number else u.name
+
+                    context_sources.append({
+                        "course_id": material.course_id if material and material.course_id else data.course_id,
+                        "lesson_id": lesson_id,
+                        "material_id": mat_id,
+                        "title": material.title if material else meta.get("title", "Course Material"),
+                        "material_type": mat_type,
+                        "lesson_title": lesson_title,
+                        "unit_name": unit_name,
+                        "file_url": file_url,
+                        "relevance": round(1 - distance, 3),
+                    })
+
+    # Fast SQL Fallback if no vector search results found and direct keyword match exists
+    if not context_chunks and question_keywords:
         try:
-            keywords = [w.strip() for w in data.question.split() if len(w.strip()) > 3]
-            if keywords:
-                from sqlalchemy import or_
-                mat_matches = db.query(Material).filter(
-                    Material.course_id == data.course_id,
-                    or_(*[Material.title.ilike(f"%{kw}%") for kw in keywords[:3]])
-                ).limit(3).all()
+            from sqlalchemy import or_
+            mat_matches = db.query(Material).filter(
+                Material.course_id == data.course_id,
+                or_(*[Material.title.ilike(f"%{kw}%") for kw in question_keywords[:3]])
+            ).limit(2).all()
 
-                for mat in mat_matches:
-                    if mat.content_text:
-                        context_chunks.append(mat.content_text[:800])
-                    mat_type = mat.material_type.value if mat.material_type else "note"
-                    file_url = f"/uploads/{mat_type}/{os.path.basename(mat.file_path)}" if mat.file_path else None
-                    if mat.id not in seen_material_ids:
-                        seen_material_ids.add(mat.id)
-                        context_sources.append({
-                            "material_id": mat.id,
-                            "title": mat.title,
-                            "material_type": mat_type,
-                            "file_url": file_url,
-                            "relevance": 0.75,
-                        })
+            for mat in mat_matches:
+                if mat.content_text or mat.content or mat.extracted_text:
+                    raw = mat.content_text or mat.content or mat.extracted_text
+                    context_chunks.append(raw[:800])
+                mat_type = mat.material_type.value if mat.material_type else "note"
+                file_url = f"/uploads/{mat_type}/{os.path.basename(mat.file_path)}" if mat.file_path else None
+                if mat.id not in seen_material_ids:
+                    seen_material_ids.add(mat.id)
+                    lesson_title = mat.lesson.title if mat.lesson else None
+                    unit_name = None
+                    if mat.lesson and mat.lesson.unit:
+                        u = mat.lesson.unit
+                        unit_name = f"Unit {u.unit_number}: {u.name}" if u.unit_number else u.name
+
+                    context_sources.append({
+                        "course_id": mat.course_id or data.course_id,
+                        "lesson_id": mat.lesson_id,
+                        "material_id": mat.id,
+                        "title": mat.title,
+                        "material_type": mat_type,
+                        "lesson_title": lesson_title,
+                        "unit_name": unit_name,
+                        "file_url": file_url,
+                        "relevance": 0.75,
+                    })
         except Exception as sql_err:
             logger.warning(f"SQL fallback failed: {sql_err}")
+
+    is_grounded = bool(context_chunks and context_sources)
 
     # Build prompt
     course = db.query(Course).filter(Course.id == data.course_id).first()
     course_title = course.title if course else "this course"
-    if context_chunks:
-        context = "\n\n---\n\n".join(context_chunks[:5])
-        system_prompt = f"""You are an AI tutor for the course "{course_title}". Answer the student's question clearly, concisely, and educationally using the course context below.\n\nCOURSE MATERIALS:\n{context}"""
+
+    if is_grounded:
+        context = "\n\n---\n\n".join(context_chunks[:3])
+        system_prompt = f"""You are an expert AI tutor for the Sri Lankan G.C.E. Advanced Level Biology course "{course_title}".
+Your task is to answer the student's question directly, clearly, concisely, and educationally using the provided relevant course material excerpts.
+
+CRITICAL INSTRUCTIONS:
+- Directly answer the student's question first.
+- DO NOT dump or list unrelated course outlines, syllabus headings, or material introductory text.
+- Ground your explanation in the provided material without copying verbatim blocks of unrelated text.
+- If the question is simple, provide a direct, concise answer (2-4 sentences).
+- If the question requires an explanation, explain the biological concept or mechanism step-by-step with clear scientific terminology.
+- Use markdown formatting (bold, bullet points) where appropriate.
+
+RELEVANT COURSE MATERIAL EXCERPTS:
+{context}"""
     else:
-        system_prompt = f"""You are an AI tutor for the course "{course_title}". Answer the student's question clearly, accurately, and educationally."""
+        system_prompt = f"""You are an expert AI tutor for the Sri Lankan G.C.E. Advanced Level Biology course "{course_title}".
+The student asked a question that is not directly covered in their available course materials.
+Your task is to answer the student's question clearly, accurately, and educationally using general G.C.E. A/L Biology knowledge.
+
+CRITICAL INSTRUCTIONS:
+- Directly answer the student's question with accurate scientific concepts suitable for G.C.E. A/L Biology.
+- DO NOT claim that this answer came from their course materials.
+- Provide a clear, educational, and structured explanation.
+- Use clear markdown formatting."""
 
     def generate():
-        # First yield the sources and question ID immediately
+        # First yield the sources, grounded state, and question ID immediately
         initial_data = {
             "type": "start",
             "question_id": question.id,
-            "context_sources": context_sources
+            "is_grounded": is_grounded,
+            "context_sources": context_sources if is_grounded else []
         }
         yield f"data: {json.dumps(initial_data)}\n\n"
 
         full_response = ""
         try:
-            from groq import Groq
-            api_key = os.getenv("GROQ_API_KEY")
-            model = os.getenv("GROQ_CHAT_MODEL", "llama-3.1-8b-instant")
-            client = Groq(api_key=api_key, timeout=8.0)
-            
-            try:
-                stream = client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": data.question},
-                    ],
+            from app.services.gemini_service import gemini
+            from google.genai import types as genai_types
+
+            client = gemini._get_client()
+            config = genai_types.GenerateContentConfig(
+                temperature=0.3,
+                max_output_tokens=1024,
+                system_instruction=system_prompt,
+            )
+
+            stream_succeeded = False
+            for stream_model in ["gemini-flash-lite-latest", "gemini-3.7-flash", "gemini-3-flash-preview", "gemini-flash-latest"]:
+                try:
+                    stream = client.models.generate_content_stream(
+                        model=stream_model,
+                        contents=data.question,
+                        config=config,
+                    )
+                    for chunk in stream:
+                        content = chunk.text
+                        if content:
+                            full_response += content
+                            yield f"data: {json.dumps({'type': 'chunk', 'text': content})}\n\n"
+                    if full_response:
+                        stream_succeeded = True
+                        break
+                except Exception as stream_err:
+                    logger.warning(f"Streaming failed with model {stream_model}: {stream_err}. Trying next...")
+                    continue
+
+            if not stream_succeeded or not full_response:
+                logger.info("Streaming incomplete. Using robust gemini.generate_text fallback...")
+                full_response = gemini.generate_text(
+                    prompt=data.question,
+                    system_instruction=system_prompt,
+                    model_tier="flash",
                     temperature=0.3,
                     max_tokens=1024,
-                    stream=True
                 )
-                for chunk in stream:
-                    content = chunk.choices[0].delta.content
-                    if content:
-                        full_response += content
-                        yield f"data: {json.dumps({'type': 'chunk', 'text': content})}\n\n"
-            except Exception as stream_err:
-                logger.warning(f"Primary Groq stream model {model} failed: {stream_err}. Trying secondary model...")
-                # Secondary model fallback
-                stream = client.chat.completions.create(
-                    model="llama-3.1-8b-instant",
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": data.question},
-                    ],
-                    temperature=0.3,
-                    max_tokens=1024,
-                    stream=True
-                )
-                for chunk in stream:
-                    content = chunk.choices[0].delta.content
-                    if content:
-                        full_response += content
-                        yield f"data: {json.dumps({'type': 'chunk', 'text': content})}\n\n"
+                if full_response:
+                    yield f"data: {json.dumps({'type': 'chunk', 'text': full_response})}\n\n"
         except Exception as e:
-            logger.error(f"Groq API call failed completely: {e}")
+            logger.error(f"Gemini API call failed completely: {e}")
 
-        # Tier 3 Fallback: If LLM APIs failed or returned empty response, synthesize direct answer from course materials
+        # Tier 3 Fallback: If LLM APIs failed or returned empty response
         if not full_response:
-            logger.info("Using Tier 3 Course Context Material Synthesis fallback...")
-            if context_chunks:
-                full_response = "Based on your course study materials:\n\n" + "\n\n".join(context_chunks[:2])
-            else:
-                full_response = f"Thank you for your question regarding '{data.question}'. Please check the video lessons and downloadable study notes under My Courses, or send a direct question to your teacher using the 'Ask Teacher' tab for personalized guidance."
-
+            logger.info("Using Tier 3 Educational Guidance fallback...")
+            full_response = f"Thank you for your question regarding '{data.question}'. I am temporarily unable to reach the AI model. Please check the video lessons and downloadable study notes under My Courses, or send a direct question to your teacher using the 'Ask Teacher' tab for personalized guidance."
             yield f"data: {json.dumps({'type': 'chunk', 'text': full_response})}\n\n"
         
         # After streaming completes, save to DB and categorize
@@ -461,6 +522,19 @@ async def moderate_ai_response(
 
     ai_resp.is_flagged = data.is_flagged
     ai_resp.teacher_correction = data.correction_text
+    
+    if data.correction_text and question.student_id:
+        snippet = question.question_text[:50] + ("..." if len(question.question_text) > 50 else "")
+        notif = Notification(
+            user_id=question.student_id,
+            sender_id=current_user.id,
+            title="Teacher Correction to AI Answer",
+            message=f"Your teacher reviewed and provided an authoritative correction for your question: '{snippet}'",
+            type=NotificationType.SYSTEM,
+            related_entity_id=question.id,
+        )
+        db.add(notif)
+
     db.commit()
 
     return MessageResponse(message="Moderation saved successfully", success=True)
@@ -697,16 +771,9 @@ def mark_teacher_question_read(
 
 
 def _call_groq_llm(question: str, context_chunks: list, course_id: int, db: Session) -> str:
-    """Call Groq LLM with RAG context to answer the student's question."""
+    """Call Gemini with RAG context to answer the student's question."""
     try:
-        from groq import Groq
-
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key:
-            return "AI service is not configured. Please contact your administrator."
-
-        model = os.getenv("GROQ_CHAT_MODEL", "llama-3.3-70b-versatile")
-        client = Groq(api_key=api_key)
+        from app.services.gemini_service import gemini
 
         # Get course title for context
         course = db.query(Course).filter(Course.id == course_id).first()
@@ -728,20 +795,16 @@ The student asked a question but no relevant course materials were found in the 
 Provide a helpful general answer, but clearly note that this answer is not based on specific course materials.
 Suggest the student check their course lessons for more detailed information."""
 
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": question},
-            ],
+        return gemini.generate_text(
+            prompt=question,
+            system_instruction=system_prompt,
+            model_tier="flash_25",
             temperature=0.3,
             max_tokens=1024,
         )
 
-        return response.choices[0].message.content.strip()
-
     except Exception as e:
-        logger.error(f"Groq LLM call failed: {e}")
+        logger.error(f"Gemini LLM call failed: {e}")
         return f"Sorry, I encountered an error while processing your question. Please try again later."
 
 

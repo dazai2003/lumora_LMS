@@ -39,7 +39,13 @@ function BrowseClassesContent() {
         api.getMyEnrolledCourses().catch(() => [])
       ]);
 
-      setCourses(allCourses || []);
+      const regularCourses = (allCourses || []).filter((c: Course) => {
+        const title = (c.title || "").toLowerCase();
+        const subject = (c.subject || "").toLowerCase();
+        return !title.includes("examination papers") && !title.includes("g.c.e. a/l examination papers") && subject !== "a/l exam papers";
+      });
+
+      setCourses(regularCourses);
       setEnrolledCourses(new Set((enrolled || []).map(c => c.id)));
     } catch (err: any) {
       addToast(err.message || "Failed to load class catalog", "error");
@@ -231,7 +237,6 @@ function BrowseClassesContent() {
       {/* Course Detail Preview Modal */}
       {previewCourse && (
         <Modal 
-          isOpen={!!previewCourse} 
           onClose={() => setPreviewCourse(null)} 
           title={previewCourse.title}
           maxWidth="600px"

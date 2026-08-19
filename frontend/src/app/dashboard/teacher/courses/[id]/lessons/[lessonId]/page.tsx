@@ -44,6 +44,12 @@ export default function TeacherLessonDetailPage({ params }: { params: Promise<{ 
   const [updatingMat, setUpdatingMat] = useState(false);
   const replaceFileInputRef = useRef<HTMLInputElement>(null);
 
+  // Edit Note State
+  const [editNoteMaterial, setEditNoteMaterial] = useState<Material | null>(null);
+  const [editNoteTitle, setEditNoteTitle] = useState("");
+  const [editNoteContent, setEditNoteContent] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
+
   // Delete material
   const [deleteMat, setDeleteMat] = useState<Material | null>(null);
   const [deletingMat, setDeletingMat] = useState(false);
@@ -70,7 +76,7 @@ export default function TeacherLessonDetailPage({ params }: { params: Promise<{ 
   // Real-time Auto-Polling when any material is processing or pending
   useEffect(() => {
     const hasPending = materials.some(
-      m => m.processing_status === "PROCESSING" || m.processing_status === "PENDING"
+      m => m.processing_status === "processing" || m.processing_status === "pending"
     );
 
     if (hasPending) {
@@ -89,7 +95,7 @@ export default function TeacherLessonDetailPage({ params }: { params: Promise<{ 
 
   // Check if there is an active video transcription in progress
   const activeProcessingVideo = materials.find(
-    m => m.material_type === "video" && (m.processing_status === "PROCESSING" || m.processing_status === "PENDING")
+    m => m.material_type === "video" && (m.processing_status === "processing" || m.processing_status === "pending")
   );
 
   const handleCreateNote = async (e: React.FormEvent) => {
@@ -140,10 +146,41 @@ export default function TeacherLessonDetailPage({ params }: { params: Promise<{ 
   };
 
   const openEditModal = (mat: Material) => {
-    setEditMaterial(mat);
-    setEditMatTitle(mat.title);
-    setEditMatDesc(mat.description || "");
-    setReplaceFile(null);
+    if (mat.material_type === "note") {
+      setEditNoteMaterial(mat);
+      setEditNoteTitle(mat.title);
+      setEditNoteContent(mat.content || mat.extracted_text || "");
+    } else {
+      setEditMaterial(mat);
+      setEditMatTitle(mat.title);
+      setEditMatDesc(mat.description || "");
+      setReplaceFile(null);
+    }
+  };
+
+  const handleUpdateNote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editNoteMaterial) return;
+    setSavingNote(true);
+    try {
+      const formData = new FormData();
+      formData.append("title", editNoteTitle);
+      formData.append("content", editNoteContent);
+      await api.updateMaterial(editNoteMaterial.id, formData);
+      addToast(`Note "${editNoteTitle}" updated successfully!`, "success");
+      setEditNoteMaterial(null);
+      const updated = await api.listMaterials(lId);
+      setMaterials(updated);
+      if (selectedMaterial?.id === editNoteMaterial.id) {
+        const fresh = updated.find(m => m.id === editNoteMaterial.id);
+        if (fresh) setSelectedMaterial(fresh);
+      }
+    } catch (err) {
+      console.error(err);
+      addToast("Failed to update note.", "error");
+    } finally {
+      setSavingNote(false);
+    }
   };
 
   const handleUpdateMaterial = async (e: React.FormEvent) => {
@@ -330,8 +367,8 @@ export default function TeacherLessonDetailPage({ params }: { params: Promise<{ 
               </div>
             </div>
             <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-              <span className={`badge ${mat.processing_status === "completed" || mat.processing_status === "READY" ? "badge-success" : mat.processing_status === "failed" ? "badge-error" : "badge-warning"}`}>
-                {mat.processing_status === "completed" || mat.processing_status === "READY" ? "Ready" : mat.processing_status}
+              <span className={`badge ${mat.processing_status === "completed" ? "badge-success" : mat.processing_status === "failed" ? "badge-error" : "badge-warning"}`}>
+                {mat.processing_status === "completed" ? "Ready" : mat.processing_status}
               </span>
 
               {/* Edit Material Button */}
@@ -367,29 +404,7 @@ export default function TeacherLessonDetailPage({ params }: { params: Promise<{ 
         </div>
       )}
 
-      {/* Assessments Section */}
-      <div style={{ marginTop: "2rem", marginBottom: "2rem" }}>
-        <h2 style={{ fontSize: "1.1rem", fontWeight: 600, marginBottom: "1rem" }}>Assessments</h2>
-        <div className="card" style={{ padding: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center", border: "1px solid var(--border-subtle)", background: "var(--bg-body)" }}>
-          <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
-            <div style={{ width: 48, height: 48, borderRadius: "50%", background: "rgba(139, 92, 246, 0.1)", color: "#8B5CF6", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <SvgIcon name="check-circle" size={24} />
-            </div>
-            <div>
-              <h3 style={{ fontSize: "1.05rem", fontWeight: 600, margin: 0, color: "var(--text-primary)" }}>Manage Quizzes &amp; AI Generator</h3>
-              <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: "4px 0 0 0" }}>Assess student understanding for this lesson.</p>
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: "0.75rem" }}>
-            <Link href={`/dashboard/teacher/quizzes?courseId=${courseId}&lessonId=${lId}`} className="btn-secondary">
-              View Quizzes
-            </Link>
-            <Link href={`/dashboard/teacher/quizzes/create?courseId=${courseId}&lessonId=${lId}&mode=ai`} className="btn-primary" style={{ background: "linear-gradient(135deg, #8b5cf6, #6366f1)" }}>
-              <SvgIcon name="sparkle" size={15} style={{ marginRight: "4px" }} /> Generate AI Quiz
-            </Link>
-          </div>
-        </div>
-      </div>
+
 
       {/* Create Note Modal — Digital Paper Workspace */}
       {showNoteForm && (
@@ -451,7 +466,22 @@ export default function TeacherLessonDetailPage({ params }: { params: Promise<{ 
                 type="file"
                 style={{ display: "none" }}
                 accept={uploadType === "pdf" ? ".pdf" : uploadType === "image" ? ".jpg,.jpeg,.png,.webp" : ".mp4,.mkv,.avi,.mov,.webm"}
-                onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                onChange={(e) => {
+                  const selected = e.target.files?.[0] || null;
+                  setUploadFile(selected);
+                  if (selected) {
+                    const ext = selected.name.split('.').pop()?.toLowerCase() || "";
+                    if (["mp4", "mkv", "avi", "mov", "webm"].includes(ext)) {
+                      setUploadType("video");
+                    } else if (["jpg", "jpeg", "png", "webp"].includes(ext)) {
+                      setUploadType("image");
+                    } else if (ext === "pdf") {
+                      setUploadType("pdf");
+                    }
+                    const cleanTitle = selected.name.replace(/\.[^/.]+$/, "").replace(/[_]/g, " ").replace(/\s+/g, " ").trim();
+                    setUploadTitle(cleanTitle);
+                  }
+                }}
               />
             </div>
             <div className="modal-actions">
@@ -464,7 +494,42 @@ export default function TeacherLessonDetailPage({ params }: { params: Promise<{ 
         </Modal>
       )}
 
-      {/* Edit & Replace Material Modal */}
+      {/* Edit Note Modal — Digital Paper WYSIWYG Workspace */}
+      {editNoteMaterial && (
+        <Modal title="Edit Note" onClose={() => setEditNoteMaterial(null)} maxWidth="950px">
+          <form onSubmit={handleUpdateNote}>
+            <div className="form-group">
+              <label className="label">Note Title *</label>
+              <input
+                className="input"
+                value={editNoteTitle}
+                onChange={(e) => setEditNoteTitle(e.target.value)}
+                placeholder="e.g., Key Formulas"
+                required
+                autoFocus
+              />
+            </div>
+            <div className="form-group">
+              <label className="label" style={{ marginBottom: "0.35rem" }}>Content *</label>
+              <WYSIWYGEditor
+                initialContent={editNoteContent}
+                onChange={(html) => setEditNoteContent(html)}
+                placeholder="Compose your lesson notes here..."
+                minHeight="380px"
+                showStats={true}
+              />
+            </div>
+            <div className="modal-actions" style={{ marginTop: "0.75rem" }}>
+              <button type="button" className="btn-secondary" onClick={() => setEditNoteMaterial(null)}>Cancel</button>
+              <button type="submit" className="btn-primary" disabled={savingNote || !editNoteTitle.trim() || !editNoteContent.trim()}>
+                {savingNote ? "Saving Changes..." : "Save Changes"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* Edit & Replace File Material Modal */}
       {editMaterial && (
         <Modal title="Edit Study Material" onClose={() => setEditMaterial(null)}>
           <form onSubmit={handleUpdateMaterial}>

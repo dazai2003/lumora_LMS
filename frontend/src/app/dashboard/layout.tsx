@@ -25,9 +25,14 @@ const navConfig: Record<string, { label: string; items: { href: string; label: s
       label: "Content",
       items: [
         { href: "/dashboard/teacher/courses", label: "My Courses", icon: "book" },
-        { href: "/dashboard/teacher/quizzes", label: "Quizzes", icon: "clipboard" },
-        { href: "/dashboard/teacher/assignments", label: "Coursework", icon: "folder" },
         { href: "/dashboard/teacher/question-bank", label: "Question Bank", icon: "file-text" },
+      ],
+    },
+    {
+      label: "Assessments",
+      items: [
+        { href: "/dashboard/teacher/al-exams", label: "Exam Engine", icon: "award" },
+        { href: "/dashboard/teacher/al-exams/marking", label: "Marking Studio", icon: "check-circle" },
       ],
     },
     {
@@ -36,7 +41,6 @@ const navConfig: Record<string, { label: string; items: { href: string; label: s
         { href: "/dashboard/teacher/analytics", label: "Analytics", icon: "chart" },
         { href: "/dashboard/teacher/insights", label: "Material Stats", icon: "flag" },
         { href: "/dashboard/teacher/qa", label: "Q&A Moderation", icon: "scale" },
-        { href: "/dashboard/teacher/grading", label: "Grading Queue", icon: "check-circle" },
         { href: "/dashboard/teacher/inbox", label: "Messages & Support", icon: "mail" },
       ],
     },
@@ -46,14 +50,19 @@ const navConfig: Record<string, { label: string; items: { href: string; label: s
       label: "Overview",
       items: [
         { href: "/dashboard/student", label: "Dashboard", icon: "grid" },
+        { href: "/dashboard/student/analytics", label: "My Analytics", icon: "chart" },
       ],
     },
     {
       label: "Learning",
       items: [
         { href: "/dashboard/student/courses", label: "My Courses", icon: "book" },
-        { href: "/dashboard/student/assignments", label: "Coursework", icon: "folder" },
-        { href: "/dashboard/student/quizzes", label: "Quizzes", icon: "clipboard" },
+      ],
+    },
+    {
+      label: "Assessments",
+      items: [
+        { href: "/dashboard/student/al-exams", label: "Exam Studio", icon: "award" },
       ],
     },
     {
@@ -73,12 +82,13 @@ const labelMap: Record<string, string> = {
   teacher: "Teacher",
   student: "Student",
   courses: "Courses",
-  quizzes: "Quizzes",
-  assignments: "Coursework Assignments",
+  "al-exams": "Exam Engine",
+  marking: "Marking Studio",
+  "pdf-import": "PDF Past Paper Import",
   analytics: "Analytics",
-  insights: "Material Flags",
+  insights: "Material Stats",
   qa: "Q&A Moderation",
-  grading: "Grading Queue",
+  grading: "Marking Studio",
   "question-bank": "Question Bank",
   questions: "Student Questions",
   browse: "Browse & Enroll Classes",
@@ -89,7 +99,7 @@ const labelMap: Record<string, string> = {
   students: "Students",
   lessons: "Lessons",
   inbox: "Student Inbox",
-  create: "Create",
+  create: "Create Exam",
   payments: "Payments",
   "password-resets": "Password Resets",
 };
@@ -161,6 +171,12 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const isNavActive = (href: string) => {
     if (href === "/dashboard/teacher" || href === "/dashboard/student") {
       return pathname === href;
+    }
+    if (href === "/dashboard/teacher/al-exams") {
+      return pathname === href || (pathname.startsWith(href + "/") && !pathname.startsWith("/dashboard/teacher/al-exams/marking") && !pathname.startsWith("/dashboard/teacher/al-exams/grading") && !pathname.startsWith("/dashboard/teacher/al-exams/grade"));
+    }
+    if (href === "/dashboard/teacher/al-exams/marking") {
+      return pathname === href || pathname.startsWith("/dashboard/teacher/al-exams/marking") || pathname.startsWith("/dashboard/teacher/al-exams/grading") || pathname.startsWith("/dashboard/teacher/al-exams/grade");
     }
     return pathname === href || pathname.startsWith(href + "/");
   };
@@ -281,7 +297,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       </aside>
 
       {/* Main Area with Top Header */}
-      <div style={{ flex: 1, marginLeft: "260px", display: "flex", flexDirection: "column", minHeight: "100vh" }}>
+      <div style={{ flex: 1, marginLeft: "260px", display: "flex", flexDirection: "column", minHeight: "100vh", minWidth: 0, maxWidth: "calc(100vw - 260px)" }}>
         {/* Top Header Bar */}
         <header className="top-header">
           {/* Left: Breadcrumbs */}
@@ -498,7 +514,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </header>
 
         {/* Main Content */}
-        <main id="main-content" className="animate-fade-in" role="main" style={{ padding: "2rem", flex: 1 }}>
+        <main id="main-content" className="animate-fade-in" role="main" style={{ padding: "2rem", flex: 1, minWidth: 0, width: "100%", maxWidth: "100%", boxSizing: "border-box" }}>
           {children}
         </main>
       </div>

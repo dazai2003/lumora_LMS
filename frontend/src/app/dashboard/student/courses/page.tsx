@@ -15,10 +15,17 @@ export default function StudentCoursesPage() {
   useEffect(() => {
     api.getMyEnrolledCourses()
       .then(async (coursesData) => {
-        setCourses(coursesData);
+        // Filter out A/L Examination Papers pseudo-course from regular courses list
+        const regularCourses = (coursesData || []).filter((c) => {
+          const title = (c.title || "").toLowerCase();
+          const subject = (c.subject || "").toLowerCase();
+          return !title.includes("examination papers") && !title.includes("g.c.e. a/l examination papers") && subject !== "a/l exam papers";
+        });
+
+        setCourses(regularCourses);
         try {
           const perfData = await Promise.all(
-            coursesData.map(c => api.getStudentCoursePerformance(c.id).then(perf => ({ id: c.id, perf })))
+            regularCourses.map(c => api.getStudentCoursePerformance(c.id).then(perf => ({ id: c.id, perf })))
           );
           const perfMap: Record<number, StudentCoursePerformance> = {};
           perfData.forEach(r => { perfMap[r.id] = r.perf; });

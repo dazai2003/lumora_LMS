@@ -98,7 +98,8 @@ export type IconName =
   | "corner-down-right"
   | "sparkles"
   | "maximize"
-  | "minimize";
+  | "minimize"
+  | "copy";
 
 interface SvgIconProps {
   name: IconName;
@@ -631,6 +632,12 @@ const paths: Record<IconName, React.ReactNode> = {
       <polyline points="20 10 14 10 14 4" />
       <line x1="14" y1="10" x2="21" y2="3" />
       <line x1="10" y1="14" x2="3" y2="21" />
+    </>
+  ),
+  copy: (
+    <>
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
     </>
   ),
 };

@@ -28,6 +28,41 @@ export default function TeacherQuizzesPage() {
   const [deleteTarget, setDeleteTarget] = useState<Quiz | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // Edit Quiz State
+  const [editTarget, setEditTarget] = useState<Quiz | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const [editTimeLimit, setEditTimeLimit] = useState<number>(30);
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const handleOpenEdit = (quiz: Quiz) => {
+    setEditTarget(quiz);
+    setEditTitle(quiz.title);
+    setEditDesc(quiz.description || "");
+    setEditTimeLimit(quiz.time_limit_minutes || 30);
+  };
+
+  const handleSaveQuizEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editTarget) return;
+    setSavingEdit(true);
+    try {
+      await api.updateQuiz(editTarget.id, {
+        title: editTitle,
+        description: editDesc,
+        time_limit_minutes: editTimeLimit,
+      });
+      addToast(`Quiz "${editTitle}" updated!`, "success");
+      setEditTarget(null);
+      loadData();
+    } catch (err: any) {
+      console.error(err);
+      addToast(err?.message || "Failed to update quiz.", "error");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
 
   useEffect(() => {
     loadData();
@@ -269,6 +304,14 @@ export default function TeacherQuizzesPage() {
                 <div style={{ display: "flex", gap: "0.35rem" }}>
                   <button 
                     className="btn-secondary" 
+                    onClick={() => handleOpenEdit(quiz)}
+                    style={{ padding: "0.35rem 0.6rem", fontSize: "0.75rem", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}
+                    title="Edit Quiz Settings"
+                  >
+                    <SvgIcon name="edit" size={13} /> Edit
+                  </button>
+                  <button 
+                    className="btn-secondary" 
                     onClick={() => handleToggleStatus(quiz)}
                     style={{ padding: "0.35rem 0.6rem", fontSize: "0.75rem" }}
                     title="Change Status"
@@ -310,6 +353,52 @@ export default function TeacherQuizzesPage() {
             )}
           </div>
         </div>
+      )}
+
+      {/* Edit Quiz Modal */}
+      {editTarget && (
+        <Modal onClose={() => setEditTarget(null)} title={`Edit Quiz: ${editTarget.title}`}>
+          <form onSubmit={handleSaveQuizEdit} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            <div>
+              <label style={{ fontSize: "0.82rem", fontWeight: 700, display: "block", marginBottom: "0.3rem" }}>Quiz Title *</label>
+              <input
+                type="text"
+                className="input"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                required
+                style={{ width: "100%", fontSize: "0.88rem" }}
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: "0.82rem", fontWeight: 700, display: "block", marginBottom: "0.3rem" }}>Description</label>
+              <textarea
+                className="input"
+                rows={3}
+                value={editDesc}
+                onChange={(e) => setEditDesc(e.target.value)}
+                style={{ width: "100%", fontSize: "0.88rem", resize: "vertical" }}
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: "0.82rem", fontWeight: 700, display: "block", marginBottom: "0.3rem" }}>Time Limit (Minutes)</label>
+              <input
+                type="number"
+                className="input"
+                value={editTimeLimit}
+                onChange={(e) => setEditTimeLimit(parseInt(e.target.value, 10) || 0)}
+                style={{ width: "100%", fontSize: "0.88rem" }}
+              />
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", marginTop: "1rem" }}>
+              <button type="button" className="btn-secondary" onClick={() => setEditTarget(null)}>Cancel</button>
+              <button type="submit" className="btn-primary" disabled={savingEdit}>{savingEdit ? "Saving..." : "Save Changes"}</button>
+            </div>
+          </form>
+        </Modal>
       )}
 
       {/* Delete Confirmation */}

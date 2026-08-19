@@ -44,15 +44,21 @@ export default function StudentDashboard() {
       api.listAssignments().catch(() => []),
     ])
       .then(([progressData, coursesData, historyData, notifData, assignData]) => {
+        const regularCourses = (coursesData || []).filter((c: Course) => {
+          const title = (c.title || "").toLowerCase();
+          const subject = (c.subject || "").toLowerCase();
+          return !title.includes("examination papers") && !title.includes("g.c.e. a/l examination papers") && subject !== "a/l exam papers";
+        });
+
         setProgress(progressData);
-        setCourses(coursesData);
+        setCourses(regularCourses);
         setQuizHistory(historyData);
         setNotifications(notifData || []);
         setPendingAssignments((assignData || []).filter((a: any) => !a.my_submission || a.my_submission.status === "draft"));
 
         // Fetch performance for each enrolled course
         Promise.all(
-          coursesData.map((c: Course) => api.getStudentCoursePerformance(c.id).then(perf => ({ id: c.id, perf })))
+          regularCourses.map((c: Course) => api.getStudentCoursePerformance(c.id).then(perf => ({ id: c.id, perf })))
         ).then(results => {
           const perfMap: Record<number, StudentCoursePerformance> = {};
           results.forEach(r => { perfMap[r.id] = r.perf; });
@@ -203,69 +209,116 @@ export default function StudentDashboard() {
 
         {/* 1. Overview Analytics */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1rem", marginBottom: "1rem" }}>
-          {/* Core Metric: Course Progress */}
-          <div className="card" style={{ padding: "0.9rem 1.15rem", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+          {/* Card 1: Overall Syllabus Progress */}
+          <div className="card" style={{ padding: "1rem 1.25rem", display: "flex", flexDirection: "column", justifyContent: "center", border: "1px solid var(--border)", background: "var(--bg-card)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", marginBottom: "0.6rem" }}>
-              <div style={{ width: "36px", height: "36px", borderRadius: "8px", background: "rgba(37,99,235,0.1)", color: "var(--accent-primary)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div style={{ width: "38px", height: "38px", borderRadius: "8px", background: "rgba(37,99,235,0.1)", color: "var(--accent-primary)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <SvgIcon name="target" size={18} />
               </div>
               <div>
-                <h3 style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em", margin: 0 }}>Overall Progress</h3>
-                <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.2 }}>{avgCompletion.toFixed(0)}%</div>
+                <h3 style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em", margin: 0 }}>Overall Syllabus Progress</h3>
+                <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "var(--text-primary)", lineHeight: 1.2 }}>
+                  {(progress?.overall_progress ?? avgCompletion).toFixed(0)}%
+                </div>
               </div>
             </div>
             <div style={{ height: "6px", background: "var(--border-subtle)", borderRadius: "3px", overflow: "hidden" }}>
-              <div style={{ height: "100%", width: `${avgCompletion}%`, background: "var(--accent-primary)", borderRadius: "3px" }} />
+              <div style={{ height: "100%", width: `${progress?.overall_progress ?? avgCompletion}%`, background: "var(--accent-primary)", borderRadius: "3px" }} />
             </div>
-            <div style={{ marginTop: "0.5rem", fontSize: "0.78rem", color: "var(--text-muted)" }}>
-              Average completion across {perfs.length} enrolled courses.
-            </div>
-          </div>
-
-          {/* Core Metric: Quiz Average */}
-          <div className="card" style={{ padding: "0.9rem 1.15rem", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", marginBottom: "0.6rem" }}>
-              <div style={{ width: "36px", height: "36px", borderRadius: "8px", background: "rgba(16, 185, 129, 0.1)", color: "var(--success)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <SvgIcon name="check-circle" size={18} />
-              </div>
-              <div>
-                <h3 style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em", margin: 0 }}>Quiz Average</h3>
-                <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.2 }}>{avgScore.toFixed(1)}%</div>
-              </div>
-            </div>
-            <div style={{ display: "flex", alignItems: "flex-end", gap: "4px", height: "24px", opacity: 0.8 }}>
-              {recentAttempts.length > 0 ? recentAttempts.map((att, i) => (
-                <div key={i} style={{ flex: 1, background: (att.percentage ?? 0) >= 70 ? "var(--success)" : (att.percentage ?? 0) >= 50 ? "var(--warning)" : "var(--error)", height: `${Math.max(10, att.percentage ?? 0)}%`, borderRadius: "3px 3px 0 0", minWidth: "10px", transition: "height 0.3s ease" }} title={`Score: ${(att.percentage ?? 0).toFixed(0)}%`} />
-              )) : <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", alignSelf: "center" }}>No recent quizzes</div>}
-            </div>
-            <div style={{ marginTop: "0.5rem", fontSize: "0.78rem", color: "var(--text-muted)" }}>
-              Based on {completedAttempts.length} completed quizzes.
+            <div style={{ marginTop: "0.5rem", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+              {progress?.completed_materials != null && progress?.total_materials != null && progress.total_materials > 0
+                ? `${progress.completed_materials} of ${progress.total_materials} study materials completed across ${courses.length} enrolled ${courses.length === 1 ? "course" : "courses"}.`
+                : `Average curriculum completion across ${courses.length} enrolled ${courses.length === 1 ? "course" : "courses"}.`}
             </div>
           </div>
 
-          {/* Activity Summary */}
-          <div className="card" style={{ padding: "0.9rem 1.15rem", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+          {/* Card 2: Examination Attainment & Target Grade */}
+          <div className="card" style={{ padding: "1rem 1.25rem", display: "flex", flexDirection: "column", justifyContent: "center", border: "1px solid var(--border)", background: "var(--bg-card)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", marginBottom: "0.6rem" }}>
-              <div style={{ width: "36px", height: "36px", borderRadius: "8px", background: "rgba(139, 92, 246, 0.1)", color: "#8B5CF6", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div style={{ width: "38px", height: "38px", borderRadius: "8px", background: "rgba(16, 185, 129, 0.1)", color: "var(--success)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <SvgIcon name="award" size={18} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <h3 style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em", margin: 0 }}>Examination Attainment</h3>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "var(--text-primary)", lineHeight: 1.2 }}>
+                    {(progress?.average_exam_score ?? avgScore) > 0 ? `${(progress?.average_exam_score ?? avgScore).toFixed(1)}%` : "—"}
+                  </div>
+                  {progress?.predicted_grade && progress.predicted_grade !== "—" && (
+                    <span className="badge" style={{ background: "rgba(16, 185, 129, 0.12)", color: "var(--success)", border: "1px solid rgba(16, 185, 129, 0.25)", fontSize: "0.75rem", fontWeight: 800, padding: "0.15rem 0.5rem" }}>
+                      Grade {progress.predicted_grade}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            {/* Score trend sparkline bars */}
+            <div style={{ display: "flex", alignItems: "flex-end", gap: "4px", height: "24px", opacity: 0.9 }}>
+              {progress?.recent_exam_scores && progress.recent_exam_scores.length > 0 ? (
+                progress.recent_exam_scores.map((att, i) => (
+                  <div 
+                    key={i} 
+                    style={{ 
+                      flex: 1, 
+                      background: (att.score ?? 0) >= 75 ? "var(--success)" : (att.score ?? 0) >= 50 ? "var(--accent-primary)" : "var(--warning)", 
+                      height: `${Math.max(15, att.score ?? 0)}%`, 
+                      borderRadius: "3px 3px 0 0", 
+                      minWidth: "10px", 
+                      transition: "height 0.3s ease" 
+                    }} 
+                    title={`${att.exam_title}: ${(att.score ?? 0).toFixed(0)}% (Grade ${att.grade})`} 
+                  />
+                ))
+              ) : recentAttempts.length > 0 ? (
+                recentAttempts.map((att, i) => (
+                  <div 
+                    key={i} 
+                    style={{ 
+                      flex: 1, 
+                      background: (att.percentage ?? 0) >= 75 ? "var(--success)" : (att.percentage ?? 0) >= 50 ? "var(--accent-primary)" : "var(--warning)", 
+                      height: `${Math.max(15, att.percentage ?? 0)}%`, 
+                      borderRadius: "3px 3px 0 0", 
+                      minWidth: "10px", 
+                      transition: "height 0.3s ease" 
+                    }} 
+                    title={`Score: ${(att.percentage ?? 0).toFixed(0)}%`} 
+                  />
+                ))
+              ) : (
+                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", alignSelf: "center" }}>No recent assessments</div>
+              )}
+            </div>
+            <div style={{ marginTop: "0.5rem", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+              Based on {progress?.papers_taken ?? completedAttempts.length} completed A/L examination papers.
+            </div>
+          </div>
+
+          {/* Card 3: Academic Cadence & Engagement */}
+          <div className="card" style={{ padding: "1rem 1.25rem", display: "flex", flexDirection: "column", justifyContent: "center", border: "1px solid var(--border)", background: "var(--bg-card)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", marginBottom: "0.6rem" }}>
+              <div style={{ width: "38px", height: "38px", borderRadius: "8px", background: "rgba(139, 92, 246, 0.1)", color: "#8B5CF6", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <SvgIcon name="activity" size={18} />
               </div>
               <div>
-                <h3 style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em", margin: 0 }}>Activity Summary</h3>
-                <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.2 }}>{progress?.courses_enrolled ?? 0} <span style={{ fontSize: "0.9rem", fontWeight: 500, color: "var(--text-muted)" }}>courses</span></div>
+                <h3 style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em", margin: 0 }}>Academic Engagement</h3>
+                <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "var(--text-primary)", lineHeight: 1.2 }}>
+                  {progress?.questions_asked ?? 0} <span style={{ fontSize: "0.85rem", fontWeight: 500, color: "var(--text-muted)" }}>AI Inquiries</span>
+                </div>
               </div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", marginTop: "auto" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.78rem" }}>
-                <span style={{ color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "0.35rem" }}><SvgIcon name="check-circle" size={13} /> Quizzes Taken</span>
-                <span style={{ fontWeight: 600 }}>{progress?.quizzes_taken ?? 0}</span>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem" }}>
+                <span style={{ color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "0.35rem" }}><SvgIcon name="clipboard" size={13} /> Papers Attempted</span>
+                <span style={{ fontWeight: 700, color: "var(--text-primary)" }}>{progress?.papers_taken ?? 0}</span>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.78rem" }}>
-                <span style={{ color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "0.35rem" }}><SvgIcon name="file-text" size={13} /> Courseworks Submitted</span>
-                <span style={{ fontWeight: 600 }}>{progress?.coursework_submitted ?? 0}</span>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem" }}>
+                <span style={{ color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "0.35rem" }}><SvgIcon name="sparkle" size={13} /> Ask AI Inquiries</span>
+                <span style={{ fontWeight: 700, color: "var(--text-primary)" }}>{progress?.questions_asked ?? 0}</span>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.78rem" }}>
-                <span style={{ color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "0.35rem" }}><SvgIcon name="award" size={13} /> Coursework Avg</span>
-                <span style={{ fontWeight: 600 }}>{progress?.average_coursework_score != null ? `${progress.average_coursework_score}%` : "—"}</span>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem" }}>
+                <span style={{ color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "0.35rem" }}><SvgIcon name="book" size={13} /> Active Courses</span>
+                <span style={{ fontWeight: 700, color: "var(--text-primary)" }}>{progress?.courses_enrolled ?? courses.length}</span>
               </div>
             </div>
           </div>
@@ -288,9 +341,9 @@ export default function StudentDashboard() {
             onTouchEnd={(e) => handleTouchEnd(e, courseSnapshots.length)}
             className={`card shadow-sm ${slideDirection === 'right' ? 'animate-slide-right' : slideDirection === 'left' ? 'animate-slide-left' : 'animate-fade-in'}`}
             style={{
-              padding: "1.15rem 1.4rem", borderRadius: "var(--radius-lg)",
-              background: "linear-gradient(135deg, rgba(37,99,235,0.05) 0%, rgba(124,58,237,0.07) 100%)",
-              border: "1px solid rgba(124,58,237,0.25)",
+              padding: "1.25rem 1.4rem", borderRadius: "var(--radius-lg)",
+              background: "var(--bg-card)",
+              border: "1px solid var(--border)",
               display: "flex", flexDirection: "column", justifyContent: "space-between", flex: 1, gap: "0.85rem",
               touchAction: "pan-y"
             }}
@@ -300,7 +353,7 @@ export default function StudentDashboard() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "1rem", flexWrap: "wrap" }}>
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.3rem" }}>
-                  <span className="badge" style={{ background: "rgba(37,99,235,0.12)", color: "var(--accent-primary)", border: "1px solid rgba(37,99,235,0.3)", fontSize: "0.7rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  <span className="badge" style={{ background: "rgba(37,99,235,0.1)", color: "var(--accent-primary)", border: "1px solid rgba(37,99,235,0.25)", fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                     {activeSnapshot.perf?.completion_percentage === 100 ? "Completed Course" : "Enrolled Course"}
                   </span>
                   <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-muted)" }}>
@@ -314,7 +367,7 @@ export default function StudentDashboard() {
 
               {/* In-Card Arrow Controls for swapping courses */}
               {courseSnapshots.length > 1 && (
-                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "var(--bg-card)", padding: "0.3rem 0.55rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border-subtle)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "var(--bg-secondary)", padding: "0.3rem 0.55rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border)" }}>
                   {/* Pagination Dots */}
                   <div style={{ display: "flex", gap: "0.25rem", alignItems: "center", marginRight: "0.2rem" }}>
                     {courseSnapshots.map((_, idx) => (
@@ -372,39 +425,44 @@ export default function StudentDashboard() {
               {activeSnapshot.course.description ? (activeSnapshot.course.description.length > 130 ? activeSnapshot.course.description.slice(0, 130) + "…" : activeSnapshot.course.description) : "Resume your learning path and track all deliverables for this course."}
             </p>
 
-            {/* Visual Course Progress Bar & Tri-Factor Breakdown */}
+            {/* Visual Course Progress Bar & Tri-Factor Breakdown (Materials 40%, Paper 1 30%, Paper 2 30%) */}
             <div>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.78rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.3rem" }}>
-                <span>Weighted Course Progress</span>
+                <span>Curriculum &amp; Deliverable Mastery</span>
                 <span style={{ color: "var(--accent-primary)" }}>{(activeSnapshot.perf?.completion_percentage ?? 0).toFixed(0)}%</span>
               </div>
               <div style={{ height: "7px", borderRadius: "4px", background: "var(--border-subtle)", overflow: "hidden", marginBottom: "0.6rem" }}>
                 <div style={{
                   height: "100%", borderRadius: "4px",
                   width: `${activeSnapshot.perf?.completion_percentage ?? 0}%`,
-                  background: (activeSnapshot.perf?.completion_percentage ?? 0) === 100 ? "#10B981" : "linear-gradient(90deg, #3B82F6 0%, #6366F1 100%)",
+                  background: (activeSnapshot.perf?.completion_percentage ?? 0) === 100 ? "#10B981" : "var(--accent-primary)",
                   transition: "width 0.8s ease",
                 }} />
               </div>
 
-              {/* Tri-Factor Breakdown Pills */}
+              {/* Tri-Factor Breakdown Pills (40% Materials, 30% Paper 1, 30% Paper 2) */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.5rem" }}>
-                <div style={{ padding: "0.4rem 0.6rem", borderRadius: "var(--radius-sm)", background: "var(--bg-tertiary)", border: "1px solid var(--border-subtle)", fontSize: "0.725rem" }}>
-                  <div style={{ color: "var(--text-muted)", fontSize: "0.675rem", fontWeight: 700 }}>Materials (45%)</div>
+                {/* Materials (40%) */}
+                <div style={{ padding: "0.45rem 0.65rem", borderRadius: "var(--radius-sm)", background: "var(--bg-secondary)", border: "1px solid var(--border)", fontSize: "0.725rem" }}>
+                  <div style={{ color: "var(--text-muted)", fontSize: "0.675rem", fontWeight: 700 }}>Materials (40%)</div>
                   <div style={{ fontWeight: 800, color: "var(--text-primary)" }}>
-                    {activeSnapshot.perf?.materials_score ?? 45.0}% <span style={{ fontSize: "0.675rem", color: "var(--text-muted)", fontWeight: 500 }}>({activeSnapshot.perf?.completed_materials ?? 0}/{activeSnapshot.perf?.total_materials ?? 0})</span>
+                    {activeSnapshot.perf?.materials_score ?? 40.0}% <span style={{ fontSize: "0.675rem", color: "var(--text-muted)", fontWeight: 500 }}>({activeSnapshot.perf?.completed_materials ?? 0}/{activeSnapshot.perf?.total_materials ?? 0})</span>
                   </div>
                 </div>
-                <div style={{ padding: "0.4rem 0.6rem", borderRadius: "var(--radius-sm)", background: "var(--bg-tertiary)", border: "1px solid var(--border-subtle)", fontSize: "0.725rem" }}>
-                  <div style={{ color: "var(--text-muted)", fontSize: "0.675rem", fontWeight: 700 }}>Coursework (35%)</div>
+
+                {/* Paper 1 (30%) */}
+                <div style={{ padding: "0.45rem 0.65rem", borderRadius: "var(--radius-sm)", background: "var(--bg-secondary)", border: "1px solid var(--border)", fontSize: "0.725rem" }}>
+                  <div style={{ color: "var(--text-muted)", fontSize: "0.675rem", fontWeight: 700 }}>Paper 1 (30%)</div>
                   <div style={{ fontWeight: 800, color: "var(--text-primary)" }}>
-                    {activeSnapshot.perf?.coursework_score ?? 35.0}% <span style={{ fontSize: "0.675rem", color: "var(--text-muted)", fontWeight: 500 }}>({activeSnapshot.perf?.submitted_assignments ?? 0}/{activeSnapshot.perf?.total_assignments ?? 0})</span>
+                    {activeSnapshot.perf?.paper_1_score ?? 30.0}% <span style={{ fontSize: "0.675rem", color: "var(--text-muted)", fontWeight: 500 }}>({activeSnapshot.perf?.completed_paper_1 ?? 0}/{activeSnapshot.perf?.total_paper_1 ?? 0})</span>
                   </div>
                 </div>
-                <div style={{ padding: "0.4rem 0.6rem", borderRadius: "var(--radius-sm)", background: "var(--bg-tertiary)", border: "1px solid var(--border-subtle)", fontSize: "0.725rem" }}>
-                  <div style={{ color: "var(--text-muted)", fontSize: "0.675rem", fontWeight: 700 }}>Quizzes (20%)</div>
+
+                {/* Paper 2 (30%) */}
+                <div style={{ padding: "0.45rem 0.65rem", borderRadius: "var(--radius-sm)", background: "var(--bg-secondary)", border: "1px solid var(--border)", fontSize: "0.725rem" }}>
+                  <div style={{ color: "var(--text-muted)", fontSize: "0.675rem", fontWeight: 700 }}>Paper 2 (30%)</div>
                   <div style={{ fontWeight: 800, color: "var(--text-primary)" }}>
-                    {activeSnapshot.perf?.quiz_score ?? 20.0}% <span style={{ fontSize: "0.675rem", color: "var(--text-muted)", fontWeight: 500 }}>({activeSnapshot.perf?.completed_quizzes ?? 0}/{activeSnapshot.perf?.total_quizzes ?? 0})</span>
+                    {activeSnapshot.perf?.paper_2_score ?? 30.0}% <span style={{ fontSize: "0.675rem", color: "var(--text-muted)", fontWeight: 500 }}>({activeSnapshot.perf?.completed_paper_2 ?? 0}/{activeSnapshot.perf?.total_paper_2 ?? 0})</span>
                   </div>
                 </div>
               </div>
@@ -413,51 +471,63 @@ export default function StudentDashboard() {
             {/* 3-Module Sub-Grid for 360° Course Snapshots */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0.75rem" }}>
               
-              {/* Module 1: Mastery & Engagement */}
-              <div style={{ padding: "0.75rem 0.9rem", borderRadius: "var(--radius-md)", background: "var(--bg-card)", border: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+              {/* Module 1: Mastery & Engagement (Papers Done & Questions Asked) */}
+              <div style={{ padding: "0.75rem 0.9rem", borderRadius: "var(--radius-md)", background: "var(--bg-card)", border: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
                 <div style={{ fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "0.35rem" }}>
                   <SvgIcon name="bar-chart" size={13} style={{ color: "var(--accent-primary)" }} />
-                  <span>Mastery & Engagement</span>
+                  <span>Mastery &amp; Engagement</span>
                 </div>
                 <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-primary)" }}>
-                  Quizzes: <strong style={{ color: "var(--accent-primary)" }}>{activeSnapshot.perf ? `${activeSnapshot.perf.completed_quizzes} / ${activeSnapshot.perf.total_quizzes}` : "0 / 0"}</strong>
+                  Papers Done: <strong style={{ color: "var(--accent-primary)" }}>{activeSnapshot.perf ? `${activeSnapshot.perf.papers_done ?? 0} / ${activeSnapshot.perf.total_papers ?? 0}` : "0 / 0"}</strong>
                 </div>
                 <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-primary)" }}>
                   Questions Asked: <strong style={{ color: "var(--accent-primary)" }}>{activeSnapshot.perf?.questions_asked ?? 0}</strong>
                 </div>
               </div>
 
-              {/* Module 2: Pending Deliverables (Coursework & Quizzes) */}
-              <div style={{ padding: "0.75rem 0.9rem", borderRadius: "var(--radius-md)", background: "var(--bg-card)", border: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+              {/* Module 2: Pending Deliverables (Papers, Quizzes, Coursework) */}
+              <div style={{ padding: "0.75rem 0.9rem", borderRadius: "var(--radius-md)", background: "var(--bg-card)", border: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
                 <div style={{ fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "0.35rem" }}>
                   <SvgIcon name="file-text" size={13} style={{ color: "#D97706" }} />
                   <span>Pending Deliverables</span>
                 </div>
 
-                {activeSnapshot.assignments.length > 0 ? (
-                  <div style={{ fontSize: "0.78rem", color: "var(--text-primary)" }}>
-                    📌 Due: <strong style={{ color: "#D97706" }}>{activeSnapshot.assignments[0].title}</strong>
+                {activeSnapshot.perf?.pending_papers && activeSnapshot.perf.pending_papers.length > 0 ? (
+                  <div style={{ fontSize: "0.78rem", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                    <SvgIcon name="clipboard" size={13} style={{ color: "#D97706" }} />
+                    <span>Due: <strong style={{ color: "#D97706" }}>{activeSnapshot.perf.pending_papers[0].title}</strong></span>
+                  </div>
+                ) : activeSnapshot.assignments.length > 0 ? (
+                  <div style={{ fontSize: "0.78rem", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                    <SvgIcon name="file-text" size={13} style={{ color: "#D97706" }} />
+                    <span>Due: <strong style={{ color: "#D97706" }}>{activeSnapshot.assignments[0].title}</strong></span>
                   </div>
                 ) : activeSnapshot.quizzes.length > 0 ? (
-                  <div style={{ fontSize: "0.78rem", color: "var(--text-primary)" }}>
-                    📝 Pending: <strong style={{ color: "#6366F1" }}>{activeSnapshot.quizzes[0].quiz_title}</strong>
+                  <div style={{ fontSize: "0.78rem", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                    <SvgIcon name="check-circle" size={13} style={{ color: "#6366F1" }} />
+                    <span>Pending: <strong style={{ color: "#6366F1" }}>{activeSnapshot.quizzes[0].quiz_title}</strong></span>
                   </div>
                 ) : (
                   <div style={{ fontSize: "0.78rem", color: "#10B981", fontWeight: 600, display: "flex", alignItems: "center", gap: "0.3rem" }}>
                     <SvgIcon name="check-circle" size={13} />
-                    <span>All coursework submitted!</span>
+                    <span>All papers &amp; coursework submitted!</span>
                   </div>
                 )}
               </div>
 
               {/* Module 3: Course Alerts & Warnings */}
-              <div style={{ padding: "0.75rem 0.9rem", borderRadius: "var(--radius-md)", background: "var(--bg-card)", border: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+              <div style={{ padding: "0.75rem 0.9rem", borderRadius: "var(--radius-md)", background: "var(--bg-card)", border: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
                 <div style={{ fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "0.35rem" }}>
                   <SvgIcon name="bell" size={13} style={{ color: "var(--warning)" }} />
                   <span>Course Attention Status</span>
                 </div>
 
-                {activeSnapshot.lowQuizzes.length > 0 ? (
+                {activeSnapshot.perf?.low_score_papers && activeSnapshot.perf.low_score_papers.length > 0 ? (
+                  <div style={{ fontSize: "0.78rem", color: "var(--error)", fontWeight: 600, display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                    <SvgIcon name="alert-circle" size={13} />
+                    <span>Score review needed ({activeSnapshot.perf.low_score_papers[0].score}%)</span>
+                  </div>
+                ) : activeSnapshot.lowQuizzes.length > 0 ? (
                   <div style={{ fontSize: "0.78rem", color: "var(--error)", fontWeight: 600, display: "flex", alignItems: "center", gap: "0.3rem" }}>
                     <SvgIcon name="alert-circle" size={13} />
                     <span>Score review needed ({activeSnapshot.lowQuizzes[0].percentage}%)</span>
@@ -478,6 +548,13 @@ export default function StudentDashboard() {
 
             {/* Footer Action Bar */}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", flexWrap: "wrap" }}>
+              <Link
+                href="/dashboard/student/al-exams"
+                className="btn-secondary btn-sm"
+                style={{ textDecoration: "none", fontWeight: 600, padding: "0.35rem 0.75rem", fontSize: "0.78rem" }}
+              >
+                Exam Studio
+              </Link>
               {activeSnapshot.assignments.length > 0 && (
                 <Link
                   href="/dashboard/student/assignments"

@@ -3,7 +3,24 @@
  * Handles authentication tokens automatically.
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
+
+/**
+ * Resolves a diagram URL path (relative or absolute) to a full HTTP URL served by backend.
+ */
+export function resolveDiagramImageUrl(url: string | null | undefined): string {
+  if (!url) return "";
+  const trimmed = url.trim();
+  if (!trimmed) return "";
+  
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("data:")) {
+    return trimmed;
+  }
+  
+  const backendOrigin = (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api").replace(/\/api\/?$/, "");
+  const normalizedPath = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return `${backendOrigin}${normalizedPath}`;
+}
 
 export interface Notification {
   id: number;
@@ -19,6 +36,7 @@ export interface Notification {
 
 interface RequestOptions extends RequestInit {
   skipAuth?: boolean;
+  timeoutMs?: number;
 }
 
 /** Structured API error with HTTP status code for downstream handling. */
@@ -41,7 +59,7 @@ class ApiClient {
     endpoint: string,
     options: RequestOptions = {}
   ): Promise<T> {
-    const { skipAuth = false, headers: customHeaders, ...rest } = options;
+    const { skipAuth = false, timeoutMs, headers: customHeaders, ...rest } = options;
     const headers: Record<string, string> = {
       ...(customHeaders as Record<string, string>),
     };
@@ -58,10 +76,64 @@ class ApiClient {
       }
     }
 
-    const response = await fetch(`${API_BASE}${endpoint}`, {
-      headers,
-      ...rest,
-    });
+    const cleanBase = API_BASE.replace(/\/+$/, "");
+    const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+    const url = `${cleanBase}${cleanEndpoint}`;
+
+    // Configure resilient timeout (120s for AI endpoints, 35s for standard endpoints)
+    const effectiveTimeout = timeoutMs || (
+      endpoint.includes("/generate-") || endpoint.includes("/ai-") || endpoint.includes("/evaluate") || endpoint.includes("/regenerate")
+        ? 120000
+        : 35000
+    );
+
+    const controller = new AbortController();
+    const timerId = setTimeout(() => {
+      controller.abort();
+    }, effectiveTimeout);
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        headers,
+        signal: controller.signal,
+        ...rest,
+      });
+      clearTimeout(timerId);
+    } catch (err: any) {
+      clearTimeout(timerId);
+      if (err?.name === "AbortError") {
+        throw new ApiError(
+          504,
+          `Request timed out after ${Math.round(effectiveTimeout / 1000)}s while waiting for the AI model to synthesize questions. Please try generating a smaller batch or retry.`
+        );
+      }
+      // Fast retry to handle transient dev-server socket reloads
+      await new Promise((r) => setTimeout(r, 250));
+      const retryController = new AbortController();
+      const retryTimerId = setTimeout(() => retryController.abort(), effectiveTimeout);
+      try {
+        response = await fetch(url, {
+          headers,
+          signal: retryController.signal,
+          ...rest,
+        });
+        clearTimeout(retryTimerId);
+      } catch (retryErr: any) {
+        clearTimeout(retryTimerId);
+        if (retryErr?.name === "AbortError") {
+          throw new ApiError(
+            504,
+            `Request timed out after ${Math.round(effectiveTimeout / 1000)}s while waiting for AI generation.`
+          );
+        }
+        console.error(`[Lumora ApiClient Network Error] Failed to connect to ${url}:`, retryErr);
+        throw new ApiError(
+          0,
+          `Unable to connect to Lumora API server at ${cleanBase}. Please ensure the backend is running.`
+        );
+      }
+    }
 
     if (!response.ok) {
       // Auto-logout on expired/invalid token
@@ -75,16 +147,49 @@ class ApiClient {
         }
       }
 
-      const error = await response.json().catch(() => ({
-        detail: "An unexpected error occurred",
-      }));
-      throw new ApiError(
-        response.status,
-        error.detail || "An unexpected error occurred"
-      );
+      const defaultStatusMsg =
+        response.status === 401
+          ? "Your session has expired. Please sign in again."
+          : response.status === 403
+          ? "You do not have permission to access this resource."
+          : response.status === 404
+          ? "The requested resource was not found."
+          : response.status === 422
+          ? "Invalid request parameters or payload structure."
+          : response.status >= 500
+          ? "The Lumora API encountered an internal server error."
+          : "An unexpected error occurred";
+
+      const error = await response.json().catch(() => ({ detail: defaultStatusMsg }));
+
+      let errorMsg = defaultStatusMsg;
+      if (typeof error.detail === "string" && error.detail.trim()) {
+        errorMsg = error.detail;
+      } else if (Array.isArray(error.detail)) {
+        errorMsg = error.detail.map((e: any) => e.msg || (typeof e === "string" ? e : JSON.stringify(e))).join("; ");
+      } else if (error.detail && typeof error.detail === "object") {
+        errorMsg = JSON.stringify(error.detail);
+      } else if (typeof error.message === "string" && error.message.trim()) {
+        errorMsg = error.message;
+      }
+
+      throw new ApiError(response.status, errorMsg);
     }
 
-    return response.json();
+    if (response.status === 204) {
+      return {} as T;
+    }
+
+    const text = await response.text();
+    if (!text || !text.trim()) {
+      return {} as T;
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      return {} as T;
+    }
   }
 
 
@@ -271,6 +376,13 @@ class ApiClient {
     });
   }
 
+  async reorderUnits(courseId: number, unitIds: number[]) {
+    return this.request<Unit[]>(`/units/course/${courseId}/reorder`, {
+      method: "PUT",
+      body: JSON.stringify({ unit_ids: unitIds }),
+    });
+  }
+
   async deleteUnit(unitId: number) {
     return this.request<{ message: string; success: boolean }>(`/units/${unitId}`, { method: "DELETE" });
   }
@@ -389,6 +501,16 @@ class ApiClient {
     });
   }
 
+  async createMaterialNote(materialId: number, data: { context?: string; content: string }) {
+    return this.addMaterialNote(materialId, data);
+  }
+
+  async deleteMaterialNote(noteId: number) {
+    return this.request(`/materials/notes/${noteId}`, {
+      method: "DELETE"
+    });
+  }
+
   async getMaterialNotes(materialId: number) {
     return this.request<MaterialNote[]>(`/materials/${materialId}/notes`);
   }
@@ -404,9 +526,10 @@ class ApiClient {
     });
   }
 
-  async summarizeMaterial(materialId: number) {
-    return this.request<{ summary: string }>(`/materials/${materialId}/summarize`, {
-      method: "POST"
+  async summarizeMaterial(materialId: number, summaryType: string = "paragraph") {
+    return this.request<{ summary: string; summary_type?: string }>(`/materials/${materialId}/summarize`, {
+      method: "POST",
+      body: JSON.stringify({ summary_type: summaryType }),
     });
   }
 
@@ -414,9 +537,10 @@ class ApiClient {
     return this.request<TeacherMaterialFlag[]>("/materials/teacher/insights/flags");
   }
 
-  async resolveMaterialFlag(flagId: number) {
-    return this.request(`/materials/teacher/insights/flags/${flagId}/resolve`, {
-      method: "POST"
+  async resolveMaterialFlag(flagId: number, data?: { teacher_reply?: string }) {
+    return this.request<{ message: string; success: boolean }>(`/materials/teacher/insights/flags/${flagId}/resolve`, {
+      method: "POST",
+      body: data ? JSON.stringify(data) : undefined,
     });
   }
 
@@ -491,6 +615,425 @@ class ApiClient {
     return this.request<QuizAttempt>(`/quizzes/${quizId}/submit`, {
       method: "POST",
       body: JSON.stringify({ answers }),
+    });
+  }
+
+  // ─── A/L Exam Engine Methods ─────────────────────────
+
+  async listALExams(courseId?: number, examType?: string, isPublished?: boolean) {
+    let url = "/al-exams";
+    const params = new URLSearchParams();
+    if (courseId) params.append("course_id", courseId.toString());
+    if (examType) params.append("exam_type", examType);
+    if (isPublished !== undefined) params.append("is_published", isPublished.toString());
+    if (params.toString()) url += `?${params.toString()}`;
+    return this.request<ALExam[]>(url);
+  }
+
+  async getALExam(examId: number) {
+    return this.request<ALExam>(`/al-exams/${examId}`);
+  }
+
+  async createALExam(data: Partial<ALExam>) {
+    return this.request<ALExam>("/al-exams", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateALExam(examId: number, data: Partial<ALExam>) {
+    return this.request<ALExam>(`/al-exams/${examId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteALExam(examId: number, deleteBankedQuestions: boolean = false) {
+    return this.request<void>(`/al-exams/${examId}?delete_banked_questions=${deleteBankedQuestions}`, {
+      method: "DELETE",
+    });
+  }
+
+  async addALQuestion(examId: number, data: Partial<ALQuestion>) {
+    return this.request<ALQuestion>(`/al-exams/${examId}/questions`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateALQuestion(examId: number, questionId: number, data: Partial<ALQuestion>) {
+    return this.request<ALQuestion>(`/al-exams/${examId}/questions/${questionId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteALQuestion(examId: number, questionId: number) {
+    return this.request<void>(`/al-exams/${examId}/questions/${questionId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async reorderALQuestions(examId: number, orderedQuestionIds: number[]) {
+    return this.request<ALQuestion[]>(`/al-exams/${examId}/reorder-questions`, {
+      method: "POST",
+      body: JSON.stringify(orderedQuestionIds),
+    });
+  }
+
+  async getALSubmission(submissionId: number) {
+    return this.request<ALStudentSubmission>(`/al-exams/submissions/${submissionId}`);
+  }
+
+  async getMyALSubmission(examId: number) {
+    return this.request<ALStudentSubmission | null>(`/al-exams/${examId}/my-submission`);
+  }
+
+  async getMyALSubmissions() {
+    return this.request<ALStudentSubmission[]>("/al-exams/my-submissions");
+  }
+
+  async listALExamSubmissions(examId: number) {
+    return this.request<ALStudentSubmission[]>(`/al-exams/${examId}/submissions`);
+  }
+
+  async getPendingTeacherReviews(status?: string, examId?: number) {
+    const params = new URLSearchParams();
+    if (status) params.append("status", status);
+    if (examId) params.append("exam_id", examId.toString());
+    const queryString = params.toString();
+    return this.request<ALStudentSubmission[]>(`/al-exams/pending-reviews${queryString ? `?${queryString}` : ""}`);
+  }
+
+  async verifyTeacherSubmission(submissionId: number, data: { answers: { answer_id: number; teacher_override_points?: number; teacher_checklist_results_json?: any; feedback_notes?: string }[]; teacher_feedback?: string }) {
+    return this.request<ALStudentSubmission>(`/al-exams/submissions/${submissionId}/verify`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listALPastPapers(year?: number, paperType?: string) {
+    let url = "/al-past-papers";
+    const params = new URLSearchParams();
+    if (year) params.append("year", year.toString());
+    if (paperType) params.append("paper_type", paperType);
+    if (params.toString()) url += `?${params.toString()}`;
+    return this.request<ALPastPaper[]>(url);
+  }
+
+  async extractPDFPastPaper(formData: FormData) {
+    return this.request<{
+      message: string;
+      past_paper_id: number;
+      paper_set_group: string;
+      questions_count: number;
+      exam_id?: number;
+    }>("/al-past-papers/extract-pdf", {
+      method: "POST",
+      body: formData,
+    });
+  }
+
+  async getQuestionBankGroups() {
+    return this.request<QuestionBankGroup[]>("/al-past-papers/question-bank/groups");
+  }
+
+  async publishPaperSetAsExam(formData: FormData) {
+    return this.request<{ message: string; exam_id: number; title: string }>("/al-past-papers/publish-exam", {
+      method: "POST",
+      body: formData,
+    });
+  }
+
+
+
+  async generateAIQuestions(data: {
+    assessment_type: string;
+    question_count: number;
+    generation_mode?: string;
+    subtype_distribution?: Record<string, number>;
+    difficulty_distribution?: Record<string, number>;
+    cognitive_distribution?: Record<string, number>;
+    course_id?: number;
+    unit_ids?: number[];
+    lesson_ids?: number[];
+    material_ids?: number[];
+    material_scopes?: string[];
+    custom_instruction?: string;
+  }) {
+    return this.request<any[]>("/al-authoring/generate-questions", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async regenerateAICandidate(candidateQuestion: any, customInstruction?: string) {
+    return this.request<any>("/al-authoring/regenerate-candidate", {
+      method: "POST",
+      body: JSON.stringify({
+        candidate_question: candidateQuestion,
+        custom_instruction: customInstruction,
+      }),
+    });
+  }
+
+  async getMaterialSummary(courseId?: number, unitIds?: number[]) {
+    const params = new URLSearchParams();
+    if (courseId) params.append("course_id", courseId.toString());
+    if (unitIds && unitIds.length > 0) params.append("unit_ids", unitIds.join(","));
+    const query = params.toString() ? `?${params.toString()}` : "";
+    return this.request<any>(`/al-authoring/material-summary${query}`);
+  }
+
+  async createCustomALExam(data: any) {
+    return this.request<ALExam>("/al-authoring/create-exam", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async duplicateALExam(examId: number) {
+    return this.request<ALExam>(`/al-exams/${examId}/duplicate`, {
+      method: "POST",
+    });
+  }
+
+  async validateALExam(examId: number) {
+    return this.request<{
+      is_valid: boolean;
+      errors: string[];
+      warnings: string[];
+      summary: any;
+    }>(`/al-exams/${examId}/validate`);
+  }
+
+  async importQuestionsToALExam(examId: number, questionVersionIds: number[]) {
+    return this.request<ALExam>(`/al-exams/${examId}/import-bank-questions`, {
+      method: "POST",
+      body: JSON.stringify({ question_version_ids: questionVersionIds }),
+    });
+  }
+
+  async reorderALExamQuestions(examId: number, questionIds: number[]) {
+    return this.request<ALExam>(`/al-exams/${examId}/reorder-questions`, {
+      method: "POST",
+      body: JSON.stringify({ question_ids: questionIds }),
+    });
+  }
+
+  async publishALExam(examId: number) {
+    return this.request<ALExam>(`/al-exams/${examId}/publish`, {
+      method: "POST",
+    });
+  }
+
+  async reviseALExam(examId: number, data: { revision_type: string; question_number?: number; reason: string; notify_students: boolean }) {
+    return this.request<{ message: string; exam_id: number; students_notified: number }>(`/al-exams/${examId}/revise`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async startALExamAttempt(examId: number) {
+    return this.request<{
+      submission_id: number;
+      exam_id: number;
+      title: string;
+      exam_type: string;
+      time_limit_minutes: number;
+      started_at: string;
+      saved_answers?: Record<number, any>;
+      questions: any[];
+    }>(`/al-exams/${examId}/start`, {
+      method: "POST",
+    });
+  }
+
+  async autosaveALAnswers(submissionId: number, answers: { question_id: number; selected_option?: string; subpart_answers_json?: any; essay_text_answer?: string; essay_attachment_url?: string }[]) {
+    return this.request<{ message: string }>(`/al-exams/submissions/${submissionId}/answers`, {
+      method: "PUT",
+      body: JSON.stringify(answers),
+    });
+  }
+
+  async submitALExam(submissionId: number, answers: { question_id: number; selected_option?: string; subpart_answers_json?: any; essay_text_answer?: string; essay_attachment_url?: string }[]) {
+    return this.request<ALStudentSubmission>(`/al-exams/submissions/${submissionId}/submit`, {
+      method: "POST",
+      body: JSON.stringify({ exam_id: 0, answers }),
+    });
+  }
+
+  async createAuthoringQuestion(data: any) {
+    return this.request<ALQuestion>("/al-authoring/questions", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateAuthoringQuestion(questionId: number, data: any) {
+    return this.request<ALQuestion>(`/al-authoring/questions/${questionId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async uploadQuestionDiagram(file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    const res = await fetch(`${API_BASE}/al-authoring/upload-diagram`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Failed to upload diagram image" }));
+      throw new Error(err.detail || "Failed to upload diagram image");
+    }
+    return res.json() as Promise<{ message: string; image_url: string; filename: string }>;
+  }
+
+  async batchAcceptCandidates(examId: number, candidates: any[]) {
+    return this.request<{ requested: number; accepted: number; failed: number; results: any[]; errors: any[] }>("/al-authoring/batch-accept-questions", {
+      method: "POST",
+      body: JSON.stringify({ exam_id: examId, candidates }),
+    });
+  }
+
+  async generateStructuredQuestions(data: {
+    question_count?: number;
+    course_id?: number;
+    unit_ids?: number[];
+    custom_instruction?: string;
+    custom_blueprints?: any[];
+    difficulty_mode?: string;
+    cognitive_mode?: string;
+  }) {
+    return this.request<any[]>("/al-authoring/generate-structured-questions", {
+      method: "POST",
+      body: JSON.stringify({
+        assessment_type: "paper_2_structured",
+        question_count: data.question_count || 4,
+        course_id: data.course_id,
+        unit_ids: data.unit_ids,
+        custom_instruction: data.custom_instruction,
+        custom_blueprints: data.custom_blueprints,
+        difficulty_mode: data.difficulty_mode || "balanced",
+        cognitive_mode: data.cognitive_mode || "recommended",
+      }),
+    });
+  }
+
+  async regenerateStructuredCandidate(data: {
+    candidate: any;
+    course_id?: number;
+    unit_ids?: number[];
+    custom_instruction?: string;
+    difficulty_mode?: string;
+    cognitive_mode?: string;
+  }) {
+    return this.request<any>("/al-authoring/regenerate-structured-candidate", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async generateEssayQuestions(data: {
+    question_count?: number;
+    course_id?: number;
+    unit_ids?: number[];
+    custom_instruction?: string;
+    custom_blueprints?: any[];
+    paper_blueprint?: any;
+    difficulty_mode?: string;
+    cognitive_mode?: string;
+  }) {
+    return this.request<any[]>("/al-authoring/generate-essay-questions", {
+      method: "POST",
+      body: JSON.stringify({
+        assessment_type: "paper_2_essay",
+        question_count: data.question_count || 3,
+        course_id: data.course_id,
+        unit_ids: data.unit_ids,
+        custom_instruction: data.custom_instruction,
+        custom_blueprints: data.custom_blueprints,
+        paper_blueprint: data.paper_blueprint,
+        difficulty_mode: data.difficulty_mode || "balanced",
+        cognitive_mode: data.cognitive_mode || "recommended",
+      }),
+    });
+  }
+
+  async regenerateEssayCandidate(data: {
+    candidate: any;
+    course_id?: number;
+    unit_ids?: number[];
+    custom_instruction?: string;
+    difficulty_mode?: string;
+    cognitive_mode?: string;
+  }) {
+    return this.request<any>("/al-authoring/regenerate-essay-candidate", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async flagDifficultyHotspot(data: { material_id: number; timestamp_seconds?: number; page_number?: number; note?: string }) {
+    return this.request<{ id: number; material_id: number; timestamp_seconds?: number }>("/al-authoring/hotspots", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getMaterialHotspots(materialId: number) {
+    return this.request<{
+      material_id: number;
+      total_hotspots: number;
+      timestamp_clusters: { bucket_seconds: number; flag_count: number }[];
+      student_notes: { student_name: string; timestamp_seconds?: number; note: string; created_at: string }[];
+    }>(`/al-authoring/materials/${materialId}/hotspots`);
+  }
+
+  async sendTargetedRemediation(data: { student_ids: number[]; material_title: string; note: string }) {
+    return this.request<{ message: string; notified_count: number }>("/al-authoring/remediation", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listPrivateRAGVaultMaterials(courseId: number, category?: string) {
+    let url = `/al-curriculum/rag-vault?course_id=${courseId}`;
+    if (category) url += `&category=${category}`;
+    return this.request<{ id: number; title: string; category: string; file_path?: string; is_private_rag_vault: boolean; created_at: string }[]>(url);
+  }
+
+  async uploadToPrivateRAGVault(formData: FormData) {
+    return this.request<{ message: string; material_id: number; category: string }>("/al-curriculum/rag-vault", {
+      method: "POST",
+      body: formData,
+    });
+  }
+
+  async generateScopeExam(formData: FormData) {
+    return this.request<{ message: string; exam_id: number; title: string; questions_count: number; paper_set_group: string }>("/al-curriculum/generate-scope-exam", {
+      method: "POST",
+      body: formData,
+    });
+  }
+
+  async getProportionalTemplateBreakdown(totalQuestions: number = 50) {
+    return this.request<{
+      total_questions: number;
+      template_counts: Record<string, number>;
+      official_ratios: Record<string, string>;
+    }>(`/al-mcq/proportional-breakdown?total_questions=${totalQuestions}`);
+  }
+
+  async generatePaper1MCQExam(courseId: number, totalQuestions: number = 50, title?: string) {
+    let url = `/al-mcq/generate-paper1?course_id=${courseId}&total_questions=${totalQuestions}`;
+    if (title) url += `&title=${encodeURIComponent(title)}`;
+    return this.request<{ message: string; exam_id: number; title: string; questions_count: number; paper_set_group: string }>(url, {
+      method: "POST",
     });
   }
 
@@ -736,6 +1279,10 @@ class ApiClient {
     topic_id?: number;
     lesson_id?: number;
     question_type?: string;
+    question_family?: string;
+    source_type?: string;
+    difficulty?: string;
+    search?: string;
     limit?: number;
     offset?: number;
   }): Promise<QuestionVersionResponse[]> {
@@ -746,12 +1293,23 @@ class ApiClient {
       if (params.topic_id) q.append("topic_id", params.topic_id.toString());
       if (params.lesson_id) q.append("lesson_id", params.lesson_id.toString());
       if (params.question_type) q.append("question_type", params.question_type);
+      if (params.question_family) q.append("question_family", params.question_family);
+      if (params.source_type) q.append("source_type", params.source_type);
+      if (params.difficulty) q.append("difficulty", params.difficulty);
+      if (params.search) q.append("search", params.search);
       if (params.limit) q.append("limit", params.limit.toString());
       if (params.offset) q.append("offset", params.offset.toString());
       const qStr = q.toString();
       if (qStr) url += `?${qStr}`;
     }
     return this.request(url);
+  }
+
+  async scanQuestionBankDuplicates(params?: { threshold?: number; lesson_id?: number }) {
+    return this.request<{ total_scanned: number; duplicate_groups: any[] }>("/questions/scan-duplicates", {
+      method: "POST",
+      body: JSON.stringify(params || { threshold: 0.85 }),
+    });
   }
 
   async getQuestionAnalytics(questionId: number) {
@@ -1116,19 +1674,43 @@ class ApiClient {
     onDone: () => void,
     existingQuestionId?: number
   ) {
-    const token = typeof window !== 'undefined' ? localStorage.getItem("access_token") : null;
+    const token = this.getToken();
+    if (!token) {
+      onError(new ApiError(401, "Please log in to ask questions with the AI tutor."));
+      return;
+    }
+
     try {
-      const res = await fetch(`${API_BASE}/qa/ask/stream`, {
+      const cleanBase = API_BASE.replace(/\/+$/, "");
+      const res = await fetch(`${cleanBase}/qa/ask/stream`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { "Authorization": `Bearer ${token}` } : {})
+          "Authorization": `Bearer ${token}`,
         },
         body: JSON.stringify({ course_id: courseId, question, existing_question_id: existingQuestionId })
       });
       
       if (!res.ok) {
-        throw new Error("Failed to stream response");
+        if (res.status === 401) {
+          if (typeof window !== "undefined") {
+            sessionStorage.removeItem("access_token");
+            localStorage.removeItem("access_token");
+            window.location.href = "/login";
+          }
+          onError(new ApiError(401, "Your session has expired. Please log in again."));
+          return;
+        }
+
+        let errMessage = "AI service is currently busy. Please try again in a moment.";
+        try {
+          const errData = await res.json();
+          if (errData?.detail) {
+            errMessage = typeof errData.detail === "string" ? errData.detail : JSON.stringify(errData.detail);
+          }
+        } catch (_) {}
+        onError(new ApiError(res.status, errMessage));
+        return;
       }
       
       const reader = res.body?.getReader();
@@ -1177,8 +1759,8 @@ class ApiClient {
         }
       }
       onDone();
-    } catch (e) {
-      onError(e);
+    } catch (e: any) {
+      onError(e instanceof Error ? e : new Error(e?.message || "Connection interrupted while receiving AI response."));
     }
   }
 
@@ -1358,6 +1940,99 @@ class ApiClient {
       body: JSON.stringify(data),
     }).catch(() => ({ message: "Profile updated locally", success: true }));
   }
+
+  // ─── A/L Assessment Analytics Foundation (A1 / A2) ─────────────────────────
+  async getExamFoundationAnalytics(examId: number) {
+    return this.request<AnalyticsResponseEnvelope<ExamFoundationOverview>>(`/analytics/exams/${examId}/foundation`);
+  }
+
+  async getMCQExamAnalytics(examId: number) {
+    return this.request<AnalyticsResponseEnvelope<MCQExamAnalyticsReport>>(`/analytics/exams/${examId}/mcq`);
+  }
+
+  async getStructuredExamAnalytics(examId: number) {
+    return this.request<AnalyticsResponseEnvelope<StructuredExamAnalyticsReport>>(`/analytics/exams/${examId}/structured`);
+  }
+
+  async getEssayExamAnalytics(examId: number) {
+    return this.request<AnalyticsResponseEnvelope<EssayExamAnalyticsReport>>(`/analytics/exams/${examId}/essay`);
+  }
+
+  async getExamDataQuality(examId: number) {
+    return this.request<AnalyticsResponseEnvelope<DataQualityReport>>(`/analytics/exams/${examId}/data-quality`);
+  }
+
+  async getCourseMaterialAnalytics(courseId: number) {
+    return this.request<AnalyticsResponseEnvelope<CourseMaterialAnalyticsReport>>(`/analytics/materials/${courseId}`);
+  }
+
+  async getCourseAIAnalytics(courseId: number) {
+    return this.request<AnalyticsResponseEnvelope<AskAIAnalyticsReport>>(`/analytics/ai/${courseId}`);
+  }
+
+  // ─── Learning Behaviour & Student Profile Analytics (A3) ─────────────────────────
+  async getCourseLearningOverview(courseId: number) {
+    return this.request<AnalyticsResponseEnvelope<CourseLearningOverview>>(`/analytics/courses/${courseId}/learning-overview`);
+  }
+
+  async getUnitLearningCrossover(courseId: number) {
+    return this.request<AnalyticsResponseEnvelope<UnitLearningAssessmentCrossover[]>>(`/analytics/courses/${courseId}/unit-crossover`);
+  }
+
+  async getStudentLearningProfile(studentId: number, courseId?: number) {
+    const query = courseId ? `?course_id=${courseId}` : "";
+    return this.request<AnalyticsResponseEnvelope<StudentLearningProfileReport>>(`/analytics/students/${studentId}/learning-profile${query}`);
+  }
+
+  async getStudentPersonalMastery(courseId?: number) {
+    const query = courseId ? `?course_id=${courseId}` : "";
+    return this.request<AnalyticsResponseEnvelope<StudentPersonalMasteryReport>>(`/analytics/student/mastery${query}`);
+  }
+
+  // ─── Advanced Cross-Analytics & Learning Intelligence (A5) ─────────────────────────
+  async getCourseLearningIntelligence(courseId: number) {
+    return this.request<AnalyticsResponseEnvelope<TeacherCourseLearningIntelligenceReport>>(`/analytics/courses/${courseId}/learning-intelligence`);
+  }
+
+  async getStudentLearningIntelligence(courseId?: number) {
+    const query = courseId ? `?course_id=${courseId}` : "";
+    return this.request<AnalyticsResponseEnvelope<StudentPersonalLearningIntelligenceReport>>(`/analytics/student/learning-intelligence${query}`);
+  }
+
+  // ─── Analytics Reporting & Export (A6) ─────────────────────────
+  async getCourseAnalyticsReport(courseId: number) {
+    return this.request<AnalyticsResponseEnvelope<CourseComprehensiveReport>>(`/analytics/courses/${courseId}/report`);
+  }
+
+  getCourseAnalyticsCsvUrl(
+    courseId: number,
+    exportType: string = "course_summary",
+    params?: { unit_id?: number; exam_id?: number; student_id?: number }
+  ): string {
+    const q = new URLSearchParams();
+    q.set("type", exportType);
+    if (params?.unit_id) q.set("unit_id", String(params.unit_id));
+    if (params?.exam_id) q.set("exam_id", String(params.exam_id));
+    if (params?.student_id) q.set("student_id", String(params.student_id));
+    return `${API_BASE}/analytics/courses/${courseId}/export/csv?${q.toString()}`;
+  }
+
+  // ─── Phase V5.4: Cross-Analytics & Teacher Learning Intelligence ─────────────
+  async getTeacherCrossAnalytics(courseId: number) {
+    return this.request<TeacherCrossAnalyticsReport>(`/analytics/teacher/course/${courseId}/cross-intelligence`);
+  }
+
+  async getUnitQuestionInventory(courseId: number, unitId: number) {
+    return this.request<UnitQuestionInventoryItem[]>(`/analytics/teacher/course/${courseId}/unit/${unitId}/inspect-items`);
+  }
+
+  async getTeacherStudentCrossIntelligence(courseId: number, studentId: number) {
+    return this.request<StudentCrossAnalyticsDossier>(`/analytics/teacher/course/${courseId}/student/${studentId}/cross-intelligence`);
+  }
+
+  async getStudentSelfCrossIntelligence(courseId: number) {
+    return this.request<StudentCrossAnalyticsDossier>(`/analytics/student/course/${courseId}/cross-intelligence`);
+  }
 }
 
 // ─── TypeScript Interfaces ────────────────
@@ -1426,6 +2101,7 @@ export interface Unit {
   title: string;
   description?: string;
   order: number;
+  unit_number?: number;
   course_id: number;
   created_at: string;
   lesson_count?: number;
@@ -1633,6 +2309,12 @@ export interface CourseAnalytics {
   total_students: number;
   average_quiz_score?: number;
   average_coursework_score?: number;
+  average_exam_score?: number;
+  average_mcq_score?: number;
+  average_structured_score?: number;
+  average_essay_score?: number;
+  total_exams_count?: number;
+  total_submissions_count?: number;
   material_completion_rate?: number;
   total_questions_asked: number;
   completion_rate?: number;
@@ -1687,16 +2369,33 @@ export interface FullCourseAnalytics {
 }
 
 export interface StudentProgress {
-  student_id: number;
-  student_name: string;
+  student_id?: number;
+  student_name?: string;
   courses_enrolled: number;
-  quizzes_taken: number;
-  average_score?: number;
+  overall_progress?: number;
+  
+  // A/L Exam Metrics
+  papers_taken?: number;
+  average_exam_score?: number;
+  predicted_grade?: string;
+  recent_exam_scores?: Array<{
+    exam_id: number;
+    exam_title: string;
+    score: number;
+    grade: string;
+    date: string | null;
+  }>;
+
+  // Materials & Engagement
+  completed_materials?: number;
+  total_materials?: number;
   questions_asked: number;
+
+  // Legacy / Compatibility
+  quizzes_taken?: number;
+  average_score?: number;
   coursework_submitted?: number;
   average_coursework_score?: number;
-  completed_materials?: number;
-  overall_progress?: number;
   last_active?: string;
 }
 
@@ -1704,7 +2403,19 @@ export interface QAResponse {
   question_id: number;
   question_text: string;
   response_text?: string;
-  context_sources?: { material_id?: number; title?: string; relevance?: number }[];
+  is_grounded?: boolean;
+  context_sources?: {
+    course_id?: number;
+    lesson_id?: number;
+    material_id?: number;
+    title?: string;
+    material_type?: string;
+    lesson_title?: string;
+    unit_name?: string;
+    file_url?: string;
+    relevance?: number;
+    [key: string]: any;
+  }[];
   confidence_score?: number;
   is_flagged?: boolean;
   teacher_correction?: string;
@@ -1781,7 +2492,11 @@ export interface QuizScoreDistribution {
 
 export interface QuizBreakdownItem {
   quiz_id: number;
+  exam_id?: number;
   quiz_title: string;
+  exam_type?: string;
+  paper_phase?: string;
+  total_questions?: number;
   total_attempts: number;
   average_score?: number;
   highest_score?: number;
@@ -1799,8 +2514,15 @@ export interface EngagementStudent {
   quizzes_taken: number;
   total_quizzes?: number;
   quiz_completion_pct?: number;
+  paper_1_score?: number | null;
+  paper_2_score?: number | null;
+  exam_avg?: number | null;
+  exams_taken?: number;
+  total_exams?: number;
+  exam_completion_pct?: number;
   average_score?: number;
   questions_asked: number;
+  unresolved_flags?: number;
   weighted_score?: number;
   flag_reason?: string;
   completed_materials?: number;
@@ -1849,21 +2571,69 @@ export interface StudentCourseQuizResult {
 export interface StudentCoursePerformance {
   course_id: number;
   course_title: string;
-  quiz_results: StudentCourseQuizResult[];
   completion_percentage: number;
-  total_quizzes: number;
-  completed_quizzes: number;
+
+  // Tri-factor Breakdown (40% Materials, 30% Paper 1, 30% Paper 2)
+  materials_score?: number;
+  materials_completion_pct?: number;
   completed_materials?: number;
   total_materials?: number;
+
+  paper_1_score?: number;
+  paper_1_completion_pct?: number;
+  completed_paper_1?: number;
+  total_paper_1?: number;
+
+  paper_2_score?: number;
+  paper_2_completion_pct?: number;
+  completed_paper_2?: number;
+  total_paper_2?: number;
+
+  // Mastery & Engagement
+  papers_done?: number;
+  total_papers?: number;
+  questions_asked: number;
+
+  // Pending & Alerts
+  pending_papers?: Array<{ id: number; title: string; exam_type: string }>;
+  low_score_papers?: Array<{ id: number; title: string; score: number }>;
+
+  // Unit, Lesson & Material Progress
+  unit_progress?: Array<{
+    unit_id: number;
+    completed_lessons: number;
+    total_lessons: number;
+    completed_materials: number;
+    total_materials: number;
+    completed_fraction: string;
+    is_completed: boolean;
+    completion_percentage: number;
+  }>;
+  lesson_progress?: Array<{
+    lesson_id: number;
+    unit_id?: number | null;
+    status: "reviewed" | "engaging" | "not_reviewed";
+    completed_materials: number;
+    total_materials: number;
+    is_completed: boolean;
+  }>;
+  material_progress?: Array<{
+    material_id: number;
+    last_position: number;
+    is_completed: boolean;
+    updated_at?: string | null;
+  }>;
+
+  // Legacy / Compatibility
+  quiz_results?: StudentCourseQuizResult[];
+  total_quizzes?: number;
+  completed_quizzes?: number;
   submitted_assignments?: number;
   total_assignments?: number;
-  materials_completion_pct?: number;
   coursework_completion_pct?: number;
   quiz_completion_pct?: number;
-  materials_score?: number;
   coursework_score?: number;
   quiz_score?: number;
-  questions_asked: number;
 }
 
 export interface RecommendationMaterial {
@@ -1890,6 +2660,8 @@ export interface MaterialFlag {
   context: string;
   comment: string;
   is_resolved: boolean;
+  teacher_reply?: string | null;
+  resolved_at?: string | null;
   created_at: string;
 }
 
@@ -1961,6 +2733,9 @@ export interface QuestionVersionResponse {
   created_at: string;
   lesson_id?: number;
   lesson_title?: string;
+  unit_id?: number;
+  unit_title?: string;
+  tags?: string[];
 }
 
 export interface QuestionAnalyticsResponse {
@@ -1993,6 +2768,1029 @@ export interface GradingQueueItem {
   pending_short_answers_count: number;
   is_pending_review?: boolean;
   events: IntegrityEventView[];
+}
+
+// ─── A/L Exam Engine Interfaces ─────────────────────────
+
+export type ALExamType = "paper_1_mcq" | "paper_2_structured" | "paper_2_essay" | "paper_2" | "full_paper";
+
+export type ALQuestionTemplate = 
+  | "generic_mcq"
+  | "multi_response_grid"
+  | "five_statement_truth"
+  | "matching_column"
+  | "combination_grid"
+  | "sequential_diagnostic"
+  | "incomplete_stem"
+  | "assertion_reason"
+  | "diagram_based"
+  | "experimental_procedure"
+  | "structured_subparts"
+  | "essay_rubric"
+  | "essay_checklist";
+
+export interface ALQuestion {
+  id: number;
+  exam_id: number;
+  question_number: number;
+  template_type: ALQuestionTemplate;
+  stem_text: string;
+  diagram_url?: string;
+  requires_image?: boolean;
+  image_description?: string;
+  explanation?: string;
+  points: number;
+  cognitive_level: string;
+  difficulty: string;
+  options?: string[];
+  correct_option?: string;
+  assertion_text?: string;
+  reason_text?: string;
+  statements_json?: any;
+  grid_key_json?: any;
+  structured_subparts_json?: any;
+  essay_checklist_json?: any;
+  created_at: string;
+}
+
+export interface ALExam {
+  id: number;
+  title: string;
+  description?: string;
+  instructions?: string;
+  exam_type: ALExamType;
+  time_limit_minutes: number;
+  total_questions: number;
+  raw_mark_cap?: number;
+  score_multiplier: number;
+  max_attempts: number;
+  is_published: boolean;
+  difficulty_policy?: string;
+  available_from?: string;
+  available_until?: string;
+  show_result_immediately?: boolean;
+  course_id: number;
+  lesson_id?: number;
+  created_at: string;
+  updated_at: string;
+  questions?: ALQuestion[];
+}
+
+export interface ALStudentAnswer {
+  id: number;
+  submission_id: number;
+  question_id: number;
+  selected_option?: string;
+  subpart_answers_json?: any;
+  essay_text_answer?: string;
+  essay_attachment_url?: string;
+  raw_points_earned: number;
+  scaled_points_earned: number;
+  is_correct?: boolean;
+  auto_score?: number;
+  ai_score?: number;
+  teacher_score?: number;
+  final_score?: number;
+  correct_option?: string;
+  explanation?: string;
+  ai_checklist_results_json?: any;
+  teacher_checklist_results_json?: any;
+  teacher_override_points?: number;
+  feedback_notes?: string;
+}
+
+export interface ALStudentSubmission {
+  id: number;
+  exam_id: number;
+  exam_title?: string;
+  exam_type?: string;
+  student_id: number;
+  student_name?: string;
+  student_email?: string;
+  started_at?: string;
+  submitted_at?: string;
+  raw_score?: number;
+  scaled_score?: number;
+  percentage?: number;
+  total_score?: number;
+  max_score?: number;
+  score_percentage?: number;
+  grade?: string;
+  status: string;
+  ai_feedback_summary?: string;
+  teacher_feedback?: string;
+  teacher_verified_at?: string;
+  answers?: ALStudentAnswer[];
+}
+
+export interface ALPastPaper {
+  id: number;
+  year: number;
+  title: string;
+  paper_type: ALExamType;
+  pdf_url?: string;
+  marking_scheme_url?: string;
+  exam_id?: number;
+  status: string;
+  created_at: string;
+}
+
+export interface QuestionBankGroup {
+  group_name: string;
+  total_questions: number;
+}
+
+// ─── Assessment Analytics Interfaces (A1 / A2) ─────────────────────────
+
+export interface AnalyticsMeta {
+  sample_size: number;
+  generated_at: string;
+  data_quality: "sufficient" | "insufficient_sample" | "degraded" | "warning";
+  execution_time_ms?: number;
+}
+
+export interface AnalyticsResponseEnvelope<T> {
+  status: "success" | "warning" | "error";
+  data: T;
+  meta: AnalyticsMeta;
+}
+
+export interface ExamFoundationOverview {
+  exam_id: number;
+  title: string;
+  exam_type: string;
+  time_limit_minutes: number;
+  total_questions: number;
+  raw_mark_cap: number;
+  is_published: boolean;
+  total_submissions: number;
+  in_progress_count: number;
+  submitted_count: number;
+  ai_graded_count: number;
+  teacher_verified_count: number;
+  average_raw_score?: number | null;
+  average_scaled_score?: number | null;
+  average_percentage?: number | null;
+  median_percentage?: number | null;
+  highest_percentage?: number | null;
+  lowest_percentage?: number | null;
+  score_distribution_buckets: Record<string, number>;
+  grade_distribution: Record<string, number>;
+}
+
+export interface OptionDistributionItem {
+  option_key: string;
+  count: number;
+  percentage?: number | null;
+  is_correct: boolean;
+  is_non_functional_distractor: boolean;
+}
+
+export interface DiscriminationMetric {
+  value?: number | null;
+  sample_size: number;
+  valid: boolean;
+  confidence: "sufficient_sample" | "low_confidence" | "insufficient_sample";
+  reason?: string | null;
+}
+
+export interface MCQItemMetric {
+  question_id: number;
+  question_number: number;
+  template_type: string;
+  stem_summary: string;
+  cognitive_level: string;
+  difficulty: string;
+  points: number;
+  correct_option?: string | null;
+  total_attempts: number;
+  answered_count: number;
+  unanswered_count: number;
+  correct_count: number;
+  incorrect_count: number;
+  difficulty_index_p?: number | null;
+  percentage_score?: number | null;
+  discrimination: DiscriminationMetric;
+  option_distribution: OptionDistributionItem[];
+}
+
+export interface MCQExamAnalyticsReport {
+  exam_id: number;
+  exam_title: string;
+  total_questions: number;
+  total_submissions: number;
+  average_score?: number | null;
+  average_percentage?: number | null;
+  median_percentage?: number | null;
+  highest_percentage?: number | null;
+  lowest_percentage?: number | null;
+  cognitive_level_breakdown: Record<string, any>;
+  template_type_breakdown: Record<string, any>;
+  difficulty_level_breakdown: Record<string, any>;
+  hardest_questions: Array<{
+    question_number: number;
+    question_id: number;
+    stem_summary: string;
+    difficulty_index_p?: number | null;
+    percentage_score?: number | null;
+    template_type: string;
+  }>;
+  easiest_questions: Array<{
+    question_number: number;
+    question_id: number;
+    stem_summary: string;
+    difficulty_index_p?: number | null;
+    percentage_score?: number | null;
+    template_type: string;
+  }>;
+  questions: MCQItemMetric[];
+}
+
+export interface StructuredSubpartMetric {
+  node_id: string;
+  display_label: string;
+  part_type: string;
+  prompt_text?: string | null;
+  expected_keywords: string[];
+  maximum_points: number;
+  awarded_points_avg?: number | null;
+  percentage_achieved?: number | null;
+  loss_rate_percentage?: number | null;
+  total_attempts: number;
+  successful_attempts: number;
+  children: StructuredSubpartMetric[];
+}
+
+export interface StructuredQuestionMetric {
+  question_id: number;
+  question_number: number;
+  stem_summary: string;
+  total_points: number;
+  total_attempts: number;
+  average_score?: number | null;
+  average_percentage?: number | null;
+  hierarchy: StructuredSubpartMetric[];
+}
+
+export interface StructuredExamAnalyticsReport {
+  exam_id: number;
+  exam_title: string;
+  total_questions: number;
+  total_submissions: number;
+  average_score?: number | null;
+  average_percentage?: number | null;
+  subpart_loss_ranking: Array<{
+    node_id: string;
+    display_label: string;
+    maximum_points: number;
+    awarded_points_avg?: number | null;
+    percentage_achieved?: number | null;
+    loss_rate_percentage?: number | null;
+    total_attempts: number;
+  }>;
+  questions: StructuredQuestionMetric[];
+}
+
+export interface EssayCriterionMetric {
+  criterion_id: number | string;
+  item_number: number;
+  criterion_text: string;
+  max_points: number;
+  total_attempts: number;
+  awarded_count: number;
+  omitted_count: number;
+  omission_frequency_percentage?: number | null;
+  success_percentage?: number | null;
+  average_awarded_points?: number | null;
+}
+
+export interface EssayQuestionMetric {
+  question_id: number;
+  question_number: number;
+  stem_summary: string;
+  total_points: number;
+  total_attempts: number;
+  average_score?: number | null;
+  average_percentage?: number | null;
+  criteria_count: number;
+  criteria: EssayCriterionMetric[];
+}
+
+export interface EssayExamAnalyticsReport {
+  exam_id: number;
+  exam_title: string;
+  total_questions: number;
+  total_submissions: number;
+  average_score?: number | null;
+  average_percentage?: number | null;
+  most_omitted_criteria: Array<{
+    criterion_id: number | string;
+    question_number: number;
+    item_number: number;
+    criterion_text: string;
+    omission_frequency_percentage?: number | null;
+    success_percentage?: number | null;
+    average_awarded_points?: number | null;
+    max_points: number;
+    total_attempts: number;
+  }>;
+  questions: EssayQuestionMetric[];
+}
+
+export interface DataQualityAnomaly {
+  severity: "error" | "warning" | "info";
+  category: string;
+  entity_type: string;
+  entity_id?: number | null;
+  description: string;
+  context?: Record<string, any>;
+}
+
+export interface DataQualityReport {
+  target_type: string;
+  target_id: number;
+  total_checks_run: number;
+  errors_count: number;
+  warnings_count: number;
+  is_clean: boolean;
+  anomalies: DataQualityAnomaly[];
+}
+
+export interface ContextualFlagMetric {
+  flag_id: number;
+  student_id: number;
+  student_name?: string | null;
+  context_type: string;
+  context_value?: string | null;
+  comment?: string | null;
+  is_resolved: boolean;
+  teacher_reply?: string | null;
+  resolved_at?: string | null;
+  created_at: string;
+}
+
+export interface MaterialEngagementMetric {
+  material_id: number;
+  lesson_id?: number | null;
+  lesson_title?: string | null;
+  unit_id?: number | null;
+  unit_title?: string | null;
+  title: string;
+  material_type: string;
+  total_enrolled: number;
+  total_views: number;
+  completed_count: number;
+  completion_rate_percentage?: number | null;
+  avg_last_position?: number | null;
+  total_flags: number;
+  unresolved_flags: number;
+  resolved_flags: number;
+  contextual_flags: ContextualFlagMetric[];
+}
+
+export interface CourseMaterialAnalyticsReport {
+  course_id: number;
+  course_title: string;
+  total_materials: number;
+  total_enrolled: number;
+  overall_completion_rate?: number | null;
+  total_flags: number;
+  total_unresolved_flags: number;
+  materials: MaterialEngagementMetric[];
+}
+
+export interface AIConceptTopicMetric {
+  topic_category: string;
+  question_count: number;
+  percentage?: number | null;
+  sentiment_breakdown: Record<string, number>;
+  sample_questions: string[];
+}
+
+export interface AIInquiryDetailMetric {
+  question_id: number;
+  student_id: number;
+  student_name: string;
+  question_text: string;
+  response_id?: number | null;
+  response_text?: string | null;
+  confidence_score?: number | null;
+  is_grounded: boolean;
+  context_sources?: any[] | null;
+  topic_category?: string | null;
+  sentiment_difficulty?: string | null;
+  is_flagged: boolean;
+  teacher_correction?: string | null;
+  asked_at: string;
+}
+
+export interface AskAIAnalyticsReport {
+  course_id: number;
+  course_title: string;
+  total_questions_asked: number;
+  answered_questions_count: number;
+  unique_students_count: number;
+  low_confidence_count: number;
+  flagged_count: number;
+  teacher_corrected_count: number;
+  average_confidence_score?: number | null;
+  source_grounded_percentage?: number | null;
+  topic_categories: AIConceptTopicMetric[];
+  sentiment_distribution: Record<string, number>;
+  recent_ai_logs_summary: Record<string, any>;
+  detailed_inquiries: AIInquiryDetailMetric[];
+}
+
+// ─── Phase A3 Learning & Student Behaviour Interfaces ─────────────────────────
+
+export interface UnitLearningAssessmentCrossover {
+  unit_id: number;
+  unit_title: string;
+  total_materials: number;
+  materials_viewed_count?: number;
+  materials_completed_count?: number;
+  material_completion_percentage?: number | null;
+  total_material_views: number;
+  total_flags: number;
+  unresolved_flags: number;
+  ask_ai_questions_count: number;
+  questions_count?: number;
+  attempts_count?: number;
+  attainment_percentage?: number | null;
+  mcq_average_percentage?: number | null;
+  structured_average_percentage?: number | null;
+  essay_average_percentage?: number | null;
+  evidence_state?: string;
+  support_signals: string[];
+}
+
+export interface CourseLearningOverview {
+  course_id: number;
+  course_title: string;
+  enrolled_students: number;
+  active_learners_30d: number;
+  total_materials: number;
+  materials_viewed_count: number;
+  materials_completed_count: number;
+  average_material_completion_percentage?: number | null;
+  average_revisit_frequency?: number | null;
+  total_flags: number;
+  unresolved_flags: number;
+  flag_resolution_rate_percentage?: number | null;
+  ask_ai_questions_count: number;
+  unique_students_asking_ai: number;
+  top_flagged_materials: Array<{
+    material_id: number;
+    title: string;
+    material_type: string;
+    total_flags: number;
+    unresolved_flags: number;
+    hotspots: Array<{ location: string; count: number }>;
+  }>;
+  top_revisited_materials: Array<{
+    material_id: number;
+    title: string;
+    material_type: string;
+    total_views: number;
+    unique_students: number;
+    revisit_frequency: number;
+  }>;
+  temporal_activity: Record<string, { views: number; flags: number; ai_questions: number }>;
+  unit_crossover_profiles: UnitLearningAssessmentCrossover[];
+}
+
+export interface StudentSupportSignalItem {
+  signal_type: string;
+  severity: "info" | "warning" | "attention";
+  topic_or_material: string;
+  evidence_text: string;
+}
+
+export interface StudentLearningProfileReport {
+  student_id: number;
+  student_name: string;
+  student_email: string;
+  enrolled_courses_count: number;
+  materials_completed: number;
+  materials_total: number;
+  material_completion_percentage?: number | null;
+  frequently_revisited_materials: Array<{
+    material_id: number;
+    title: string;
+    material_type: string;
+    is_completed: boolean;
+    last_position?: number | null;
+    last_updated: string;
+  }>;
+  flags_submitted_count: number;
+  flags_unresolved_count: number;
+  ask_ai_questions_count: number;
+  top_asked_topics: Array<{ topic: string; count: number }>;
+  recent_flags: Array<{
+    flag_id: number;
+    material_title: string;
+    context_type: string;
+    context_value: string;
+    comment: string;
+    is_resolved: boolean;
+    created_at: string;
+  }>;
+  recent_ai_questions: Array<{
+    question_id: number;
+    question_text: string;
+    topic_category: string;
+    sentiment_difficulty: string;
+    asked_at: string;
+  }>;
+  assessment_history: Array<{
+    submission_id: number;
+    exam_id: number;
+    exam_title: string;
+    exam_type: string;
+    raw_score?: number | null;
+    scaled_score?: number | null;
+    percentage?: number | null;
+    grade?: string | null;
+    status: string;
+    submitted_at: string;
+  }>;
+  assessment_average_percentage?: number | null;
+  highest_assessment_percentage?: number | null;
+  recent_assessment_percentage?: number | null;
+  mcq_average_percentage?: number | null;
+  structured_average_percentage?: number | null;
+  essay_average_percentage?: number | null;
+  unit_mastery_breakdown: Array<{
+    unit_id: number;
+    unit_title: string;
+    materials_count: number;
+    material_completion_pct?: number | null;
+    assessment_score_pct?: number | null;
+    flags_count: number;
+    mastery_status: string;
+  }>;
+  engagement_pattern: string;
+  status_diagnostic?: {
+    status: string;
+    label: string;
+    badgeClass: string;
+    reason: string;
+  };
+  support_signals: StudentSupportSignalItem[];
+  recommended_interventions: Array<{
+    title: string;
+    reason: string;
+    action_type: string;
+  }>;
+  last_activity_at?: string | null;
+}
+
+// ─── Phase A4 Student Personal Mastery Interfaces ─────────────────────────
+
+export interface UnitFormatBreakdownItem {
+  format_key: string;
+  format_name: string;
+  attempts: number;
+  correct?: number;
+  earned_marks?: number;
+  max_marks?: number;
+  percentage?: number | null;
+}
+
+export interface StudentSyllabusUnitMastery {
+  unit_id: number;
+  unit_title: string;
+  assessment_mastery_percentage?: number | null;
+  learning_activity_percentage?: number | null;
+  materials_total?: number;
+  materials_completed?: number;
+  questions_count?: number;
+  attempts_count: number;
+  mcq_percentage?: number | null;
+  structured_percentage?: number | null;
+  essay_percentage?: number | null;
+  material_completion_percentage?: number | null;
+  evidence_state?: string;
+  mastery_status: string;
+  data_source_note: string;
+  mcq_breakdown?: {
+    attempts: number;
+    correct: number;
+    percentage?: number | null;
+    formats?: UnitFormatBreakdownItem[];
+  };
+  structured_breakdown?: {
+    attempts: number;
+    earned_marks: number;
+    max_marks: number;
+    percentage?: number | null;
+    formats?: UnitFormatBreakdownItem[];
+  };
+  essay_breakdown?: {
+    attempts: number;
+    earned_marks: number;
+    max_marks: number;
+    percentage?: number | null;
+    formats?: UnitFormatBreakdownItem[];
+  };
+}
+
+export interface QuestionTypeMasteryItem {
+  template_type: string;
+  template_name: string;
+  paper_phase?: string;
+  attempts_count: number;
+  correct_count: number;
+  accuracy_percentage?: number | null;
+  mastery_status: string;
+}
+
+export interface CognitiveSkillMasteryItem {
+  cognitive_level: string;
+  attempts_count: number;
+  correct_count: number;
+  accuracy_percentage?: number | null;
+  mastery_status: string;
+}
+
+export interface RevisionPriorityItem {
+  priority_rank: number;
+  unit_id?: number | null;
+  unit_title: string;
+  current_performance_percentage?: number | null;
+  evidence_rationale: string;
+  suggested_action: string;
+}
+
+export interface StudentPersonalMasteryReport {
+  student_id: number;
+  student_name: string;
+  course_id?: number | null;
+  course_title?: string | null;
+  enrolled_courses_count: number;
+  materials_completed: number;
+  materials_total: number;
+  material_completion_percentage?: number | null;
+  assessments_completed: number;
+  average_assessment_percentage?: number | null;
+  latest_assessment_percentage?: number | null;
+  latest_assessment_title?: string | null;
+  latest_assessment_date?: string | null;
+  performance_trend: Array<{
+    date: string;
+    exam_title: string;
+    percentage: number;
+  }>;
+  strongest_unit?: string | null;
+  revision_priority_unit?: string | null;
+  syllabus_unit_mastery: StudentSyllabusUnitMastery[];
+  question_type_mastery: QuestionTypeMasteryItem[];
+  mcq_formats?: QuestionTypeMasteryItem[];
+  structured_formats?: QuestionTypeMasteryItem[];
+  essay_formats?: QuestionTypeMasteryItem[];
+  cognitive_skills_mastery: CognitiveSkillMasteryItem[];
+  revision_priorities: RevisionPriorityItem[];
+  paper_phases_summary?: Record<string, any>;
+  mcq_deep_dive?: {
+    total_attempted: number;
+    correct_count: number;
+    incorrect_count: number;
+    accuracy_percentage?: number | null;
+    difficulty_breakdown?: Array<{
+      difficulty: string;
+      attempts: number;
+      correct: number;
+      accuracy_percentage?: number | null;
+    }>;
+  };
+  structured_deep_dive?: {
+    questions_attempted: number;
+    total_max_marks: number;
+    total_earned_marks: number;
+    average_percentage?: number | null;
+    questions?: Array<{
+      question_id: number;
+      question_number: number;
+      exam_title: string;
+      max_marks: number;
+      earned_marks: number;
+      percentage: number;
+    }>;
+  };
+  essay_deep_dive?: {
+    essays_attempted: number;
+    total_max_marks: number;
+    total_earned_marks: number;
+    average_percentage?: number | null;
+    questions?: Array<{
+      question_id: number;
+      question_number: number;
+      exam_title: string;
+      max_marks: number;
+      earned_marks: number;
+      percentage: number;
+    }>;
+  };
+  structured_summary: Record<string, any>;
+  essay_summary: Record<string, any>;
+  assessment_history: Array<{
+    submission_id: number;
+    exam_id: number;
+    exam_title: string;
+    exam_type: string;
+    raw_score?: number | null;
+    scaled_score?: number | null;
+    percentage?: number | null;
+    grade?: string | null;
+    status: string;
+    submitted_at: string;
+  }>;
+  frequently_revisited_materials: Array<{
+    material_id: number;
+    title: string;
+    material_type: string;
+    is_completed: boolean;
+    last_position?: number | null;
+    last_updated: string;
+  }>;
+  personal_flags: Array<{
+    flag_id: number;
+    material_id?: number;
+    material_title: string;
+    context_type: string;
+    context_value: string;
+    comment: string;
+    is_resolved: boolean;
+    teacher_reply?: string | null;
+    resolved_at?: string | null;
+    status_label?: string;
+    created_at: string;
+  }>;
+  personal_ai_topics: Array<{ topic: string; count: number }>;
+  personal_signals: string[];
+}
+
+// ─── Phase A5 Advanced Cross-Analytics & Learning Intelligence Interfaces ─────
+
+export interface ActionableTargetLink {
+  label: string;
+  target_url: string;
+  action_type: string;
+}
+
+export interface ContentHotspotIntelligence {
+  hotspot_id: string;
+  unit_id?: number | null;
+  unit_title: string;
+  priority_level: "HIGH_PRIORITY" | "MEDIUM_PRIORITY" | "MONITORING" | "HEALTHY" | "NOT_STARTED" | "NO_DATA" | "ASSESSMENT_ONLY" | "LEARNING_ONLY";
+  evidence_state?: "NO_DATA" | "LEARNING_ONLY" | "ASSESSMENT_ONLY" | "LIMITED_DATA" | "EVIDENCE_AVAILABLE" | "STRONG_EVIDENCE" | string;
+  evidence_confidence: "strong_pattern" | "emerging_pattern" | "early_signal" | "insufficient_data";
+  evidence_points: string[];
+  material_completion_pct?: number | null;
+  assessment_score_pct?: number | null;
+  flags_count: number;
+  unresolved_flags_count: number;
+  ai_inquiries_count: number;
+  subpart_losses_count: number;
+  essay_omissions_count: number;
+  neutral_insight: string;
+  recommended_actions: ActionableTargetLink[];
+}
+
+export interface QuestionTypeTopicCrossItem {
+  unit_title: string;
+  direct_recall_accuracy?: number | null;
+  applied_multi_variable_accuracy?: number | null;
+  gap_percentage?: number | null;
+  insight: string;
+}
+
+export interface CognitiveLevelTopicCrossItem {
+  unit_title: string;
+  lower_order_accuracy?: number | null;
+  higher_order_accuracy?: number | null;
+  attenuation_gap?: number | null;
+  insight: string;
+}
+
+export interface DistractorIntelligenceItem {
+  question_id: number;
+  question_number: number;
+  exam_title: string;
+  stem_snippet: string;
+  correct_option: string;
+  strong_distractor_option: string;
+  distractor_selection_pct: number;
+  cognitive_level: string;
+  insight: string;
+}
+
+export interface LongitudinalTopicTrendItem {
+  unit_title: string;
+  trend_direction: "improving" | "declining" | "stable_strength" | "persistent_weakness" | "insufficient_data";
+  score_progression: number[];
+  net_change_pct?: number | null;
+  insight: string;
+}
+
+export interface TeacherCourseLearningIntelligenceReport {
+  course_id: number;
+  course_title: string;
+  enrolled_students: number;
+  total_assessments_analyzed: number;
+  hotspots: ContentHotspotIntelligence[];
+  question_type_cross_matrix: QuestionTypeTopicCrossItem[];
+  cognitive_cross_matrix: CognitiveLevelTopicCrossItem[];
+  distractor_insights: DistractorIntelligenceItem[];
+  longitudinal_trends: LongitudinalTopicTrendItem[];
+  executive_summary_narrative: string;
+  ai_narrative_status: string;
+}
+
+export interface StudentPersonalLearningIntelligenceReport {
+  student_id: number;
+  student_name: string;
+  course_id?: number | null;
+  personal_hotspots: ContentHotspotIntelligence[];
+  question_format_divergence: QuestionTypeTopicCrossItem[];
+  cognitive_attenuation: CognitiveLevelTopicCrossItem[];
+  personal_longitudinal_trends: LongitudinalTopicTrendItem[];
+  actionable_recommendations: ActionableTargetLink[];
+  personal_executive_narrative: string;
+  ai_narrative_status: string;
+}
+
+// ─── Phase A6 Analytics Reporting & Export Interfaces ─────────────────────────
+
+export interface AssessmentHighlightItem {
+  exam_id: number;
+  exam_title: string;
+  exam_type: string;
+  submissions_count: number;
+  average_score_percentage?: number | null;
+  pass_rate_percentage?: number | null;
+}
+
+export interface CourseComprehensiveReport {
+  course_id: number;
+  course_title: string;
+  generated_at: string;
+  enrolled_students: number;
+  active_learners_30d: number;
+  average_material_completion?: number | null;
+  assessments_conducted: number;
+  total_submissions: number;
+  course_average_score?: number | null;
+  total_material_flags: number;
+  unresolved_flags: number;
+  total_ai_questions: number;
+  executive_summary: string;
+  assessment_highlights: AssessmentHighlightItem[];
+  grade_distribution?: Record<string, number>;
+  top_difficult_questions: Array<{
+    question_id: number;
+    question_number: number;
+    exam_title: string;
+    template_type: string;
+    cognitive_level: string;
+    average_score_percentage: number;
+    attempts_count: number;
+  }>;
+  syllabus_breakdown: Array<{
+    unit_id: number;
+    unit_title: string;
+    material_completion_pct?: number | null;
+    assessment_score_pct?: number | null;
+    priority_level: string;
+    flags_count: number;
+    ai_inquiries_count: number;
+  }>;
+  learning_hotspots: ContentHotspotIntelligence[];
+  recommended_teacher_actions: ActionableTargetLink[];
+  ai_narrative_status: string;
+}
+
+// ─── Phase V5.4: Cross-Analytics & Teacher Intelligence Interfaces ───────────
+
+export interface LearningAssessmentDivergenceItem {
+  unit_id?: number | null;
+  unit_title: string;
+  learning_activity_pct?: number | null;
+  assessment_score_pct?: number | null;
+  divergence_state: "ENGAGED_MASTERED" | "ENGAGED_STRUGGLING" | "LOW_ACTIVITY_HIGH_ATTAINMENT" | "LOW_ACTIVITY_LOW_ATTAINMENT" | "NO_DATA" | "LEARNING_ONLY" | "ASSESSMENT_ONLY" | "LIMITED_DATA" | string;
+  divergence_label: string;
+  interpretation: string;
+  pedagogical_action: string;
+  evidence_points: string[];
+}
+
+export interface UnitQuestionInventoryItem {
+  question_id: number;
+  question_number: number;
+  exam_id: number;
+  exam_title: string;
+  exam_type: "paper_1_mcq" | "paper_2a_structured" | "paper_2b_essay" | string;
+  template_type: string;
+  template_name: string;
+  stem_text: string;
+  points: number;
+  average_score_pct?: number | null;
+  cognitive_level: string;
+  subparts_count: number;
+  criteria_count: number;
+}
+
+export interface UnitFormatDivergenceItem {
+  unit_id: number;
+  unit_title: string;
+  mcq_attainment_pct?: number | null;
+  structured_attainment_pct?: number | null;
+  essay_attainment_pct?: number | null;
+  format_pattern: "CONSISTENT" | "RECOGNITION_PROBLEM" | "CONSTRUCTION_PROBLEM" | "EXPLANATION_PROBLEM" | "BROAD_WEAKNESS" | "INSUFFICIENT_DATA" | string;
+  pattern_label: string;
+  insight: string;
+}
+
+export interface CognitiveDepthIntelligence {
+  unit_id?: number | null;
+  unit_title: string;
+  bloom_levels: Record<string, number | null>;
+  lower_order_avg_pct?: number | null;
+  higher_order_avg_pct?: number | null;
+  has_taxonomy_metadata: boolean;
+  insight: string;
+}
+
+export interface UnitCrossAnalyticsItem {
+  unit_id: number;
+  unit_title: string;
+  unit_order: number;
+  materials_count: number;
+  materials_viewed_count: number;
+  materials_completed_count: number;
+  material_completion_pct?: number | null;
+  total_material_views: number;
+  difficulty_flags_count: number;
+  unresolved_flags_count: number;
+  ask_ai_inquiries_count: number;
+  questions_count: number;
+  evaluated_attempts_count: number;
+  assessment_attainment_pct?: number | null;
+  mcq_attainment_pct?: number | null;
+  structured_attainment_pct?: number | null;
+  essay_attainment_pct?: number | null;
+  divergence_state: string;
+  evidence_state: string;
+  confidence_level: "high" | "moderate" | "limited" | string;
+  evidence_explanation: string;
+  why_this_matters: string;
+  struggling_students_count: number;
+  mastering_students_count: number;
+  recommended_actions: ActionableTargetLink[];
+}
+
+export interface TeacherCrossAnalyticsReport {
+  course_id: number;
+  course_title: string;
+  enrolled_students: number;
+  total_materials: number;
+  total_questions: number;
+  total_submissions_analyzed: number;
+  units: UnitCrossAnalyticsItem[];
+  divergence_matrix: LearningAssessmentDivergenceItem[];
+  format_divergence_matrix: UnitFormatDivergenceItem[];
+  cognitive_intelligence: CognitiveDepthIntelligence[];
+  hotspots: ContentHotspotIntelligence[];
+  summary_counts: Record<string, number>;
+}
+
+export interface StudentCrossAnalyticsDossier {
+  student_id: number;
+  student_name: string;
+  student_email: string;
+  course_id: number;
+  course_title: string;
+  overall_assessment_pct?: number | null;
+  overall_material_completion_pct?: number | null;
+  total_flags_count: number;
+  unresolved_flags_count: number;
+  ask_ai_inquiries_count: number;
+  primary_learning_signal: "Strong" | "Monitor" | "Needs Attention" | "High Priority" | string;
+  evidence_state: string;
+  divergence_state: string;
+  divergence_explanation: string;
+  unit_breakdown: Array<{
+    unit_id: number;
+    unit_title: string;
+    material_completion_pct?: number | null;
+    assessment_score_pct?: number | null;
+    flags_count: number;
+    evidence_status: string;
+    mastery_status: string;
+  }>;
+  format_breakdown: Record<string, number | null>;
+  cognitive_breakdown: Record<string, number | null>;
+  suggested_teacher_actions: ActionableTargetLink[];
 }
 
 // Singleton instance

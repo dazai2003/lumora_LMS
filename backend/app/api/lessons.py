@@ -32,6 +32,7 @@ async def create_lesson(
         description=lesson_data.description,
         order=lesson_data.order,
         course_id=lesson_data.course_id,
+        unit_id=lesson_data.unit_id,
     )
     db.add(lesson)
     db.commit()
@@ -174,6 +175,7 @@ def _build_lesson_response(lesson: Lesson, db: Session) -> LessonResponse:
         order=lesson.order,
         is_published=lesson.is_published,
         course_id=lesson.course_id,
+        unit_id=lesson.unit_id,
         created_at=lesson.created_at,
         material_count=material_count,
     )

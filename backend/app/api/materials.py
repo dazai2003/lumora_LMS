@@ -160,8 +160,10 @@ async def upload_course_material(
     course_id: int = Form(...),
     title: str = Form(...),
     category: Optional[str] = Form("general"),
-    material_type: MaterialType = Form(MaterialType.PDF),
+    material_type: Optional[str] = Form("pdf"),
     description: Optional[str] = Form(None),
+    paper_type: Optional[str] = Form(None),
+    year: Optional[str] = Form(None),
     file: UploadFile = File(...),
     current_user: User = Depends(require_admin_or_teacher),
     db: Session = Depends(get_db),
@@ -185,10 +187,28 @@ async def upload_course_material(
 
     relative_file_path = f"uploads/course_materials/course_{course_id}/{unique_filename}"
 
+    # Parse material_type string safely to MaterialType Enum
+    m_type = MaterialType.PDF
+    if material_type:
+        try:
+            m_type = MaterialType(material_type.lower())
+        except ValueError:
+            m_type = MaterialType.PDF
+
+    full_description = description or ""
+    if paper_type or year:
+        details = []
+        if paper_type:
+            details.append(f"Format: {paper_type.replace('_', ' ').title()}")
+        if year:
+            details.append(f"Year/Session: {year}")
+        info_str = " | ".join(details)
+        full_description = f"{full_description}\n[{info_str}]".strip()
+
     material = Material(
         title=title,
-        description=description,
-        material_type=material_type,
+        description=full_description,
+        material_type=m_type,
         category=category or "general",
         file_path=relative_file_path,
         processing_status=ProcessingStatus.COMPLETED,
@@ -198,6 +218,37 @@ async def upload_course_material(
     db.add(material)
     db.commit()
     db.refresh(material)
+
+    # Question Bank Ingestion for Past Papers & Model Papers
+    if category in ["past_paper", "model_paper"]:
+        try:
+            from app.models import Question, QuestionVersion, QuestionType, Difficulty
+            from app.services.pdf_parser import parse_pdf_questions
+
+            parsed_questions = parse_pdf_questions(file_path, paper_type, year)
+            for item in parsed_questions:
+                q = Question(lesson_id=None, is_banked=True, is_active=True)
+                db.add(q)
+                db.commit()
+                db.refresh(q)
+
+                q_type = QuestionType.MCQ if item.get("type") == "MCQ" else QuestionType.SHORT_ANSWER
+
+                qv = QuestionVersion(
+                    question_id=q.id,
+                    question_text=item["text"],
+                    question_type=q_type,
+                    options=item.get("options"),
+                    correct_answer=item.get("answer", "Refer to marking scheme."),
+                    explanation=item.get("explanation", ""),
+                    difficulty=Difficulty.MEDIUM,
+                    tags=item.get("tags", ["past_paper", f"year_{year}", paper_type]),
+                )
+                db.add(qv)
+            db.commit()
+        except Exception as err:
+            logger.warning(f"Failed to auto-populate question bank entry: {err}")
+
     return material
 
 
@@ -263,12 +314,13 @@ async def update_material(
     material_id: int,
     title: Optional[str] = Form(None),
     description: Optional[str] = Form(None),
+    content: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
     background_tasks: BackgroundTasks = BackgroundTasks(),
     current_user: User = Depends(require_admin_or_teacher),
     db: Session = Depends(get_db),
 ):
-    """Edit material metadata and optionally upload a replacement file."""
+    """Edit material metadata, note content, and optionally upload a replacement file."""
     material = db.query(Material).filter(Material.id == material_id).first()
     if not material:
         raise HTTPException(status_code=404, detail="Material not found")
@@ -277,6 +329,9 @@ async def update_material(
         material.title = title.strip()
     if description is not None:
         material.description = description.strip()
+    if content is not None:
+        material.content = content
+        material.extracted_text = content
 
     if file and file.filename:
         ext = file.filename.split(".")[-1].lower()
@@ -470,6 +525,24 @@ def get_material_notes(
         .all()
     )
 
+@router.delete("/{material_id}/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_material_note(
+    note_id: int,
+    material_id: Optional[int] = None,
+    current_user: User = Depends(require_role(UserRole.STUDENT)),
+    db: Session = Depends(get_db),
+):
+    note = db.query(MaterialNote).filter(
+        MaterialNote.id == note_id,
+        MaterialNote.student_id == current_user.id
+    ).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    db.delete(note)
+    db.commit()
+    return None
+
 @router.get("/{material_id}/progress", response_model=StudentMaterialProgressResponse)
 def get_material_progress(
     material_id: int,
@@ -522,9 +595,15 @@ def update_material_progress(
     db.refresh(progress)
     return progress
 
+from app.schemas import (
+    MaterialFlagCreate, MaterialFlagResponse, MaterialNoteCreate, MaterialNoteResponse,
+    MaterialSummarizeRequest
+)
+
 @router.post("/{material_id}/summarize")
 def summarize_material(
     material_id: int,
+    data: Optional[MaterialSummarizeRequest] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -532,34 +611,122 @@ def summarize_material(
     if not material:
         raise HTTPException(status_code=404, detail="Material not found")
         
-    text = material.extracted_text or material.content
-    if not text or len(text.strip()) < 50:
-        raise HTTPException(status_code=400, detail="Not enough text to summarize in this material")
+    text = (material.extracted_text or material.content or "").strip()
+    
+    # If text is empty or too short, attempt on-the-fly extraction from disk
+    if len(text) < 50 and material.file_path:
+        import os
+        from app.services.ocr import extract_text_from_pdf, extract_text_from_image
+        from app.services.vector import store_material_embeddings
         
-    try:
-        from groq import Groq
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key:
-            return {"summary": "AI Summarization unavailable (No API key)."}
+        file_path = material.file_path
+        if os.path.exists(file_path):
+            extracted = None
+            type_str = str(material.material_type.value if hasattr(material.material_type, "value") else material.material_type).lower()
+            if type_str == "pdf" or file_path.lower().endswith(".pdf"):
+                extracted = extract_text_from_pdf(file_path)
+            elif type_str == "image" or any(file_path.lower().endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".webp"]):
+                extracted = extract_text_from_image(file_path)
+            elif any(file_path.lower().endswith(ext) for ext in [".md", ".txt", ".json", ".csv"]):
+                try:
+                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                        extracted = f.read()
+                except Exception as read_err:
+                    logger.warning(f"Failed to read file {file_path}: {read_err}")
             
-        client = Groq(api_key=api_key, timeout=45.0)
+            if extracted and len(extracted.strip()) >= 50:
+                text = extracted.strip()
+                material.extracted_text = text
+                db.commit()
+                logger.info(f"On-the-fly extracted {len(text)} chars for material {material.id}")
+                
+                # Store vector embeddings for RAG search
+                try:
+                    lesson = db.query(Lesson).filter(Lesson.id == material.lesson_id).first() if material.lesson_id else None
+                    course_id = lesson.course_id if lesson else (material.course_id or 0)
+                    store_material_embeddings(
+                        material_id=material.id,
+                        lesson_id=material.lesson_id or 0,
+                        course_id=course_id,
+                        text=text,
+                        title=material.title,
+                    )
+                except Exception as emb_err:
+                    logger.warning(f"Embedding storage during on-the-fly extraction failed: {emb_err}")
+
+    if not text or len(text.strip()) < 50:
+        raise HTTPException(status_code=400, detail="The material does not contain enough extractable text to generate a summary.")
         
-        # Take up to 8000 characters
-        context = text[:8000]
+    requested_style = (data.summary_type if data and data.summary_type else "paragraph").lower()
+    summary_style = "student_notes" if requested_style in ["student_notes", "story_mode"] else requested_style
+
+    try:
+        from app.services.gemini_service import gemini
+            
+        # Take up to 24000 characters to cover multi-page documents
+        context = text[:24000]
         
-        response = client.chat.completions.create(
-            model=os.getenv("GROQ_CHAT_MODEL", "llama-3.1-8b-instant"),
-            messages=[
-                {"role": "system", "content": "You are a helpful educational assistant. Provide a concise, easy-to-understand summary of the following learning material. Use bullet points for key concepts."},
-                {"role": "user", "content": f"Summarize this material:\n\n{context}"}
-            ],
+        if summary_style == "point_form":
+            system_prompt = (
+                "You are an expert educational tutor for Sri Lankan G.C.E. Advanced Level Biology.\n"
+                "Generate structured revision notes in concise point form based strictly on the provided learning material.\n\n"
+                "STRUCTURE:\n"
+                "## Core Topics & Principles\n"
+                "• High-level summary points\n\n"
+                "## Key Biological Mechanisms & Concepts\n"
+                "• Main concept\n"
+                "  - Sub-points and mechanisms\n"
+                "  - Key steps in sequential order\n\n"
+                "## Important Terminology & Definitions\n"
+                "• **Term**: Definition and significance\n\n"
+                "## Essential Revision Facts\n"
+                "• High-yield facts and exam takeaways\n\n"
+                "CRITICAL RULES: Use clean markdown bullet points (• or -) and bold key terminology. "
+                "Do not convert into long blocks of paragraphs. Keep the summary strictly grounded in the provided material."
+            )
+        elif summary_style == "student_notes":
+            system_prompt = (
+                "You are an engaging, student-centered biology educator for Sri Lankan G.C.E. Advanced Level students.\n"
+                "Generate a clear, simplified 'Student Note Style' version of the provided learning material.\n"
+                "Your goal is to make the full note significantly simpler to understand, digest, and remember, breaking down complex scientific concepts into intuitive explanations while preserving 100% biological accuracy for the A/L examination.\n\n"
+                "STRUCTURE:\n"
+                "## 📌 Core Concept in Simple Terms\n"
+                "[Clear, simplified explanation of the central concept without overwhelming jargon.]\n\n"
+                "## 💡 Step-by-Step Breakdown\n"
+                "[Walkthrough of the biological mechanisms and processes with clear, intuitive cause-and-effect explanations.]\n\n"
+                "## 🔬 Key Terminology & Definitions\n"
+                "[Plain-English explanations of the most essential terms and structures.]\n\n"
+                "## 🎯 Exam Revision Pointers\n"
+                "[High-yield takeaways, common student pitfalls, and memory aids for exam revision.]\n\n"
+                "CRITICAL RULES: Keep the content strictly factual and scoped to the provided material. "
+                "Write in a clear, friendly, and structured student note style."
+            )
+        else:  # paragraph mode (default)
+            system_prompt = (
+                "You are an expert educational tutor for Sri Lankan G.C.E. Advanced Level Biology.\n"
+                "Generate a coherent academic summary of the provided learning material using connected, well-structured paragraphs.\n\n"
+                "STRUCTURE:\n"
+                "## Conceptual Overview\n"
+                "[Clear, well-articulated paragraphs explaining the core concepts, principles, and biological context.]\n\n"
+                "## Detailed Explanation\n"
+                "[Further paragraphs breaking down the mechanisms, biological structures, and significance in logical flow.]\n\n"
+                "## Concluding Summary\n"
+                "[Final synthesis paragraph highlighting the overall takeaway for exam revision.]\n\n"
+                "CRITICAL RULES: Do NOT convert the explanation into a bulleted list. Use flowing, cohesive paragraph prose. "
+                "Keep the summary strictly scoped to the provided material."
+            )
+
+        result = gemini.generate_text(
+            prompt=f"Summarize the following learning material thoroughly in {summary_style.replace('_', ' ')} format:\n\n{context}",
+            system_instruction=system_prompt,
+            model_tier="flash",
             temperature=0.3,
-            max_tokens=500
+            max_tokens=2000,
         )
-        return {"summary": response.choices[0].message.content}
+        return {"summary": result, "summary_type": summary_style}
     except Exception as e:
         logger.error(f"Error summarizing material: {e}")
-        raise HTTPException(status_code=500, detail="Failed to generate AI summary.")
+        raise HTTPException(status_code=500, detail=f"Failed to generate AI summary: {str(e)}")
 
 @router.get("/teacher/insights/flags")
 def get_teacher_material_flags(
@@ -581,9 +748,12 @@ def get_teacher_material_flags(
     flags = (
         db.query(
             MaterialFlag.id,
+            MaterialFlag.material_id,
             MaterialFlag.context,
             MaterialFlag.comment,
             MaterialFlag.is_resolved,
+            MaterialFlag.teacher_reply,
+            MaterialFlag.resolved_at,
             MaterialFlag.created_at,
             Material.title.label("material_title"),
             Material.material_type.label("material_type"),
@@ -600,9 +770,12 @@ def get_teacher_material_flags(
     for f in flags:
         result.append({
             "id": f.id,
+            "material_id": f.material_id,
             "context": f.context,
             "comment": f.comment,
             "is_resolved": f.is_resolved,
+            "teacher_reply": f.teacher_reply,
+            "resolved_at": f.resolved_at.isoformat() if f.resolved_at else None,
             "created_at": f.created_at.isoformat(),
             "material_title": f.material_title,
             "material_type": f.material_type,
@@ -610,9 +783,13 @@ def get_teacher_material_flags(
         })
     return result
 
+class SingleResolveRequest(BaseModel):
+    teacher_reply: Optional[str] = None
+
 @router.post("/teacher/insights/flags/{flag_id}/resolve")
 def resolve_material_flag(
     flag_id: int,
+    data: Optional[SingleResolveRequest] = None,
     current_user: User = Depends(require_admin_or_teacher),
     db: Session = Depends(get_db),
 ):
@@ -621,6 +798,19 @@ def resolve_material_flag(
         raise HTTPException(status_code=404, detail="Flag not found")
         
     flag.is_resolved = True
+    if data and data.teacher_reply:
+        flag.teacher_reply = data.teacher_reply
+        from app.models import Notification, NotificationType
+        notification = Notification(
+            user_id=flag.student_id,
+            sender_id=current_user.id,
+            title="Difficulty Flag Resolved",
+            message=data.teacher_reply,
+            type=NotificationType.MESSAGE,
+            related_entity_id=flag.material_id
+        )
+        db.add(notification)
+    flag.resolved_at = datetime.utcnow()
     db.commit()
     return {"message": "Flag marked as resolved", "success": True}
 
@@ -644,6 +834,8 @@ def bulk_resolve_material_flags(
     student_ids = set()
     for flag in flags:
         flag.is_resolved = True
+        flag.teacher_reply = req.message
+        flag.resolved_at = datetime.utcnow()
         student_ids.add(flag.student_id)
 
     # Send notifications

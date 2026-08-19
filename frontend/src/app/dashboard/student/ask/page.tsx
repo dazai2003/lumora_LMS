@@ -1,16 +1,21 @@
 "use client";
 
 import { useState, useEffect, useRef, Suspense } from "react";
-import api, { Course, QAResponse } from "@/lib/api";
+import api, { Course, QAResponse, UnitWithLessons } from "@/lib/api";
 import MaterialViewer from "@/components/viewer/MaterialViewer";
 import ReactMarkdown from "react-markdown";
 import { SvgIcon } from "@/components/SvgIcon";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 
 function AskAIPageContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourse, setSelectedCourse] = useState<number | "">("");
+  const [units, setUnits] = useState<UnitWithLessons[]>([]);
+  const [attachedLessonId, setAttachedLessonId] = useState<number | null>(null);
+  const [attachedUnitId, setAttachedUnitId] = useState<number | null>(null);
+
   const [question, setQuestion] = useState("");
   const [asking, setAsking] = useState(false);
   const [conversation, setConversation] = useState<QAResponse[]>([]);
@@ -18,20 +23,33 @@ function AskAIPageContent() {
   const [activeSource, setActiveSource] = useState<any | null>(null);
   const [activeTab, setActiveTab] = useState<"chat" | "history">("chat");
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [contextDropdownOpen, setContextDropdownOpen] = useState(false);
+  
   const chatEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const contextDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const initQ = searchParams.get("initialQuestion");
     const courseIdParam = searchParams.get("courseId");
+    const lessonIdParam = searchParams.get("lessonId");
 
     api.getMyEnrolledCourses().then((data) => {
-      setCourses(data);
+      const regularCourses = (data || []).filter((c: Course) => {
+        const title = (c.title || "").toLowerCase();
+        const subject = (c.subject || "").toLowerCase();
+        return !title.includes("examination papers") && !title.includes("g.c.e. a/l examination papers") && subject !== "a/l exam papers";
+      });
+      setCourses(regularCourses);
       if (courseIdParam) {
         setSelectedCourse(Number(courseIdParam));
-      } else if (data.length > 0 && !selectedCourse) {
-        setSelectedCourse(data[0].id);
+      } else if (regularCourses.length > 0 && !selectedCourse) {
+        setSelectedCourse(regularCourses[0].id);
+      }
+
+      if (lessonIdParam) {
+        setAttachedLessonId(Number(lessonIdParam));
       }
     }).catch(console.error).finally(() => setLoading(false));
 
@@ -46,6 +64,9 @@ function AskAIPageContent() {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setDropdownOpen(false);
       }
+      if (contextDropdownRef.current && !contextDropdownRef.current.contains(event.target as Node)) {
+        setContextDropdownOpen(false);
+      }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -56,14 +77,36 @@ function AskAIPageContent() {
       api.getQuestionHistory(selectedCourse as number)
         .then((history) => setConversation(history.reverse()))
         .catch(console.error);
+
+      api.listUnits(selectedCourse as number)
+        .then((uData: UnitWithLessons[]) => {
+          setUnits(uData || []);
+          const lessonIdParam = searchParams.get("lessonId");
+          if (lessonIdParam) {
+            const targetLId = Number(lessonIdParam);
+            const foundUnit = (uData || []).find((u: UnitWithLessons) => (u.lessons || []).some((ls) => ls.id === targetLId));
+            if (foundUnit) {
+              setAttachedUnitId(foundUnit.id);
+              setAttachedLessonId(targetLId);
+            }
+          }
+        })
+        .catch(() => setUnits([]));
     } else {
       setConversation([]);
+      setUnits([]);
+      setAttachedUnitId(null);
+      setAttachedLessonId(null);
     }
-  }, [selectedCourse]);
+  }, [selectedCourse, searchParams]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [conversation]);
+
+  // Derive active attached unit and lesson objects
+  const attachedUnit = units.find(u => u.id === attachedUnitId || (attachedLessonId && (u.lessons || []).some(ls => ls.id === attachedLessonId)));
+  const attachedLesson = attachedUnit?.lessons?.find(ls => ls.id === attachedLessonId);
 
   const handleAsk = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -81,14 +124,28 @@ function AskAIPageContent() {
     const q = question;
     setQuestion("");
 
+    // Prepare prompt with explicit attached lesson grounding tag if attached
+    let promptToSend = q;
+    if (attachedLesson && attachedUnit) {
+      promptToSend = `[Attached Context: Unit ${attachedUnit.unit_number || attachedUnit.order || 1}: ${attachedUnit.title} | Lesson: ${attachedLesson.title}]\n\n${q}`;
+    } else if (attachedUnit) {
+      promptToSend = `[Attached Context: Unit ${attachedUnit.unit_number || attachedUnit.order || 1}: ${attachedUnit.title}]\n\n${q}`;
+    }
+
     api.askQuestionStream(
       selectedCourse as number,
-      q,
+      promptToSend,
       (data) => {
         if (data.type === 'start') {
           setConversation(prev => prev.map(item => 
             item.question_id === tempEntry.question_id 
-              ? { ...item, question_id: data.question_id, context_sources: data.context_sources, response_text: "" } 
+              ? { 
+                  ...item, 
+                  question_id: data.question_id, 
+                  is_grounded: data.is_grounded,
+                  context_sources: data.context_sources, 
+                  response_text: "" 
+                } 
               : item
           ));
           tempEntry.question_id = data.question_id;
@@ -110,7 +167,7 @@ function AskAIPageContent() {
                   response_text: item.response_text && item.response_text.trim().length > 0 
                     ? item.response_text 
                     : "Sorry, I encountered a temporary connection issue. Please check your course materials or ask your question again." 
-                }
+                } 
               : item
           )
         );
@@ -138,7 +195,13 @@ function AskAIPageContent() {
         if (data.type === 'start') {
           setConversation(prev => prev.map(item => 
             item.question_id === targetQuestionId 
-              ? { ...item, question_id: data.question_id, context_sources: data.context_sources, response_text: "" } 
+              ? { 
+                  ...item, 
+                  question_id: data.question_id, 
+                  is_grounded: data.is_grounded,
+                  context_sources: data.context_sources, 
+                  response_text: "" 
+                } 
               : item
           ));
         } else if (data.type === 'chunk') {
@@ -227,7 +290,7 @@ function AskAIPageContent() {
                 display: "flex",
                 alignItems: "center",
                 gap: "0.75rem",
-                width: "280px",
+                width: "260px",
                 padding: "0.5rem 0.9rem",
                 borderRadius: "var(--radius-full)",
                 border: dropdownOpen ? "1.5px solid var(--accent-primary)" : "1px solid var(--border)",
@@ -247,7 +310,7 @@ function AskAIPageContent() {
                 width: "24px", 
                 height: "24px", 
                 borderRadius: "50%", 
-                background: "rgba(99, 102, 241, 0.15)", 
+                background: "rgba(37, 99, 235, 0.12)", 
                 color: "var(--accent-primary)",
                 flexShrink: 0
               }}>
@@ -319,7 +382,7 @@ function AskAIPageContent() {
                           padding: "0.65rem 0.75rem",
                           borderRadius: "8px",
                           cursor: "pointer",
-                          background: isSelected ? "rgba(99, 102, 241, 0.12)" : "transparent",
+                          background: isSelected ? "rgba(37, 99, 235, 0.12)" : "transparent",
                           color: isSelected ? "var(--accent-primary)" : "var(--text-primary)",
                           transition: "all 0.15s ease",
                           marginBottom: "2px"
@@ -351,6 +414,211 @@ function AskAIPageContent() {
               </div>
             )}
           </div>
+
+          {/* Unit & Lesson Grounding Context Selector */}
+          {selectedCourse && (
+            <div ref={contextDropdownRef} style={{ position: "relative" }}>
+              {attachedLesson ? (
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.5rem",
+                  padding: "0.4rem 0.85rem",
+                  background: "rgba(37, 99, 235, 0.08)",
+                  border: "1px solid rgba(37, 99, 235, 0.25)",
+                  borderRadius: "var(--radius-full)",
+                  fontSize: "0.8rem",
+                  color: "var(--accent-primary)",
+                  fontWeight: 600
+                }}>
+                  <SvgIcon name="layers" size={13} />
+                  <span style={{ maxWidth: "200px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    Unit {attachedUnit?.unit_number || attachedUnit?.order || 1}: {attachedLesson.title}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAttachedLessonId(null);
+                      setAttachedUnitId(null);
+                    }}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "var(--text-muted)",
+                      cursor: "pointer",
+                      padding: "0 2px",
+                      display: "flex",
+                      alignItems: "center"
+                    }}
+                    title="Clear attached lesson context"
+                  >
+                    <SvgIcon name="x" size={12} />
+                  </button>
+                </div>
+              ) : attachedUnit ? (
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.5rem",
+                  padding: "0.4rem 0.85rem",
+                  background: "rgba(37, 99, 235, 0.08)",
+                  border: "1px solid rgba(37, 99, 235, 0.25)",
+                  borderRadius: "var(--radius-full)",
+                  fontSize: "0.8rem",
+                  color: "var(--accent-primary)",
+                  fontWeight: 600
+                }}>
+                  <SvgIcon name="layers" size={13} />
+                  <span style={{ maxWidth: "180px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    Unit {attachedUnit.unit_number || attachedUnit.order || 1}: {attachedUnit.title}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAttachedLessonId(null);
+                      setAttachedUnitId(null);
+                    }}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "var(--text-muted)",
+                      cursor: "pointer",
+                      padding: "0 2px",
+                      display: "flex",
+                      alignItems: "center"
+                    }}
+                    title="Clear attached unit context"
+                  >
+                    <SvgIcon name="x" size={12} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setContextDropdownOpen(!contextDropdownOpen)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.45rem",
+                    padding: "0.5rem 0.9rem",
+                    borderRadius: "var(--radius-full)",
+                    border: "1px solid var(--border)",
+                    background: "var(--bg-card)",
+                    color: "var(--text-secondary)",
+                    fontSize: "0.8rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    boxShadow: "var(--shadow-sm)"
+                  }}
+                >
+                  <SvgIcon name="layers" size={13} style={{ color: "var(--accent-primary)" }} />
+                  <span>Attach Unit / Lesson</span>
+                  <SvgIcon name="chevron-down" size={12} style={{ color: "var(--text-muted)" }} />
+                </button>
+              )}
+
+              {contextDropdownOpen && (
+                <div 
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 8px)",
+                    right: 0,
+                    width: "320px",
+                    maxHeight: "340px",
+                    overflowY: "auto",
+                    background: "var(--bg-card)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "14px",
+                    boxShadow: "var(--shadow-md)",
+                    zIndex: 100,
+                    padding: "0.4rem"
+                  }}
+                >
+                  <div style={{ padding: "0.5rem 0.75rem", fontSize: "0.75rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" }}>
+                    Select Context Attachment Scope
+                  </div>
+
+                  <div
+                    onClick={() => {
+                      setAttachedUnitId(null);
+                      setAttachedLessonId(null);
+                      setContextDropdownOpen(false);
+                    }}
+                    style={{
+                      padding: "0.55rem 0.75rem",
+                      borderRadius: "8px",
+                      cursor: "pointer",
+                      fontSize: "0.825rem",
+                      fontWeight: !attachedUnitId && !attachedLessonId ? 700 : 500,
+                      color: !attachedUnitId && !attachedLessonId ? "var(--accent-primary)" : "var(--text-primary)",
+                      background: !attachedUnitId && !attachedLessonId ? "rgba(37, 99, 235, 0.08)" : "transparent",
+                      marginBottom: "4px"
+                    }}
+                  >
+                    All Course Units (General Context)
+                  </div>
+
+                  {units.map((u, uIdx) => (
+                    <div key={u.id} style={{ marginBottom: "6px" }}>
+                      <div
+                        onClick={() => {
+                          setAttachedUnitId(u.id);
+                          setAttachedLessonId(null);
+                          setContextDropdownOpen(false);
+                        }}
+                        style={{
+                          padding: "0.45rem 0.75rem",
+                          borderRadius: "6px",
+                          fontSize: "0.78rem",
+                          fontWeight: 700,
+                          color: attachedUnitId === u.id && !attachedLessonId ? "var(--accent-primary)" : "var(--text-secondary)",
+                          background: attachedUnitId === u.id && !attachedLessonId ? "rgba(37, 99, 235, 0.08)" : "var(--bg-secondary)",
+                          cursor: "pointer",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center"
+                        }}
+                      >
+                        <span>Unit {u.unit_number || u.order || uIdx + 1}: {u.title}</span>
+                        <span style={{ fontSize: "0.7rem", opacity: 0.7 }}>Entire Unit</span>
+                      </div>
+
+                      {(u.lessons || []).map((ls) => {
+                        const isLsSelected = attachedLessonId === ls.id;
+                        return (
+                          <div
+                            key={ls.id}
+                            onClick={() => {
+                              setAttachedUnitId(u.id);
+                              setAttachedLessonId(ls.id);
+                              setContextDropdownOpen(false);
+                            }}
+                            style={{
+                              padding: "0.4rem 0.75rem 0.4rem 1.5rem",
+                              borderRadius: "6px",
+                              fontSize: "0.8rem",
+                              color: isLsSelected ? "var(--accent-primary)" : "var(--text-primary)",
+                              fontWeight: isLsSelected ? 700 : 500,
+                              background: isLsSelected ? "rgba(37, 99, 235, 0.1)" : "transparent",
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "0.4rem"
+                            }}
+                          >
+                            <SvgIcon name="file-text" size={12} style={{ opacity: 0.6 }} />
+                            <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                              {ls.title}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -438,13 +706,12 @@ function AskAIPageContent() {
                         <div style={{ display: "flex", justifyContent: "flex-end" }}>
                           <div style={{ 
                             maxWidth: "75%", 
-                            padding: "0.75rem 1.1rem", 
+                            padding: "0.75rem 1.15rem", 
                             borderRadius: "16px 16px 4px 16px", 
-                            background: "linear-gradient(135deg, var(--accent-primary, #6366f1), #8b5cf6)", 
+                            background: "var(--accent-primary)", 
                             color: "white", 
                             fontSize: "0.92rem", 
-                            lineHeight: 1.5, 
-                            boxShadow: "0 2px 8px rgba(99,102,241,0.25)" 
+                            lineHeight: 1.5,
                           }}>
                             {item.question_text}
                           </div>
@@ -452,7 +719,7 @@ function AskAIPageContent() {
 
                         {/* AI Response Card */}
                         <div style={{ display: "flex", gap: "0.75rem", alignItems: "flex-start" }}>
-                          <div style={{ width: "32px", height: "32px", borderRadius: "50%", background: "rgba(99,102,241,0.15)", color: "var(--accent-primary)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: "0.2rem" }}>
+                          <div style={{ width: "32px", height: "32px", borderRadius: "50%", background: "rgba(37, 99, 235, 0.12)", color: "var(--accent-primary)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: "0.2rem" }}>
                             <SvgIcon name="sparkle" size={16} />
                           </div>
 
@@ -464,32 +731,112 @@ function AskAIPageContent() {
                               </div>
                             ) : (
                               <>
+                                {/* Grounded vs Ungrounded Status Banner */}
+                                {(item.is_grounded !== undefined ? item.is_grounded : Boolean(item.context_sources && item.context_sources.length > 0)) ? (
+                                  <div style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "0.35rem",
+                                    padding: "0.25rem 0.6rem",
+                                    borderRadius: "6px",
+                                    background: "rgba(16, 185, 129, 0.12)",
+                                    color: "var(--success, #10b981)",
+                                    fontSize: "0.75rem",
+                                    fontWeight: 600,
+                                    marginBottom: "0.75rem"
+                                  }}>
+                                    <SvgIcon name="check-circle" size={13} />
+                                    <span>Grounded in Course Study Notes</span>
+                                  </div>
+                                ) : (
+                                  <div style={{
+                                    display: "flex",
+                                    alignItems: "flex-start",
+                                    gap: "0.6rem",
+                                    padding: "0.6rem 0.85rem",
+                                    borderRadius: "8px",
+                                    background: "rgba(245, 158, 11, 0.08)",
+                                    border: "1px solid rgba(245, 158, 11, 0.25)",
+                                    marginBottom: "0.75rem",
+                                    fontSize: "0.82rem",
+                                    color: "var(--text-secondary)",
+                                    lineHeight: 1.45
+                                  }}>
+                                    <SvgIcon name="info" size={15} style={{ color: "#f59e0b", flexShrink: 0, marginTop: "2px" }} />
+                                    <div>
+                                      <strong style={{ color: "var(--text-primary)", display: "block", marginBottom: "0.1rem" }}>General AI Knowledge</strong>
+                                      <span>No relevant learning material found in your enrolled course units. The answer below is based on general Biology knowledge.</span>
+                                    </div>
+                                  </div>
+                                )}
+
                                 <ReactMarkdown>{item.response_text}</ReactMarkdown>
                                 
+                                {/* Compact Verified Sources List */}
                                 {item.context_sources && item.context_sources.length > 0 && (
-                                  <div style={{ marginTop: "1rem", paddingTop: "0.75rem", borderTop: "1px solid var(--border)", display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "center" }}>
-                                    <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)" }}>Sources:</span>
-                                    {item.context_sources.map((src, i) => (
-                                      <button
-                                        key={i}
-                                        onClick={() => setActiveSource(src)}
-                                        style={{
-                                          fontSize: "0.75rem",
-                                          padding: "0.2rem 0.5rem",
-                                          borderRadius: "6px",
-                                          border: "1px solid var(--border)",
-                                          background: activeSource?.material_id === src.material_id ? "rgba(99,102,241,0.15)" : "var(--bg-card)",
-                                          color: activeSource?.material_id === src.material_id ? "var(--accent-primary)" : "var(--text-secondary)",
-                                          cursor: "pointer",
-                                          display: "flex",
-                                          alignItems: "center",
-                                          gap: "0.3rem"
-                                        }}
-                                      >
-                                        <SvgIcon name="file-text" size={12} />
-                                        <span>{src.title || (src as any).material_title || `Source ${i+1}`}</span>
-                                      </button>
-                                    ))}
+                                  <div style={{ marginTop: "1.1rem", paddingTop: "0.85rem", borderTop: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                                    <span style={{ fontSize: "0.72rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-muted)" }}>
+                                      Referenced Course Materials ({item.context_sources.length})
+                                    </span>
+                                    <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
+                                      {item.context_sources.map((src, i) => (
+                                        <div
+                                          key={i}
+                                          style={{
+                                            display: "flex",
+                                            justifyContent: "space-between",
+                                            alignItems: "center",
+                                            padding: "0.55rem 0.8rem",
+                                            borderRadius: "8px",
+                                            border: "1px solid var(--border)",
+                                            background: "var(--bg-card)",
+                                            fontSize: "0.82rem",
+                                            gap: "0.75rem",
+                                            flexWrap: "wrap"
+                                          }}
+                                        >
+                                          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", minWidth: 0, flex: 1 }}>
+                                            <SvgIcon name={src.material_type === "video" ? "video" : src.material_type === "pdf" ? "file-text" : "book"} size={14} style={{ color: "var(--accent-primary)", flexShrink: 0 }} />
+                                            <div style={{ minWidth: 0 }}>
+                                              <div style={{ fontWeight: 600, color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                                {src.title || (src as any).material_title || `Learning Resource ${i+1}`}
+                                              </div>
+                                              {(src.unit_name || src.lesson_title) && (
+                                                <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                                  {src.unit_name ? `${src.unit_name} · ` : ""}{src.lesson_title || ""}
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+
+                                          <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexShrink: 0 }}>
+                                            <button
+                                              type="button"
+                                              onClick={() => setActiveSource(src)}
+                                              className="btn-secondary"
+                                              style={{ fontSize: "0.72rem", padding: "0.25rem 0.55rem" }}
+                                            >
+                                              Split View
+                                            </button>
+                                            {src.lesson_id && (
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  const courseId = src.course_id || selectedCourse;
+                                                  const matParam = src.material_id ? `?materialId=${src.material_id}` : "";
+                                                  router.push(`/dashboard/student/courses/${courseId}/lessons/${src.lesson_id}${matParam}`);
+                                                }}
+                                                className="btn-primary"
+                                                style={{ fontSize: "0.72rem", padding: "0.25rem 0.6rem", display: "flex", alignItems: "center", gap: "0.25rem" }}
+                                              >
+                                                <span>Review Material</span>
+                                                <SvgIcon name="chevron-right" size={11} />
+                                              </button>
+                                            )}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
                                   </div>
                                 )}
 

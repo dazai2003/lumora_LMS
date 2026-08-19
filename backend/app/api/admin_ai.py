@@ -22,8 +22,8 @@ def get_system_ai_config(
     config = db.query(SystemAIConfig).first()
     if not config:
         config = SystemAIConfig(
-            llm_provider="groq",
-            llm_model="llama-3.3-70b-versatile",
+            llm_provider="gemini",
+            llm_model="gemini-2.0-flash",
             temperature=0.3,
             max_tokens=1500,
             confidence_threshold=0.70,
@@ -106,3 +106,20 @@ def update_system_ai_config(
         "enabled_modules": config.enabled_modules or {},
         "updated_at": config.updated_at.isoformat() if config.updated_at else None
     }
+
+
+@router.get("/ai-health", response_model=dict)
+def ai_health_check():
+    """Check Gemini API connectivity and model availability. No auth required for quick diagnostics."""
+    try:
+        from app.services.gemini_service import gemini
+        return gemini.health_check()
+    except Exception as e:
+        return {
+            "provider": "gemini",
+            "api_key_configured": False,
+            "error": str(e)[:200],
+            "flash_status": "error",
+            "flash_25_status": "error",
+            "pro_status": "error",
+        }

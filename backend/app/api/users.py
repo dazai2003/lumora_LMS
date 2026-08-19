@@ -26,7 +26,7 @@ async def ping(
     db.commit()
     return {"message": "Ping successful", "success": True}
 
-@router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
     user_data: UserCreate,
     current_user: User = Depends(require_admin),
@@ -51,7 +51,7 @@ async def create_user(
     db.refresh(new_user)
     return new_user
 
-@router.get("/", response_model=List[UserResponse])
+@router.get("", response_model=List[UserResponse])
 async def list_users(
     role: Optional[UserRole] = None,
     is_active: Optional[bool] = None,

@@ -36,7 +36,7 @@ def extract_text_from_image(file_path: str) -> Optional[str]:
 
         # Run OCR
         text = pytesseract.image_to_string(processed, lang="eng")
-        cleaned = text.strip()
+        cleaned = text.replace("\x00", "").strip()
 
         if cleaned:
             logger.info(f"OCR extracted {len(cleaned)} chars from image: {file_path}")
@@ -66,7 +66,9 @@ def extract_text_from_pdf(file_path: str) -> Optional[str]:
             text = page.get_text("text")
 
             if text and text.strip():
-                all_text.append(text.strip())
+                clean_page_txt = text.replace("\x00", "").strip()
+                if clean_page_txt:
+                    all_text.append(clean_page_txt)
             else:
                 # Fallback: render page as image and OCR it
                 logger.info(f"Page {page_num + 1}: No embedded text, attempting OCR...")
@@ -76,7 +78,9 @@ def extract_text_from_pdf(file_path: str) -> Optional[str]:
                     pix.save(img_path)
                     ocr_text = extract_text_from_image(img_path)
                     if ocr_text:
-                        all_text.append(ocr_text)
+                        clean_ocr = ocr_text.replace("\x00", "").strip()
+                        if clean_ocr:
+                            all_text.append(clean_ocr)
                     # Clean up temp image
                     if os.path.exists(img_path):
                         os.remove(img_path)
@@ -86,9 +90,10 @@ def extract_text_from_pdf(file_path: str) -> Optional[str]:
         doc.close()
 
         combined = "\n\n".join(all_text)
-        if combined.strip():
-            logger.info(f"PDF extraction: {len(combined)} chars from {file_path}")
-            return combined.strip()
+        cleaned_combined = combined.replace("\x00", "").strip()
+        if cleaned_combined:
+            logger.info(f"PDF extraction: {len(cleaned_combined)} chars from {file_path}")
+            return cleaned_combined
 
         return None
 

@@ -15,6 +15,7 @@ Entity Relationships:
     - Various -> AILog (audit trail)
 """
 import enum
+from typing import Any, Optional, List, Dict
 from datetime import datetime
 
 from sqlalchemy import (
@@ -48,6 +49,8 @@ class QuestionType(str, enum.Enum):
     SHORT_ANSWER = "short_answer"
     MULTIPLE_SELECT = "multiple_select"
     NUMERICAL_ANSWER = "numerical_answer"
+    STRUCTURED = "structured"
+    ESSAY = "essay"
 
 
 class AIValidationStatus(str, enum.Enum):
@@ -96,6 +99,193 @@ class JobType(str, enum.Enum):
     VECTOR_INDEXING = "vector_indexing"
     AI_QUIZ_GENERATION = "ai_quiz_generation"
     AI_SUMMARY = "ai_summary"
+
+
+# ──────────────────────────────────────────────
+# A/L Exam Engine Enums
+# ──────────────────────────────────────────────
+
+class ALExamType(str, enum.Enum):
+    PAPER_1_MCQ = "paper_1_mcq"
+    PAPER_2_STRUCTURED = "paper_2_structured"
+    PAPER_2_ESSAY = "paper_2_essay"
+    PAPER_2 = "paper_2"
+    FULL_PAPER = "full_paper"
+
+
+def normalize_al_exam_type(raw_val: Any) -> ALExamType:
+    """
+    Centralized canonicalization helper for ALExamType enum values.
+    Converts raw strings or aliases to canonical ALExamType members.
+    """
+    if isinstance(raw_val, ALExamType):
+        return raw_val
+    if not raw_val or not isinstance(raw_val, str):
+        return ALExamType.FULL_PAPER
+    s = raw_val.strip().lower().replace("-", "_").replace(" ", "_")
+    alias_map = {
+        "paper_1_mcq": ALExamType.PAPER_1_MCQ,
+        "paper_1_only": ALExamType.PAPER_1_MCQ,
+        "paper_1": ALExamType.PAPER_1_MCQ,
+        "mcq": ALExamType.PAPER_1_MCQ,
+
+        "paper_2_structured": ALExamType.PAPER_2_STRUCTURED,
+        "part_a": ALExamType.PAPER_2_STRUCTURED,
+        "structured": ALExamType.PAPER_2_STRUCTURED,
+
+        "paper_2_essay": ALExamType.PAPER_2_ESSAY,
+        "part_b": ALExamType.PAPER_2_ESSAY,
+        "essay": ALExamType.PAPER_2_ESSAY,
+
+        "paper_2": ALExamType.PAPER_2,
+        "paper_2_only": ALExamType.PAPER_2,
+        "paper_2_full": ALExamType.PAPER_2,
+
+        "full_paper": ALExamType.FULL_PAPER,
+        "whole_paper": ALExamType.FULL_PAPER,
+        "full_al_paper": ALExamType.FULL_PAPER,
+    }
+    return alias_map.get(s, ALExamType.FULL_PAPER)
+
+
+class ALQuestionTemplate(str, enum.Enum):
+    GENERIC_MCQ = "generic_mcq"                  # Direct Factual Recall / Plain MCQ
+    MULTI_RESPONSE_GRID = "multi_response_grid"  # 1-to-5 Multi-Response Grid (Q41-50)
+    FIVE_STATEMENT_TRUTH = "five_statement_truth"# Five-Statement Truth Evaluation
+    MATCHING_COLUMN = "matching_column"          # Matrix Matching / Profile Grid
+    COMBINATION_GRID = "combination_grid"        # Multi-Variable Selection / Combination
+    SEQUENTIAL_DIAGNOSTIC = "sequential_diagnostic" # Sequential / Diagnostic Deduction
+    INCOMPLETE_STEM = "incomplete_stem"          # Incomplete Stem / Calculation
+    ASSERTION_REASON = "assertion_reason"        # Assertion & Reason (Legacy / Alias)
+    DIAGRAM_BASED = "diagram_based"              # Diagram Based (Legacy / Alias)
+    EXPERIMENTAL_PROCEDURE = "experimental_procedure" # Experimental Procedure (Legacy / Alias)
+    STRUCTURED_SUBPARTS = "structured_subparts"  # Paper II Part A Structured
+    ESSAY_RUBRIC = "essay_rubric"                # Paper II Part B Essay Rubric
+
+
+class ALStructuredFormat(str, enum.Enum):
+    STRUCTURED_DIRECT_RECALL = "structured_direct_recall"  # Direct Factual Recall & Naming (~53.9%)
+    STRUCTURED_CONCEPTUAL = "structured_conceptual"        # Short Conceptual Explanations (~34.3%)
+    STRUCTURED_SEQUENTIAL = "structured_sequential"        # Sequential Pathways (~3.9%)
+    STRUCTURED_COMPARISON = "structured_comparison"        # Side-by-Side Comparisons (~2.9%)
+    STRUCTURED_DIAGRAM = "structured_diagram"              # Diagrammatic / Genetics Deductions (~2.0%)
+    STRUCTURED_MATRIX = "structured_matrix"                # Structured Matrix Tables (~1.0%)
+    STRUCTURED_DRAWING = "structured_drawing"              # Labelled Biological Drawings (~1.0%)
+
+
+def normalize_structured_format(raw_val: Any) -> ALStructuredFormat:
+    """
+    Centralized canonicalization helper for ALStructuredFormat enum values.
+    Converts raw string titles/aliases into canonical ALStructuredFormat members.
+    """
+    if isinstance(raw_val, ALStructuredFormat):
+        return raw_val
+    if not raw_val or not isinstance(raw_val, str):
+        return ALStructuredFormat.STRUCTURED_DIRECT_RECALL
+    s = raw_val.strip().lower().replace("-", "_").replace(" ", "_")
+    alias_map = {
+        "structured_direct_recall": ALStructuredFormat.STRUCTURED_DIRECT_RECALL,
+        "direct_factual_recall": ALStructuredFormat.STRUCTURED_DIRECT_RECALL,
+        "direct_factual": ALStructuredFormat.STRUCTURED_DIRECT_RECALL,
+        "direct_recall": ALStructuredFormat.STRUCTURED_DIRECT_RECALL,
+        "naming": ALStructuredFormat.STRUCTURED_DIRECT_RECALL,
+
+        "structured_conceptual": ALStructuredFormat.STRUCTURED_CONCEPTUAL,
+        "short_conceptual_explanations": ALStructuredFormat.STRUCTURED_CONCEPTUAL,
+        "conceptual_explanation": ALStructuredFormat.STRUCTURED_CONCEPTUAL,
+        "conceptual": ALStructuredFormat.STRUCTURED_CONCEPTUAL,
+
+        "structured_sequential": ALStructuredFormat.STRUCTURED_SEQUENTIAL,
+        "sequential_pathways": ALStructuredFormat.STRUCTURED_SEQUENTIAL,
+        "sequential_pathway": ALStructuredFormat.STRUCTURED_SEQUENTIAL,
+        "sequential": ALStructuredFormat.STRUCTURED_SEQUENTIAL,
+
+        "structured_comparison": ALStructuredFormat.STRUCTURED_COMPARISON,
+        "side_by_side_comparisons": ALStructuredFormat.STRUCTURED_COMPARISON,
+        "side_by_side_comparison": ALStructuredFormat.STRUCTURED_COMPARISON,
+        "comparison": ALStructuredFormat.STRUCTURED_COMPARISON,
+
+        "structured_diagram": ALStructuredFormat.STRUCTURED_DIAGRAM,
+        "diagrammatic_genetics": ALStructuredFormat.STRUCTURED_DIAGRAM,
+        "diagrammatic_deduction": ALStructuredFormat.STRUCTURED_DIAGRAM,
+        "diagram": ALStructuredFormat.STRUCTURED_DIAGRAM,
+
+        "structured_matrix": ALStructuredFormat.STRUCTURED_MATRIX,
+        "structured_matrix_tables": ALStructuredFormat.STRUCTURED_MATRIX,
+        "matrix_table": ALStructuredFormat.STRUCTURED_MATRIX,
+        "matrix": ALStructuredFormat.STRUCTURED_MATRIX,
+        "table": ALStructuredFormat.STRUCTURED_MATRIX,
+
+        "structured_drawing": ALStructuredFormat.STRUCTURED_DRAWING,
+        "labelled_biological_drawings": ALStructuredFormat.STRUCTURED_DRAWING,
+        "labelled_drawing": ALStructuredFormat.STRUCTURED_DRAWING,
+        "drawing": ALStructuredFormat.STRUCTURED_DRAWING,
+    }
+    return alias_map.get(s, ALStructuredFormat.STRUCTURED_DIRECT_RECALL)
+
+
+def normalize_al_template_type(raw_val: Any) -> ALQuestionTemplate:
+    """
+    Centralized canonicalization helper for ALQuestionTemplate enum values.
+    Converts any raw string representation (uppercase, mixed case, alias titles)
+    cleanly into canonical ALQuestionTemplate members.
+    """
+    if isinstance(raw_val, ALQuestionTemplate):
+        return raw_val
+
+    if not raw_val or not isinstance(raw_val, str):
+        return ALQuestionTemplate.GENERIC_MCQ
+
+    s = raw_val.strip().lower().replace("-", "_").replace(" ", "_")
+
+    alias_map = {
+        "generic_mcq": ALQuestionTemplate.GENERIC_MCQ,
+        "generic": ALQuestionTemplate.GENERIC_MCQ,
+        "plain_mcq": ALQuestionTemplate.GENERIC_MCQ,
+
+        "multi_response_grid": ALQuestionTemplate.MULTI_RESPONSE_GRID,
+        "multi_response": ALQuestionTemplate.MULTI_RESPONSE_GRID,
+        "grid_key": ALQuestionTemplate.MULTI_RESPONSE_GRID,
+
+        "five_statement_truth": ALQuestionTemplate.FIVE_STATEMENT_TRUTH,
+        "five_statement": ALQuestionTemplate.FIVE_STATEMENT_TRUTH,
+        "truth_table": ALQuestionTemplate.FIVE_STATEMENT_TRUTH,
+
+        "matching_column": ALQuestionTemplate.MATCHING_COLUMN,
+        "matching": ALQuestionTemplate.MATCHING_COLUMN,
+        "matrix_matching": ALQuestionTemplate.MATCHING_COLUMN,
+
+        "combination_grid": ALQuestionTemplate.COMBINATION_GRID,
+        "combination": ALQuestionTemplate.COMBINATION_GRID,
+
+        "sequential_diagnostic": ALQuestionTemplate.SEQUENTIAL_DIAGNOSTIC,
+        "sequential": ALQuestionTemplate.SEQUENTIAL_DIAGNOSTIC,
+        "diagnostic": ALQuestionTemplate.SEQUENTIAL_DIAGNOSTIC,
+
+        "incomplete_stem": ALQuestionTemplate.INCOMPLETE_STEM,
+        "incomplete": ALQuestionTemplate.INCOMPLETE_STEM,
+        "calculation": ALQuestionTemplate.INCOMPLETE_STEM,
+
+        "assertion_reason": ALQuestionTemplate.ASSERTION_REASON,
+        "diagram_based": ALQuestionTemplate.DIAGRAM_BASED,
+        "experimental_procedure": ALQuestionTemplate.EXPERIMENTAL_PROCEDURE,
+
+        "structured_subparts": ALQuestionTemplate.STRUCTURED_SUBPARTS,
+        "structured": ALQuestionTemplate.STRUCTURED_SUBPARTS,
+
+        "essay_rubric": ALQuestionTemplate.ESSAY_RUBRIC,
+        "essay": ALQuestionTemplate.ESSAY_RUBRIC,
+    }
+
+    if s in alias_map:
+        return alias_map[s]
+
+    for member in ALQuestionTemplate:
+        if s == member.value.lower() or s == member.name.lower():
+            return member
+
+    return ALQuestionTemplate.GENERIC_MCQ
+
 
 
 class JobStatus(str, enum.Enum):
@@ -297,6 +487,7 @@ class Material(Base):
     description = Column(Text, nullable=True)
     material_type = Column(Enum(MaterialType), nullable=False)
     category = Column(String(100), nullable=True, default="general")  # past_paper, marking_scheme, resource_book, syllabus, general
+    is_private_rag_vault = Column(Boolean, default=False)
     file_path = Column(String(500), nullable=True)
     content = Column(Text, nullable=True)  # For notes / extracted text
     extracted_text = Column(Text, nullable=True)  # OCR / Whisper output
@@ -317,11 +508,13 @@ class MaterialFlag(Base):
     __tablename__ = "material_flags"
 
     id = Column(Integer, primary_key=True, index=True)
-    student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    material_id = Column(Integer, ForeignKey("materials.id"), nullable=False)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    material_id = Column(Integer, ForeignKey("materials.id"), nullable=False, index=True)
     context = Column(String(255), nullable=False)  # e.g., "Timestamp 01:23" or "Page 4"
     comment = Column(Text, nullable=False)
     is_resolved = Column(Boolean, default=False)
+    teacher_reply = Column(Text, nullable=True)
+    resolved_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
@@ -333,8 +526,8 @@ class MaterialNote(Base):
     __tablename__ = "material_notes"
 
     id = Column(Integer, primary_key=True, index=True)
-    student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    material_id = Column(Integer, ForeignKey("materials.id"), nullable=False)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    material_id = Column(Integer, ForeignKey("materials.id"), nullable=False, index=True)
     context = Column(String(255), nullable=True)  # e.g., "Page 2"
     content = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -348,8 +541,8 @@ class StudentMaterialProgress(Base):
     __tablename__ = "student_material_progress"
 
     id = Column(Integer, primary_key=True, index=True)
-    student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    material_id = Column(Integer, ForeignKey("materials.id"), nullable=False)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    material_id = Column(Integer, ForeignKey("materials.id"), nullable=False, index=True)
     last_position = Column(Float, default=0.0)  # Timestamp in seconds or page number
     is_completed = Column(Boolean, default=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -497,11 +690,23 @@ class QuestionVersion(Base):
 
     @property
     def lesson_id(self):
-        return self.question.lesson_id
+        return self.question.lesson_id if self.question else None
 
     @property
     def lesson_title(self):
         return self.question.lesson.title if self.question and self.question.lesson else None
+
+    @property
+    def unit_id(self):
+        if self.question and self.question.lesson:
+            return self.question.lesson.unit_id
+        return None
+
+    @property
+    def unit_title(self):
+        if self.question and self.question.lesson and self.question.lesson.unit:
+            return self.question.lesson.unit.title
+        return None
 
 
 class QuizQuestion(Base):
@@ -599,9 +804,9 @@ class StudentQuestion(Base):
     __tablename__ = "student_questions"
 
     id = Column(Integer, primary_key=True, index=True)
-    session_id = Column(Integer, ForeignKey("ai_tutor_sessions.id"), nullable=True)
-    student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    course_id = Column(Integer, ForeignKey("courses.id"), nullable=False)
+    session_id = Column(Integer, ForeignKey("ai_tutor_sessions.id"), nullable=True, index=True)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    course_id = Column(Integer, ForeignKey("courses.id"), nullable=False, index=True)
     question_text = Column(Text, nullable=False)
     is_answered = Column(Boolean, default=False)
     asked_at = Column(DateTime, default=datetime.utcnow)
@@ -696,12 +901,12 @@ class SystemAIConfig(Base):
     __tablename__ = "system_ai_configs"
 
     id = Column(Integer, primary_key=True, index=True)
-    llm_provider = Column(String(50), default="openai")
-    llm_model = Column(String(100), default="gpt-4o")
+    llm_provider = Column(String(50), default="gemini")
+    llm_model = Column(String(100), default="gemini-2.0-flash")
     temperature = Column(Float, default=0.3)
     max_tokens = Column(Integer, default=1500)
     confidence_threshold = Column(Float, default=0.70)
-    embedding_model = Column(String(100), default="text-embedding-3-small")
+    embedding_model = Column(String(100), default="all-MiniLM-L6-v2")
     chunk_size = Column(Integer, default=500)
     retrieval_top_k = Column(Integer, default=5)
     enabled_modules = Column(JSON, default=dict)
@@ -1372,3 +1577,232 @@ class DocumentExtraction(Base):
 
     submission = relationship("AssignmentSubmission", back_populates="doc_extractions")
     file = relationship("SubmissionFile")
+
+
+# ──────────────────────────────────────────────
+# A/L Exam Engine Core Models (Phase 1)
+# ──────────────────────────────────────────────
+
+class ALExam(Base):
+    """Represents a G.C.E. Advanced Level Examination Paper (Paper 1 MCQ, Paper 2 Structured, or Paper 2 Essay)."""
+    __tablename__ = "al_exams"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    exam_type = Column(Enum(ALExamType), nullable=False)
+    time_limit_minutes = Column(Integer, default=120)  # Paper 1: 120 mins, Paper 2: 180 mins
+    total_questions = Column(Integer, default=50)       # 50 for MCQ, 4 for Structured, 4 for Essay
+    raw_mark_cap = Column(Float, nullable=True)         # 40 for Paper II-A
+    score_multiplier = Column(Float, default=1.0)       # 2.5 for Paper II-A, 4.0 for Paper II-B
+    max_attempts = Column(Integer, default=1)           # Teacher configurable attempt limit
+    is_published = Column(Boolean, default=False)
+    
+    # Assessment Policy & Metadata Extensions
+    instructions = Column(Text, nullable=True)
+    difficulty_policy = Column(String(50), default="mixed")
+    available_from = Column(DateTime, nullable=True)
+    available_until = Column(DateTime, nullable=True)
+    show_result_immediately = Column(Boolean, default=True)
+    
+    course_id = Column(Integer, ForeignKey("courses.id"), nullable=False)
+    lesson_id = Column(Integer, ForeignKey("lessons.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    course = relationship("Course")
+    lesson = relationship("Lesson")
+    questions = relationship("ALQuestion", back_populates="exam", cascade="all, delete-orphan", order_by="ALQuestion.question_number")
+    submissions = relationship("ALStudentSubmission", back_populates="exam", cascade="all, delete-orphan")
+
+
+class ALQuestion(Base):
+    """Represents an A/L Exam Question supporting 7 MCQ templates, Structured sub-parts, and Essay rubrics."""
+    __tablename__ = "al_questions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    exam_id = Column(Integer, ForeignKey("al_exams.id"), nullable=False)
+    question_number = Column(Integer, nullable=False)  # 1-50 for Paper 1; 1-4 for Paper 2
+    template_type = Column(Enum(ALQuestionTemplate, values_callable=lambda x: [e.value for e in x]), default=ALQuestionTemplate.GENERIC_MCQ)
+    
+    # Common content
+    stem_text = Column(Text, nullable=False)            # Main question stem / scenario
+    diagram_url = Column(String(500), nullable=True)    # Diagram / chart image URL if applicable
+    requires_image = Column(Boolean, default=False)      # Explicit visual requirement flag
+    image_description = Column(Text, nullable=True)     # AI-suggested visual diagram description
+    explanation = Column(Text, nullable=True)           # Solution / marking note explanation
+    points = Column(Float, default=1.0)                 # Raw points available for this question
+    cognitive_level = Column(String(50), default="understand") # remember, understand, apply, analyze, evaluate
+    difficulty = Column(String(20), default="medium")   # easy, medium, hard
+
+    # Paper 1 MCQ specific fields
+    options = Column(JSON, nullable=True)               # List of 5 option strings ["A...", "B...", "C...", "D...", "E..."]
+    correct_option = Column(String(10), nullable=True)  # "A", "B", "C", "D", or "E"
+    
+    # Template-specific JSON structures
+    assertion_text = Column(Text, nullable=True)        # Statement I for Assertion-Reason
+    reason_text = Column(Text, nullable=True)           # Statement II for Assertion-Reason
+    statements_json = Column(JSON, nullable=True)       # List of 5 statements for Five Statement Truth
+    grid_key_json = Column(JSON, nullable=True)         # Combination grid mapping for Q41-50
+    
+    # Paper II Part A Structured specific fields
+    structured_subparts_json = Column(JSON, nullable=True)
+    # Format: [
+    #   {"part": "a(i)", "prompt": "...", "max_points": 2, "lines": 3, "expected_keywords": ["..."]},
+    #   {"part": "a(ii)", "prompt": "...", "max_points": 3, "lines": 4, "expected_keywords": ["..."]}
+    # ]
+
+    # Paper II Part B Essay specific fields
+    essay_checklist_json = Column(JSON, nullable=True)
+    # Format: [
+    #   {"item_number": 1, "criterion": "Define organelle X accurately", "points": 4.0},
+    #   {"item_number": 2, "criterion": "Explain phase 1 electron transport", "points": 4.0}
+    # ]
+
+    # Paper Set / Quiz Grouping tag
+    # Immutable Question Snapshot JSON for historical audit safety
+    snapshot_json = Column(JSON, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    exam = relationship("ALExam", back_populates="questions")
+    answers = relationship("ALStudentAnswer", back_populates="question", cascade="all, delete-orphan")
+
+
+class ALPastPaper(Base):
+    """G.C.E. A/L Past Paper & Model Paper Archive Model."""
+    __tablename__ = "al_past_papers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    year = Column(Integer, nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    paper_type = Column(Enum(ALExamType), nullable=False)
+    pdf_url = Column(String(500), nullable=True)
+    marking_scheme_url = Column(String(500), nullable=True)
+    exam_id = Column(Integer, ForeignKey("al_exams.id", ondelete="SET NULL"), nullable=True)
+    status = Column(String(50), default="processed")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    exam = relationship("ALExam")
+
+
+class ALStudentSubmission(Base):
+    """Represents a student's attempt on an A/L Exam Paper."""
+    __tablename__ = "al_student_submissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    exam_id = Column(Integer, ForeignKey("al_exams.id"), nullable=False, index=True)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    
+    started_at = Column(DateTime, default=datetime.utcnow)
+    submitted_at = Column(DateTime, nullable=True)
+    
+    raw_score = Column(Float, default=0.0)             # Raw marks before scaling
+    scaled_score = Column(Float, default=0.0)          # Scaled marks (out of 100 or 150)
+    percentage = Column(Float, default=0.0)
+    grade = Column(String(5), nullable=True)           # A, B, C, S, F
+    
+    status = Column(String(30), default="in_progress") # in_progress, submitted, ai_graded, teacher_verified
+    ai_feedback_summary = Column(Text, nullable=True)
+    teacher_feedback = Column(Text, nullable=True)
+    teacher_verified_at = Column(DateTime, nullable=True)
+    finalized_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    finalized_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    exam = relationship("ALExam", back_populates="submissions")
+    student = relationship("User", foreign_keys=[student_id])
+    finalized_by = relationship("User", foreign_keys=[finalized_by_id])
+    answers = relationship("ALStudentAnswer", back_populates="submission", cascade="all, delete-orphan", lazy="joined")
+
+    @property
+    def student_name(self) -> Optional[str]:
+        if not self.student:
+            return None
+        return self.student.full_name or self.student.email
+
+    @property
+    def student_email(self) -> Optional[str]:
+        return self.student.email if self.student else None
+
+    @property
+    def exam_title(self) -> Optional[str]:
+        return self.exam.title if self.exam else None
+
+    @property
+    def exam_type(self) -> Optional[str]:
+        if self.exam:
+            return getattr(self.exam.exam_type, "value", str(self.exam.exam_type))
+        return None
+
+
+class ALStudentAnswer(Base):
+    """Represents a student's answer to an individual A/L question."""
+    __tablename__ = "al_student_answers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    submission_id = Column(Integer, ForeignKey("al_student_submissions.id"), nullable=False, index=True)
+    question_id = Column(Integer, ForeignKey("al_questions.id"), nullable=False, index=True)
+    
+    # MCQ answer
+    selected_option = Column(String(10), nullable=True) # "A", "B", "C", "D", "E"
+    
+    # Structured answer (sub-part text answers)
+    subpart_answers_json = Column(JSON, nullable=True)  # {"a(i)": "text...", "a(ii)": "text..."}
+    
+    # Essay answer
+    essay_text_answer = Column(Text, nullable=True)
+    essay_attachment_url = Column(String(500), nullable=True)
+    
+    # Grading details
+    raw_points_earned = Column(Float, default=0.0)
+    scaled_points_earned = Column(Float, default=0.0)
+    is_correct = Column(Boolean, nullable=True)         # True/False for MCQ
+
+    # Auditing scores
+    auto_score = Column(Float, default=0.0)             # Deterministic machine score
+    ai_score = Column(Float, default=0.0)               # AI recommendation score
+    teacher_score = Column(Float, nullable=True)        # Teacher override score
+    final_score = Column(Float, default=0.0)            # Final verified score
+    
+    # AI & Teacher Essay/Structured Checklist Evaluation
+    ai_checklist_results_json = Column(JSON, nullable=True)
+    # [{"item_number": 1, "awarded": True, "points": 4.0, "reason": "..."}]
+    
+    teacher_checklist_results_json = Column(JSON, nullable=True)
+    teacher_override_points = Column(Float, nullable=True)
+    feedback_notes = Column(Text, nullable=True)
+
+    # Relationships
+    submission = relationship("ALStudentSubmission", back_populates="answers")
+    question = relationship("ALQuestion", back_populates="answers", lazy="joined")
+
+    @property
+    def correct_option(self) -> Optional[str]:
+        return self.question.correct_option if self.question else None
+
+    @property
+    def explanation(self) -> Optional[str]:
+        return self.question.explanation if self.question else None
+
+
+class MaterialDifficultyHotspot(Base):
+    """Tracks student difficulty flags on video timestamps and PDF sections."""
+    __tablename__ = "material_difficulty_hotspots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    material_id = Column(Integer, ForeignKey("materials.id"), nullable=False)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    timestamp_seconds = Column(Integer, nullable=True) # e.g. 765 for 12:45 video mark
+    page_number = Column(Integer, nullable=True)     # For PDF materials
+    note = Column(Text, nullable=True)              # Student's difficulty query
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    material = relationship("Material")
+    student = relationship("User")
+
+

@@ -9,7 +9,7 @@ from typing import List
 from app.database import get_db
 from app.models import User, UserRole, Course, Unit, Lesson, Material
 from app.schemas import (
-    UnitCreate, UnitUpdate, UnitResponse, UnitWithLessonsResponse,
+    UnitCreate, UnitUpdate, UnitReorderRequest, UnitResponse, UnitWithLessonsResponse,
     LessonResponse, MessageResponse
 )
 from app.auth import get_current_user, require_teacher, check_course_access
@@ -89,6 +89,35 @@ async def list_units_for_course(
         ))
 
     return result
+
+
+@router.put("/course/{course_id}/reorder", response_model=List[UnitResponse])
+async def reorder_units(
+    course_id: int,
+    reorder_data: UnitReorderRequest,
+    current_user: User = Depends(require_teacher),
+    db: Session = Depends(get_db),
+):
+    """
+    Reorder units within a course based on an ordered list of unit IDs.
+    Updates the 'order' integer for each unit to reflect its new position (1-indexed).
+    """
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    if course.teacher_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only reorder units in your own courses")
+
+    course_units = {u.id: u for u in db.query(Unit).filter(Unit.course_id == course_id).all()}
+
+    for order_idx, unit_id in enumerate(reorder_data.unit_ids):
+        if unit_id in course_units:
+            course_units[unit_id].order = order_idx + 1
+
+    db.commit()
+
+    updated_units = db.query(Unit).filter(Unit.course_id == course_id).order_by(Unit.order.asc(), Unit.created_at.asc()).all()
+    return [_build_unit_response(u, db) for u in updated_units]
 
 
 @router.get("/{unit_id}", response_model=UnitResponse)

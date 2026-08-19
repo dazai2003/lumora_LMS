@@ -1,6 +1,8 @@
 """
-AI Quiz Generation Service: Uses Groq LLM to generate quiz questions
+AI Quiz Generation Service: Uses Google Gemini to generate quiz questions
 from course materials stored in the vector database.
+
+Migrated from Groq to Gemini as part of Phase 0 (A/L Exam Engine).
 """
 import os
 import json
@@ -39,7 +41,7 @@ def generate_quiz_questions(
     material_ids: Optional[List[int]] = None,
 ) -> List[Dict]:
     """
-    Generate quiz questions using Groq LLM + course material context from ChromaDB.
+    Generate quiz questions using Gemini + course material context from ChromaDB.
     """
     if question_types is None:
         question_types = ["mcq", "true_false", "short_answer"]
@@ -57,8 +59,8 @@ def generate_quiz_questions(
         logger.warning(f"Not enough material for lesson {lesson_id} to generate quiz")
         return []
 
-    # Step 2: Build prompt and call Groq LLM
-    questions = _call_groq_for_questions(
+    # Step 2: Build prompt and call Gemini
+    questions = _call_gemini_for_questions(
         context_text=context_text,
         num_questions=num_questions,
         question_types=question_types,
@@ -130,7 +132,7 @@ def _get_lesson_context(course_id: int, lesson_id: int, material_ids: Optional[L
     return combined
 
 
-def _call_groq_for_questions(
+def _call_gemini_for_questions(
     context_text: str,
     num_questions: int,
     question_types: List[str],
@@ -139,20 +141,11 @@ def _call_groq_for_questions(
     tf_count: Optional[int] = None,
     sa_count: Optional[int] = None,
 ) -> List[Dict]:
-    """Call Groq LLM to generate quiz questions from the given context."""
+    """Call Gemini to generate quiz questions from the given context."""
     try:
-        from groq import Groq
-
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key:
-            logger.error("GROQ_API_KEY not set")
-            return []
-
-        model = os.getenv("GROQ_CHAT_MODEL", "llama-3.1-8b-instant")
-        client = Groq(api_key=api_key, timeout=45.0)
+        from app.services.gemini_service import gemini
 
         types_str = ", ".join(question_types)
-        schema_json = AIQuizOutput.schema_json()
 
         breakdown_instruction = ""
         if mcq_count or tf_count or sa_count:
@@ -174,68 +167,61 @@ RULES:
 - For "short_answer": correct_answer should be a brief 1-5 word phrase.
 - Provide a brief 1-sentence explanation for each answer.
 
-You MUST respond in valid JSON format matching this JSON schema:
-{schema_json}
+Return a JSON object with a single key "questions" containing an array of question objects.
+Each question object must have these fields:
+- question_text (string)
+- question_type (string: "mcq", "true_false", or "short_answer")
+- options (array of 4 strings for MCQ, null otherwise)
+- correct_answer (string)
+- explanation (string)
+- points (number, default 1.0)
+- difficulty (string: "easy", "medium", or "hard")
+- cognitive_level (string: "remember", "understand", "apply", "analyze", or "evaluate")
+- ai_validation_status (string: "validated", "review_recommended", or "potential_issue")
+- source_reference (string or null)"""
 
-IMPORTANT: Return ONLY the JSON object, no markdown, no code fences, no extra text."""
+        user_prompt = f"Generate {num_questions} quiz questions from this material:\n\n{context_text[:8000]}"
 
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Generate {num_questions} quiz questions from this material:\n\n{context_text[:6000]}"},
-            ],
-            response_format={"type": "json_object"},
+        result = gemini.generate_json(
+            prompt=user_prompt,
+            system_instruction=system_prompt,
+            model_tier="flash",
             temperature=0.4,
-            max_tokens=3000,
+            max_tokens=4000,
         )
 
-        raw = response.choices[0].message.content.strip()
+        # Parse and validate
+        questions_raw = result.get("questions", [])
+        if isinstance(result, list):
+            questions_raw = result
 
-        # Clean up response: strip markdown code fences if present
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-        if raw.endswith("```"):
-            raw = raw[:-3]
-        raw = raw.strip()
-
-        parsed_json = json.loads(raw)
-        
-        # In case the model returns an array directly despite the schema asking for an object
-        if isinstance(parsed_json, list):
-            parsed_json = {"questions": parsed_json}
-            
-        validated_output = AIQuizOutput(**parsed_json)
-
-        # Map to dict format for downstream
         validated = []
-        for i, q in enumerate(validated_output.questions):
+        for i, q in enumerate(questions_raw):
+            if not isinstance(q, dict):
+                continue
             validated.append({
-                "question_text": q.question_text,
-                "question_type": q.question_type,
-                "options": q.options if q.question_type == "mcq" else None,
-                "correct_answer": q.correct_answer,
-                "explanation": q.explanation,
-                "points": q.points,
-                "difficulty": q.difficulty,
-                "cognitive_level": q.cognitive_level,
-                "ai_validation_status": q.ai_validation_status,
-                "source_reference": q.source_reference,
+                "question_text": q.get("question_text", ""),
+                "question_type": q.get("question_type", "mcq"),
+                "options": q.get("options") if q.get("question_type") == "mcq" else None,
+                "correct_answer": q.get("correct_answer", ""),
+                "explanation": q.get("explanation", ""),
+                "points": float(q.get("points", 1.0)),
+                "difficulty": q.get("difficulty", difficulty),
+                "cognitive_level": q.get("cognitive_level", "remember"),
+                "ai_validation_status": q.get("ai_validation_status", "review_recommended"),
+                "source_reference": q.get("source_reference"),
                 "order": i,
             })
 
         return validated
 
-    except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse LLM response as JSON: {e}")
-        return []
     except Exception as e:
-        logger.error(f"Error calling Groq for quiz generation: {e}")
+        logger.error(f"Error calling Gemini for quiz generation: {e}")
         return []
 
 def evaluate_short_answers(eval_requests: List[Dict]) -> List[Dict]:
     """
-    Evaluate short answers using the LLM.
+    Evaluate short answers using Gemini.
     eval_requests should be a list of dictionaries:
     [
         {"id": 1, "question": "...", "correct_answer": "...", "student_answer": "...", "max_points": 1.0}
@@ -249,14 +235,7 @@ def evaluate_short_answers(eval_requests: List[Dict]) -> List[Dict]:
         return []
         
     try:
-        from groq import Groq
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key:
-            logger.error("GROQ_API_KEY not set")
-            return [{"id": req["id"], "is_correct": False, "points_earned": 0.0} for req in eval_requests]
-
-        model = os.getenv("GROQ_CHAT_MODEL", "llama-3.1-8b-instant")
-        client = Groq(api_key=api_key, timeout=45.0)
+        from app.services.gemini_service import gemini
 
         system_prompt = """You are an expert AI teacher grading short answer questions. 
 You will be provided with a JSON array of questions, the correct answer, the student's answer, and the maximum points.
@@ -264,38 +243,21 @@ You must evaluate the student's answer semantically. If it conveys the correct m
 If it is partially correct, you can award partial points.
 If it is wrong, award 0 points.
 
-OUTPUT FORMAT: Return ONLY a valid JSON array of evaluation results. No markdown, no extra text.
-[
-  {
-    "id": 1, // must match the input id
-    "is_correct": true, // true if points > 0
-    "points_earned": 1.0
-  }
-]"""
+Return a JSON object with a key "results" containing an array of evaluation results.
+Each result must have: "id" (matching input), "is_correct" (boolean), "points_earned" (number)."""
         
         user_prompt = json.dumps(eval_requests, indent=2)
 
-        response = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            model=model,
+        result = gemini.generate_json(
+            prompt=user_prompt,
+            system_instruction=system_prompt,
+            model_tier="flash_25",
             temperature=0.0,
-            response_format={"type": "json_object"},
         )
         
-        content = response.choices[0].message.content
-        if not content:
-            raise ValueError("Empty response from Groq")
-            
-        data = json.loads(content)
-        raw_results = data if isinstance(data, list) else []
-        if isinstance(data, dict):
-            for key, val in data.items():
-                if isinstance(val, list):
-                    raw_results = val
-                    break
+        raw_results = result.get("results", [])
+        if isinstance(result, list):
+            raw_results = result
 
         req_map = {req["id"]: float(req.get("max_points", 1.0)) for req in eval_requests}
         clamped_results = []
@@ -339,14 +301,7 @@ def generate_quiz_from_pdf_text(
       - "mixed": Standard generation from text content based on count and difficulty.
     """
     try:
-        from groq import Groq
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key:
-            logger.error("GROQ_API_KEY not set")
-            return []
-
-        model = os.getenv("GROQ_CHAT_MODEL", "llama-3.1-8b-instant")
-        client = Groq(api_key=api_key, timeout=90.0)
+        from app.services.gemini_service import gemini
 
         # Truncate text if too large
         text = text[:32000]
@@ -369,40 +324,27 @@ def generate_quiz_from_pdf_text(
 {difficulty_instruction}
 {count_instruction}
 
-OUTPUT FORMAT: Return a JSON object with a single key "questions" containing an array of question objects.
-Each question MUST strictly follow this schema:
-{{
-  "question_text": "string (The question text itself)",
-  "question_type": "string (MUST be exactly one of: 'mcq', 'true_false', 'short_answer')",
-  "options": ["string", "string", "string", "string"], // Provide exactly 4 options IF question_type is 'mcq'. Empty array otherwise.
-  "correct_answer": "string", // Must exactly match one of the options for MCQ. For true_false, must be 'True' or 'False'. For short_answer, provide the expected model answer.
-  "explanation": "string", // 1-sentence explanation of why the answer is correct
-  "points": 1.0,
-  "difficulty": "string (easy, medium, or hard)",
-  "cognitive_level": "apply",
-  "ai_validation_status": "review_recommended",
-  "source_reference": "Extracted from PDF"
-}}
+Return a JSON object with a single key "questions" containing an array of question objects.
+Each question must have these fields:
+- question_text (string)
+- question_type (string: "mcq", "true_false", or "short_answer")
+- options (array of 4 strings if MCQ, empty array otherwise)
+- correct_answer (string matching one option for MCQ, "True"/"False" for true_false, model answer for short_answer)
+- explanation (string, 1-sentence)
+- points (number, default 1.0)
+- difficulty (string: "easy", "medium", or "hard")
+- cognitive_level (string: "apply")
+- ai_validation_status (string: "review_recommended")
+- source_reference (string: "Extracted from PDF")"""
 
-IMPORTANT: Return ONLY valid JSON. No markdown formatting, no intro text, no outro text."""
-
-        response = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Extract/Generate questions from the following text:\n\n{text}"}
-            ],
-            model=model,
+        result = gemini.generate_json(
+            prompt=f"Extract/Generate questions from the following text:\n\n{text}",
+            system_instruction=system_prompt,
+            model_tier="flash",
             temperature=0.1 if is_extraction else 0.4,
-            response_format={"type": "json_object"}
         )
 
-        content = response.choices[0].message.content
-        if not content:
-            return []
-
-        data = json.loads(content)
-        questions = data.get("questions", [])
-        return questions
+        return result.get("questions", [])
 
     except Exception as e:
         logger.error(f"Error generating quiz from PDF: {e}")
@@ -410,19 +352,11 @@ IMPORTANT: Return ONLY valid JSON. No markdown formatting, no intro text, no out
 
 def improve_question(question_data: dict, instructions: List[str]) -> Optional[Dict]:
     """
-    Improve an existing question using LLM based on specific instructions.
+    Improve an existing question using Gemini based on specific instructions.
     """
     try:
-        from groq import Groq
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key:
-            logger.error("GROQ_API_KEY not set")
-            return None
+        from app.services.gemini_service import gemini
 
-        model = os.getenv("GROQ_CHAT_MODEL", "llama-3.1-8b-instant")
-        client = Groq(api_key=api_key, timeout=45.0)
-
-        schema_json = AIQuizOutput.schema_json()
         instructions_str = "\n".join(f"- {inst}" for inst in instructions)
 
         system_prompt = f"""You are an expert curriculum designer. You have been asked to improve an existing exam question.
@@ -430,37 +364,21 @@ def improve_question(question_data: dict, instructions: List[str]) -> Optional[D
 Here are the specific instructions for improvement:
 {instructions_str}
 
-Return EXACTLY ONE improved question inside a JSON array under the key "questions".
-You MUST respond in valid JSON format matching this JSON schema:
-{schema_json}
+Return a JSON object with a key "questions" containing an array of EXACTLY ONE improved question.
+The question object must have: question_text, question_type, options, correct_answer, explanation, points, difficulty, cognitive_level, ai_validation_status, source_reference.
 
-IMPORTANT: Keep the same question_type unless instructed otherwise. Ensure distractors (if MCQ) are completely plausible but unambiguously incorrect.
-"""
+Keep the same question_type unless instructed otherwise. Ensure distractors (if MCQ) are completely plausible but unambiguously incorrect."""
 
-        response = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Here is the existing question data in JSON:\n{json.dumps(question_data, indent=2)}\n\nPlease provide the improved version."}
-            ],
-            model=model,
+        result = gemini.generate_json(
+            prompt=f"Here is the existing question data in JSON:\n{json.dumps(question_data, indent=2)}\n\nPlease provide the improved version.",
+            system_instruction=system_prompt,
+            model_tier="flash",
             temperature=0.4,
-            response_format={"type": "json_object"}
         )
 
-        raw = response.choices[0].message.content.strip()
-        data = json.loads(raw)
-        questions = data.get("questions", [])
-        
-        if questions:
-            # Map back to dict
-            q = questions[0]
-            # Account for dict vs object depending on how pydantic parsed it inside
-            if hasattr(q, "model_dump"):
-                return q.model_dump()
-            elif hasattr(q, "dict"):
-                return q.dict()
-            elif isinstance(q, dict):
-                return q
+        questions = result.get("questions", [])
+        if questions and isinstance(questions[0], dict):
+            return questions[0]
             
         return None
     except Exception as e:
@@ -473,14 +391,7 @@ def generate_question_variations(question_data: dict, count: int = 3) -> List[Di
     Generate variations of an existing question testing the exact same learning objective.
     """
     try:
-        from groq import Groq
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key:
-            logger.error("GROQ_API_KEY not set")
-            return []
-
-        model = os.getenv("GROQ_CHAT_MODEL", "llama-3.1-8b-instant")
-        client = Groq(api_key=api_key, timeout=60.0)
+        from app.services.gemini_service import gemini
 
         system_prompt = f"""You are an expert curriculum designer.
 You need to generate {count} VARIATIONS of a given question.
@@ -489,35 +400,17 @@ The variations MUST test the exact same underlying concept, cognitive level, and
 Maintain the original difficulty level.
 Maintain the exact same question_type (MCQ, true_false, etc).
 
-OUTPUT FORMAT: Return a JSON object with a single key "questions" containing an array of exactly {count} question objects.
-Each question MUST strictly follow this schema:
-{{
-  "question_text": "string",
-  "question_type": "string",
-  "options": ["string", "string", "string", "string"], // Provide exactly 4 options IF question_type is 'mcq'.
-  "correct_answer": "string",
-  "explanation": "string",
-  "points": 1.0,
-  "difficulty": "string",
-  "cognitive_level": "string",
-  "ai_validation_status": "review_recommended",
-  "source_reference": "Generated Variation"
-}}
-"""
+Return a JSON object with a key "questions" containing an array of exactly {count} question objects.
+Each question must have: question_text, question_type, options, correct_answer, explanation, points, difficulty, cognitive_level, ai_validation_status, source_reference."""
 
-        response = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Original Question Data:\n{json.dumps(question_data, indent=2)}\n\nGenerate {count} new variations now."}
-            ],
-            model=model,
+        result = gemini.generate_json(
+            prompt=f"Original Question Data:\n{json.dumps(question_data, indent=2)}\n\nGenerate {count} new variations now.",
+            system_instruction=system_prompt,
+            model_tier="flash",
             temperature=0.7,
-            response_format={"type": "json_object"}
         )
 
-        raw = response.choices[0].message.content.strip()
-        data = json.loads(raw)
-        return data.get("questions", [])
+        return result.get("questions", [])
 
     except Exception as e:
         logger.error(f"Error generating question variations: {e}")

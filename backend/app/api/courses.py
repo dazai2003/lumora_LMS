@@ -39,7 +39,7 @@ def _build_course_response(course: Course, db: Session) -> CourseResponse:
 # Course CRUD
 # ──────────────────────────────────────────────
 
-@router.post("/", response_model=CourseResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=CourseResponse, status_code=status.HTTP_201_CREATED)
 async def create_course(
     course_data: CourseCreate,
     current_user: User = Depends(require_admin_or_teacher),
@@ -65,7 +65,7 @@ async def create_course(
     return _build_course_response(course, db)
 
 
-@router.get("/", response_model=List[CourseListResponse])
+@router.get("", response_model=List[CourseListResponse])
 async def list_courses(
     search: Optional[str] = None,
     subject: Optional[str] = None,

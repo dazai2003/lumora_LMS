@@ -1,6 +1,6 @@
 """
 AI-Powered Student Engagement and Learning Analytics Platform
-FastAPI Backend Application
+FastAPI Backend Application (Updated DB Schema)
 """
 import sys
 import os
@@ -22,7 +22,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
-from app.api import auth, users, courses, units, lessons, materials, quizzes, analytics, qa, notifications, messages, payments, questions, jobs, audit, pools, rubrics, recommendations, students, materials_ai, admin_ai, assignments
+from app.api import auth, users, courses, units, lessons, materials, quizzes, analytics, qa, notifications, messages, payments, questions, jobs, audit, pools, rubrics, recommendations, students, materials_ai, admin_ai, assignments, al_exams, al_past_papers, al_authoring, al_curriculum, al_mcq, al_analytics
+
 from sqlalchemy import text
 from app.database import engine, Base
 
@@ -88,6 +89,12 @@ app.include_router(jobs.router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(audit.router, prefix="/api/audit", tags=["Audit"])
 app.include_router(pools.router, prefix="/api/pools", tags=["Pools"])
 app.include_router(rubrics.router, prefix="/api/rubrics", tags=["Rubrics"])
+app.include_router(al_exams.router, prefix="/api/al-exams", tags=["A/L Exam Engine"])
+app.include_router(al_past_papers.router, prefix="/api/al-past-papers", tags=["A/L Past Papers"])
+app.include_router(al_authoring.router, prefix="/api/al-authoring", tags=["A/L Authoring"])
+app.include_router(al_curriculum.router, prefix="/api/al-curriculum", tags=["A/L Curriculum & Scope Slicer"])
+app.include_router(al_mcq.router, prefix="/api/al-mcq", tags=["A/L Paper I MCQ Engine"])
+app.include_router(al_analytics.router, prefix="/api/analytics", tags=["A/L Assessment Analytics Foundation"])
 
 
 @app.get("/", tags=["Root"])
@@ -99,6 +106,7 @@ async def root():
     }
 
 
+@app.get("/api", tags=["Health"])
 @app.get("/api/health", tags=["Health"])
 async def health_check():
-    return {"status": "healthy"}
+    return {"status": "healthy", "message": "Lumora API server operational"}

@@ -15,20 +15,22 @@ export default function NotificationBell() {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const fetchNotifications = async () => {
+    if (!user) return;
     try {
       const data = await api.getNotifications();
-      setNotifications(data);
+      setNotifications(data || []);
     } catch (err) {
-      console.error("Failed to fetch notifications", err);
+      setNotifications([]);
     }
   };
 
   useEffect(() => {
+    if (!user) return;
     fetchNotifications();
     // Poll every 30 seconds for new notifications
     const interval = setInterval(fetchNotifications, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

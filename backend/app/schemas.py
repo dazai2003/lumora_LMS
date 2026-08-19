@@ -4,7 +4,7 @@ Pydantic schemas for request/response validation.
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
-from app.models import UserRole, MaterialType, QuestionType, QuizStatus, PasswordResetStatus
+from app.models import UserRole, MaterialType, QuestionType, QuizStatus, PasswordResetStatus, ALExamType, ALQuestionTemplate, ALStructuredFormat
 
 
 # ──────────────────────────────────────────────
@@ -189,6 +189,10 @@ class UnitUpdate(BaseModel):
     order: Optional[int] = None
 
 
+class UnitReorderRequest(BaseModel):
+    unit_ids: List[int]
+
+
 class UnitResponse(BaseModel):
     id: int
     title: str
@@ -270,6 +274,9 @@ class MaterialResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
+class MaterialSummarizeRequest(BaseModel):
+    summary_type: Optional[str] = "paragraph"  # "paragraph", "point_form", "student_notes"
 
 class MaterialFlagCreate(BaseModel):
     context: str
@@ -398,9 +405,12 @@ class QuestionVersionResponse(BaseModel):
     ai_validation_status: Optional[AIValidationStatus] = None
     teacher_approval_status: Optional[TeacherApprovalStatus] = None
     source_type: Optional[str] = None
+    source_reference: Optional[str] = None
     created_at: datetime
     lesson_id: Optional[int] = None
     lesson_title: Optional[str] = None
+    unit_id: Optional[int] = None
+    unit_title: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -1128,5 +1138,429 @@ class BulkModerationRequest(BaseModel):
     question_ids: List[int]
     action: str = Field(..., pattern="^(approve|reject|archive)$")
     teacher_note: Optional[str] = None
+
+
+# ──────────────────────────────────────────────
+# A/L Exam Engine Schemas (Phase 1)
+# ──────────────────────────────────────────────
+
+class ALExamCreate(BaseModel):
+    title: str = Field(..., min_length=3, max_length=255)
+    description: Optional[str] = None
+    exam_type: ALExamType
+    time_limit_minutes: int = 120
+    total_questions: int = 50
+    raw_mark_cap: Optional[float] = None
+    score_multiplier: float = 1.0
+    max_attempts: int = 1
+    course_id: Optional[int] = None
+    lesson_id: Optional[int] = None
+    is_published: bool = False
+
+
+class ALExamUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    instructions: Optional[str] = None
+    time_limit_minutes: Optional[int] = None
+    total_questions: Optional[int] = None
+    raw_mark_cap: Optional[float] = None
+    score_multiplier: Optional[float] = None
+    max_attempts: Optional[int] = None
+    is_published: Optional[bool] = None
+    difficulty_policy: Optional[str] = None
+    available_from: Optional[datetime] = None
+    available_until: Optional[datetime] = None
+    show_result_immediately: Optional[bool] = None
+
+
+class ALQuestionCreate(BaseModel):
+    exam_id: int
+    question_number: int
+    template_type: ALQuestionTemplate = ALQuestionTemplate.GENERIC_MCQ
+    stem_text: str
+    diagram_url: Optional[str] = None
+    requires_image: Optional[bool] = False
+    image_description: Optional[str] = None
+    explanation: Optional[str] = None
+    points: float = 1.0
+    cognitive_level: str = "understand"
+    difficulty: str = "medium"
+
+    # MCQ options & correct answer
+    options: Optional[List[str]] = None
+    correct_option: Optional[str] = None
+
+    # Advanced templates
+    assertion_text: Optional[str] = None
+    reason_text: Optional[str] = None
+    statements_json: Optional[List[Dict[str, Any]]] = None
+    grid_key_json: Optional[Dict[str, Any]] = None
+
+    # Paper 2
+    structured_subparts_json: Optional[List[Dict[str, Any]]] = None
+    essay_checklist_json: Optional[Any] = None
+    paper_set_group: Optional[str] = None
+
+
+class ALQuestionUpdate(BaseModel):
+    stem_text: Optional[str] = None
+    template_type: Optional[ALQuestionTemplate] = None
+    diagram_url: Optional[str] = None
+    requires_image: Optional[bool] = None
+    image_description: Optional[str] = None
+    explanation: Optional[str] = None
+    points: Optional[float] = None
+    cognitive_level: Optional[str] = None
+    difficulty: Optional[str] = None
+    options: Optional[List[str]] = None
+    correct_option: Optional[str] = None
+    assertion_text: Optional[str] = None
+    reason_text: Optional[str] = None
+    statements_json: Optional[List[Dict[str, Any]]] = None
+    grid_key_json: Optional[Dict[str, Any]] = None
+    structured_subparts_json: Optional[List[Dict[str, Any]]] = None
+    essay_checklist_json: Optional[Any] = None
+    paper_set_group: Optional[str] = None
+
+
+class ALQuestionResponse(BaseModel):
+    id: int
+    exam_id: int
+    question_number: int
+    template_type: ALQuestionTemplate
+    stem_text: str
+    diagram_url: Optional[str] = None
+    requires_image: Optional[bool] = False
+    image_description: Optional[str] = None
+    explanation: Optional[str] = None
+    points: float
+    cognitive_level: str
+    difficulty: str
+    options: Optional[List[str]] = None
+    correct_option: Optional[str] = None
+    assertion_text: Optional[str] = None
+    reason_text: Optional[str] = None
+    statements_json: Optional[Any] = None
+    grid_key_json: Optional[Any] = None
+    structured_subparts_json: Optional[Any] = None
+    essay_checklist_json: Optional[Any] = None
+    paper_set_group: Optional[str] = None
+    snapshot_json: Optional[Any] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ALExamResponse(BaseModel):
+    id: int
+    title: str
+    description: Optional[str] = None
+    instructions: Optional[str] = None
+    exam_type: ALExamType
+    time_limit_minutes: int
+    total_questions: int
+    raw_mark_cap: Optional[float] = None
+    score_multiplier: float
+    max_attempts: int
+    is_published: bool
+    difficulty_policy: Optional[str] = "mixed"
+    available_from: Optional[datetime] = None
+    available_until: Optional[datetime] = None
+    show_result_immediately: Optional[bool] = True
+    course_id: int
+    lesson_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+    questions: Optional[List[ALQuestionResponse]] = []
+
+    class Config:
+        from_attributes = True
+
+
+class ALGenerationRequest(BaseModel):
+    assessment_type: str = "paper_1_mcq"  # "full_paper", "paper_1_only", "paper_2_only", "paper_2_structured", "paper_2_essay", "custom"
+    question_count: int = 10
+    generation_mode: str = "al_certified"  # "al_certified", "custom", "balanced"
+    subtype_distribution: Optional[Dict[str, float]] = None
+    difficulty_distribution: Optional[Dict[str, float]] = None
+    cognitive_distribution: Optional[Dict[str, float]] = None
+    course_id: Optional[int] = None
+    unit_ids: Optional[List[int]] = None
+    lesson_ids: Optional[List[int]] = None
+    material_ids: Optional[List[int]] = None
+    material_scopes: Optional[List[str]] = None
+    custom_instruction: Optional[str] = None
+
+
+class ALRegenerateCandidateRequest(BaseModel):
+    candidate_question: Dict[str, Any]
+    custom_instruction: Optional[str] = None
+
+
+class ALBatchAcceptRequest(BaseModel):
+    exam_id: int
+    candidates: List[Dict[str, Any]]
+
+
+class ALBatchAcceptResponse(BaseModel):
+    requested: int
+    accepted: int
+    failed: int
+    results: List[Dict[str, Any]]
+    errors: List[Dict[str, Any]]
+
+
+class StructuredMarkingPointItem(BaseModel):
+    criterion: str
+    points: Optional[float] = 1.0
+
+
+class StructuredMarkingRules(BaseModel):
+    unit_required: Optional[bool] = False
+    required_unit: Optional[str] = None
+    exact_spelling_required: Optional[bool] = False
+    underline_required: Optional[bool] = False
+    taxonomic_format_required: Optional[bool] = False
+    all_or_nothing: Optional[bool] = False
+    both_conditions_required: Optional[bool] = False
+    sequence_order_required: Optional[bool] = False
+    label_required: Optional[bool] = False
+    custom_rules: Optional[List[str]] = []
+
+
+class StructuredDiagramInfo(BaseModel):
+    requires_image: Optional[bool] = False
+    image_url: Optional[str] = None
+    image_description: Optional[str] = None
+    expected_interpretation: Optional[str] = None
+    diagram_type: Optional[str] = "PRE_SUPPLIED"  # "PRE_SUPPLIED" | "STUDENT_DRAWING"
+
+
+class StructuredDrawingInfo(BaseModel):
+    canvas_description: Optional[str] = None
+    required_structures: Optional[List[str]] = []
+    required_flow: Optional[str] = None
+
+
+class StructuredTableData(BaseModel):
+    headers: List[str]
+    rows: List[List[str]]
+    expected_answers: Optional[List[Dict[str, Any]]] = []
+
+
+class StructuredSequenceData(BaseModel):
+    expected_sequence: List[str]
+    sequence_order_required: Optional[bool] = True
+    sequence_all_or_nothing: Optional[bool] = True
+    separator_flexible: Optional[bool] = True
+    alternative_separator_allowed: Optional[str] = "comma"
+
+
+class StructuredComparisonPair(BaseModel):
+    left: str
+    right: str
+    points: Optional[float] = 1.0
+
+
+class StructuredComparisonData(BaseModel):
+    pairs: List[StructuredComparisonPair]
+    both_conditions_required: Optional[bool] = True
+
+
+class StructuredQuestionPartSchema(BaseModel):
+    id: Optional[str] = None
+    parent_id: Optional[str] = None
+    label: str
+    format_type: ALStructuredFormat
+    prompt: str
+    points: float
+    model_answer: Optional[str] = None
+    marking_points: Optional[List[StructuredMarkingPointItem]] = []
+    marking_rules: Optional[StructuredMarkingRules] = None
+    diagram_info: Optional[StructuredDiagramInfo] = None
+    drawing_info: Optional[StructuredDrawingInfo] = None
+    table_data: Optional[StructuredTableData] = None
+    sequence_data: Optional[StructuredSequenceData] = None
+    comparison_data: Optional[StructuredComparisonData] = None
+    difficulty: Optional[str] = "medium"
+    cognitive_level: Optional[str] = "understand"
+    content_unit: Optional[str] = None
+    children: Optional[List[Any]] = []
+
+
+class StructuredGenerationRequest(BaseModel):
+    assessment_type: str = "paper_2_structured"
+    question_count: int = 4  # 1 to 5
+    custom_blueprints: Optional[List[Dict[str, Any]]] = None
+    course_id: Optional[int] = None
+    unit_ids: Optional[List[int]] = None
+    difficulty_mode: Optional[str] = "balanced"
+    cognitive_mode: Optional[str] = "recommended"
+    custom_instruction: Optional[str] = None
+
+
+class StructuredSingleCandidateRegenerateRequest(BaseModel):
+    candidate: Dict[str, Any]
+    course_id: Optional[int] = None
+    unit_ids: Optional[List[int]] = None
+    difficulty_mode: Optional[str] = "balanced"
+    cognitive_mode: Optional[str] = "recommended"
+    custom_instruction: Optional[str] = None
+
+
+class EssayGenerationRequest(BaseModel):
+    assessment_type: str = "paper_2_essay"
+    question_count: int = 3  # 1 to 5
+    custom_blueprints: Optional[List[Dict[str, Any]]] = None
+    paper_blueprint: Optional[Dict[str, Any]] = None
+    course_id: Optional[int] = None
+    unit_ids: Optional[List[int]] = None
+    difficulty_mode: Optional[str] = "balanced"
+    cognitive_mode: Optional[str] = "recommended"
+    custom_instruction: Optional[str] = None
+
+
+class EssaySingleCandidateRegenerateRequest(BaseModel):
+    candidate: Dict[str, Any]
+    course_id: Optional[int] = None
+    unit_ids: Optional[List[int]] = None
+    difficulty_mode: Optional[str] = "balanced"
+    cognitive_mode: Optional[str] = "recommended"
+    custom_instruction: Optional[str] = None
+
+
+class ALExamValidationResponse(BaseModel):
+    is_valid: bool
+    errors: List[str]
+    warnings: List[str]
+    summary: Dict[str, Any]
+
+
+class ALStudentAnswerSubmit(BaseModel):
+    question_id: int
+    selected_option: Optional[str] = None
+    subpart_answers_json: Optional[Dict[str, Any]] = None
+    essay_text_answer: Optional[str] = None
+    essay_attachment_url: Optional[str] = None
+
+
+class ALStudentSubmissionCreate(BaseModel):
+    exam_id: int
+    answers: List[ALStudentAnswerSubmit] = []
+
+
+class ALStudentAnswerResponse(BaseModel):
+    id: int
+    submission_id: int
+    question_id: int
+    selected_option: Optional[str] = None
+    subpart_answers_json: Optional[Any] = None
+    essay_text_answer: Optional[str] = None
+    essay_attachment_url: Optional[str] = None
+    raw_points_earned: Optional[float] = 0.0
+    scaled_points_earned: Optional[float] = 0.0
+    is_correct: Optional[bool] = None
+    auto_score: Optional[float] = 0.0
+    ai_score: Optional[float] = 0.0
+    teacher_score: Optional[float] = None
+    final_score: Optional[float] = 0.0
+    correct_option: Optional[str] = None
+    explanation: Optional[str] = None
+    ai_checklist_results_json: Optional[Any] = None
+    teacher_checklist_results_json: Optional[Any] = None
+    teacher_override_points: Optional[float] = None
+    feedback_notes: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ALStudentSubmissionResponse(BaseModel):
+    id: int
+    exam_id: int
+    student_id: int
+    started_at: datetime
+    submitted_at: Optional[datetime] = None
+    raw_score: Optional[float] = 0.0
+    scaled_score: Optional[float] = 0.0
+    percentage: Optional[float] = 0.0
+    grade: Optional[str] = None
+    status: str
+    ai_feedback_summary: Optional[str] = None
+    teacher_feedback: Optional[str] = None
+    teacher_verified_at: Optional[datetime] = None
+    finalized_by_id: Optional[int] = None
+    finalized_at: Optional[datetime] = None
+    student_name: Optional[str] = None
+    student_email: Optional[str] = None
+    exam_title: Optional[str] = None
+    exam_type: Optional[str] = None
+    answers: Optional[List[ALStudentAnswerResponse]] = []
+
+    class Config:
+        from_attributes = True
+
+
+class ALTeacherVerifyAnswerItem(BaseModel):
+    answer_id: int
+    teacher_override_points: Optional[float] = None
+    teacher_checklist_results_json: Optional[Any] = None
+    feedback_notes: Optional[str] = None
+
+
+class ALTeacherVerifySubmissionRequest(BaseModel):
+    answers: List[ALTeacherVerifyAnswerItem] = []
+    teacher_feedback: Optional[str] = None
+
+
+class ALPastPaperCreate(BaseModel):
+    year: int
+    title: str
+    paper_type: ALExamType
+    pdf_url: Optional[str] = None
+    marking_scheme_url: Optional[str] = None
+    course_id: Optional[int] = None
+
+
+class ALPastPaperResponse(BaseModel):
+    id: int
+    year: int
+    title: str
+    paper_type: ALExamType
+    pdf_url: Optional[str] = None
+    marking_scheme_url: Optional[str] = None
+    exam_id: Optional[int] = None
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class HotspotCreate(BaseModel):
+    material_id: int
+    timestamp_seconds: Optional[int] = None
+    page_number: Optional[int] = None
+    note: Optional[str] = None
+
+
+class HotspotResponse(BaseModel):
+    id: int
+    material_id: int
+    student_id: int
+    timestamp_seconds: Optional[int] = None
+    page_number: Optional[int] = None
+    note: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+
+
+
 
 

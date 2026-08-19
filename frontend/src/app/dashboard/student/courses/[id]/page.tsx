@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, use } from "react";
-import api, { Course, Lesson, UnitWithLessons, StudentCoursePerformance, ApiError } from "@/lib/api";
+import api, { Course, Lesson, UnitWithLessons, StudentCoursePerformance, ApiError, ALExam } from "@/lib/api";
 import Link from "next/link";
 import { SvgIcon } from "@/components/SvgIcon";
 import { useToast } from "@/components/ui/Toast";
@@ -12,6 +12,7 @@ export default function StudentCourseDetailPage({ params }: { params: Promise<{ 
   const [course, setCourse] = useState<Course | null>(null);
   const [units, setUnits] = useState<UnitWithLessons[]>([]);
   const [standaloneLessons, setStandaloneLessons] = useState<Lesson[]>([]);
+  const [alExams, setAlExams] = useState<ALExam[]>([]);
   const [perf, setPerf] = useState<StudentCoursePerformance | null>(null);
   const [loading, setLoading] = useState(true);
   const [paymentRequired, setPaymentRequired] = useState(false);
@@ -24,13 +25,15 @@ export default function StudentCourseDetailPage({ params }: { params: Promise<{ 
       api.getCourse(courseId),
       api.listUnits(courseId).catch(() => []),
       api.listLessons(courseId).catch(() => []),
-      api.getStudentCoursePerformance(courseId).catch(() => null)
+      api.getStudentCoursePerformance(courseId).catch(() => null),
+      api.listALExams(courseId, undefined, true).catch(() => [])
     ])
-      .then(([c, uList, lList, p]) => {
+      .then(([c, uList, lList, p, exams]) => {
         setCourse(c);
         setUnits(uList || []);
         setStandaloneLessons((lList || []).filter(l => l.is_published && !l.unit_id));
         setPerf(p);
+        setAlExams(exams || []);
         
         // Open all units by default
         if (uList && uList.length > 0) {
@@ -130,7 +133,7 @@ export default function StudentCourseDetailPage({ params }: { params: Promise<{ 
 
       {/* Curriculum Units & Modules */}
       <h2 style={{ fontSize: "1.35rem", fontWeight: 700, marginBottom: "1.25rem", color: "var(--text-primary)" }}>
-        Curriculum Units & Lessons
+        Curriculum Units &amp; Lessons
       </h2>
 
       {units.length === 0 && standaloneLessons.length === 0 ? (
@@ -182,10 +185,18 @@ export default function StudentCourseDetailPage({ params }: { params: Promise<{ 
                     )}
                   </div>
 
-                  <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-                    <span className="badge badge-secondary" style={{ fontSize: "0.75rem" }}>
-                      {unit.lessons.length} Lessons
-                    </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                    {(() => {
+                      const uProg = perf?.unit_progress?.find(p => p.unit_id === unit.id);
+                      return (
+                        <span
+                          className={`badge ${uProg?.is_completed ? "badge-success" : (uProg?.completed_lessons || 0) > 0 ? "badge-info" : "badge-secondary"}`}
+                          style={{ fontSize: "0.78rem", fontWeight: 700, padding: "0.25rem 0.6rem" }}
+                        >
+                          {uProg?.completed_fraction || `${unit.lessons.length} Lessons`}
+                        </span>
+                      );
+                    })()}
                     <SvgIcon name={isOpen ? "chevron-up" : "chevron-down"} size={20} style={{ color: "var(--text-muted)" }} />
                   </div>
                 </div>
@@ -198,54 +209,76 @@ export default function StudentCourseDetailPage({ params }: { params: Promise<{ 
                         No published lessons in this unit yet.
                       </div>
                     ) : (
-                      unit.lessons.map((lesson, lIdx) => (
-                        <Link 
-                          key={lesson.id} 
-                          href={`/dashboard/student/courses/${courseId}/lessons/${lesson.id}`}
-                          style={{ textDecoration: "none" }}
-                        >
-                          <div 
-                            style={{ 
-                              display: "flex", 
-                              alignItems: "center", 
-                              justifyContent: "space-between",
-                              padding: "0.85rem 1.15rem", 
-                              background: "var(--bg-card)",
-                              border: "1px solid var(--border-subtle)",
-                              borderRadius: "var(--radius)",
-                              transition: "all 0.15s ease"
-                            }}
+                      unit.lessons.map((lesson, lIdx) => {
+                        const lProg = perf?.lesson_progress?.find(p => p.lesson_id === lesson.id);
+                        const status = lProg?.status || "not_reviewed";
+                        return (
+                          <Link 
+                            key={lesson.id} 
+                            href={`/dashboard/student/courses/${courseId}/lessons/${lesson.id}`}
+                            style={{ textDecoration: "none" }}
                           >
-                            <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-                              <div style={{ 
-                                width: "32px", height: "32px", borderRadius: "50%", 
-                                background: "rgba(37, 99, 235, 0.1)", color: "var(--accent-primary)",
-                                display: "flex", alignItems: "center", justifyContent: "center",
-                                fontWeight: 700, fontSize: "0.85rem"
-                              }}>
-                                {lIdx + 1}
-                              </div>
-                              <div>
-                                <div style={{ fontWeight: 600, fontSize: "0.95rem", color: "var(--text-primary)" }}>
-                                  {lesson.title}
+                            <div 
+                              style={{ 
+                                display: "flex", 
+                                alignItems: "center", 
+                                justifyContent: "space-between",
+                                padding: "0.85rem 1.15rem", 
+                                background: "var(--bg-card)",
+                                border: "1px solid var(--border-subtle)",
+                                borderRadius: "var(--radius)",
+                                transition: "all 0.15s ease"
+                              }}
+                            >
+                              <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+                                <div style={{ 
+                                  width: "32px", height: "32px", borderRadius: "50%", 
+                                  background: status === "reviewed" ? "rgba(16, 185, 129, 0.12)" : status === "engaging" ? "rgba(37, 99, 235, 0.1)" : "rgba(100, 116, 139, 0.1)",
+                                  color: status === "reviewed" ? "#10B981" : status === "engaging" ? "var(--accent-primary)" : "var(--text-muted)",
+                                  display: "flex", alignItems: "center", justifyContent: "center",
+                                  fontWeight: 700, fontSize: "0.85rem"
+                                }}>
+                                  {status === "reviewed" ? <SvgIcon name="check" size={16} /> : lIdx + 1}
                                 </div>
-                                {lesson.description && (
-                                  <div style={{ fontSize: "0.825rem", color: "var(--text-secondary)", marginTop: "0.15rem" }}>
-                                    {lesson.description}
+                                <div>
+                                  <div style={{ fontWeight: 600, fontSize: "0.95rem", color: "var(--text-primary)" }}>
+                                    {lesson.title}
                                   </div>
+                                  {lesson.description && (
+                                    <div style={{ fontSize: "0.825rem", color: "var(--text-secondary)", marginTop: "0.15rem" }}>
+                                      {lesson.description}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                                {/* Lesson Status Badge */}
+                                {status === "reviewed" && (
+                                  <span className="badge badge-success" style={{ fontSize: "0.72rem", display: "flex", alignItems: "center", gap: "0.3rem", fontWeight: 700 }}>
+                                    <SvgIcon name="check-circle" size={12} /> Reviewed
+                                  </span>
                                 )}
+                                {status === "engaging" && (
+                                  <span className="badge badge-info" style={{ fontSize: "0.72rem", display: "flex", alignItems: "center", gap: "0.3rem", fontWeight: 700, background: "rgba(37, 99, 235, 0.12)", color: "#2563EB" }}>
+                                    <SvgIcon name="book-open" size={12} /> Engaging
+                                  </span>
+                                )}
+                                {status === "not_reviewed" && (
+                                  <span className="badge badge-secondary" style={{ fontSize: "0.72rem", display: "flex", alignItems: "center", gap: "0.3rem", fontWeight: 600 }}>
+                                    <SvgIcon name="clock" size={12} /> Not Reviewed
+                                  </span>
+                                )}
+
+                                <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                                  <SvgIcon name="file-text" size={14} /> {lesson.material_count || 0} Resources
+                                </span>
+                                <SvgIcon name="chevron-right" size={18} style={{ color: "var(--text-muted)" }} />
                               </div>
                             </div>
-
-                            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                              <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "0.3rem" }}>
-                                <SvgIcon name="file-text" size={14} /> {lesson.material_count || 0} Resources
-                              </span>
-                              <SvgIcon name="chevron-right" size={18} style={{ color: "var(--text-muted)" }} />
-                            </div>
-                          </div>
-                        </Link>
-                      ))
+                          </Link>
+                        );
+                      })
                     )}
                   </div>
                 )}
@@ -260,14 +293,29 @@ export default function StudentCourseDetailPage({ params }: { params: Promise<{ 
                 General Course Lessons
               </h4>
               <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                {standaloneLessons.map((lesson) => (
-                  <Link key={lesson.id} href={`/dashboard/student/courses/${courseId}/lessons/${lesson.id}`} style={{ textDecoration: "none" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.75rem 1rem", background: "var(--bg-secondary)", borderRadius: "var(--radius)" }}>
-                      <div style={{ fontWeight: 600, fontSize: "0.9rem", color: "var(--text-primary)" }}>{lesson.title}</div>
-                      <SvgIcon name="chevron-right" size={18} style={{ color: "var(--text-muted)" }} />
-                    </div>
-                  </Link>
-                ))}
+                {standaloneLessons.map((lesson) => {
+                  const lProg = perf?.lesson_progress?.find(p => p.lesson_id === lesson.id);
+                  const status = lProg?.status || "not_reviewed";
+                  return (
+                    <Link key={lesson.id} href={`/dashboard/student/courses/${courseId}/lessons/${lesson.id}`} style={{ textDecoration: "none" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.75rem 1rem", background: "var(--bg-secondary)", borderRadius: "var(--radius)" }}>
+                        <div style={{ fontWeight: 600, fontSize: "0.9rem", color: "var(--text-primary)" }}>{lesson.title}</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                          {status === "reviewed" && (
+                            <span className="badge badge-success" style={{ fontSize: "0.72rem", fontWeight: 700 }}>Reviewed</span>
+                          )}
+                          {status === "engaging" && (
+                            <span className="badge badge-info" style={{ fontSize: "0.72rem", fontWeight: 700 }}>Engaging</span>
+                          )}
+                          {status === "not_reviewed" && (
+                            <span className="badge badge-secondary" style={{ fontSize: "0.72rem", fontWeight: 600 }}>Not Reviewed</span>
+                          )}
+                          <SvgIcon name="chevron-right" size={18} style={{ color: "var(--text-muted)" }} />
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
               </div>
             </div>
           )}

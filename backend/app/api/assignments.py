@@ -787,32 +787,19 @@ def generate_coursework_ai(
         raise HTTPException(status_code=400, detail="Prompt is required")
 
     try:
-        from groq import Groq
-        import json as json_lib
-        api_key = os.getenv("GROQ_API_KEY")
-        model = os.getenv("GROQ_CHAT_MODEL", "llama-3.3-70b-versatile")
-        client = Groq(api_key=api_key)
+        from app.services.gemini_service import gemini
 
         system_prompt = """You are an expert academic coursework designer. Generate a complete assignment specification as JSON.
 Return ONLY valid JSON with these fields:
 {"title": "...", "description": "...", "instructions": "...", "learning_outcomes": ["..."], "blooms_level": "apply", "difficulty": "medium", "category": "report", "est_completion_time_minutes": 180, "max_marks": 100, "word_count_limits": {"min": 1000, "max": 2000}, "rubric_criteria": [{"name": "...", "description": "...", "max_score": 25, "weight": 1.0}], "suggested_references": ["..."]}"""
 
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
+        result = gemini.generate_json(
+            prompt=prompt,
+            system_instruction=system_prompt,
+            model_tier="flash_25",
             temperature=0.4,
             max_tokens=2048,
         )
-        raw = response.choices[0].message.content.strip()
-        # Try to extract JSON from the response
-        if "```json" in raw:
-            raw = raw.split("```json")[1].split("```")[0].strip()
-        elif "```" in raw:
-            raw = raw.split("```")[1].split("```")[0].strip()
-        result = json_lib.loads(raw)
         return {"generated": result, "prompt": prompt}
     except Exception as e:
         logger.error(f"AI coursework generation failed: {e}")
@@ -1409,11 +1396,8 @@ def ai_deep_review(
     learning_outcomes = assignment.learning_outcomes if assignment else []
 
     try:
-        from groq import Groq
+        from app.services.gemini_service import gemini
         import json as json_lib
-        api_key = os.getenv("GROQ_API_KEY")
-        model = os.getenv("GROQ_CHAT_MODEL", "llama-3.3-70b-versatile")
-        client = Groq(api_key=api_key)
 
         system_prompt = f"""You are an expert academic reviewer. Analyze the student's submission thoroughly.
 Return ONLY valid JSON with these fields:
@@ -1433,21 +1417,13 @@ Learning outcomes to check: {json_lib.dumps(learning_outcomes)}
 Max marks: {max_marks}"""
 
         truncated = content[:8000]
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Review this submission:\n\n{truncated}"},
-            ],
+        result = gemini.generate_json(
+            prompt=f"Review this submission:\n\n{truncated}",
+            system_instruction=system_prompt,
+            model_tier="flash_25",
             temperature=0.3,
             max_tokens=2048,
         )
-        raw = response.choices[0].message.content.strip()
-        if "```json" in raw:
-            raw = raw.split("```json")[1].split("```")[0].strip()
-        elif "```" in raw:
-            raw = raw.split("```")[1].split("```")[0].strip()
-        result = json_lib.loads(raw)
         return {"review": result, "word_count": len(content.split())}
     except Exception as e:
         logger.error(f"AI deep review failed: {e}")
@@ -1488,11 +1464,7 @@ def ai_comment_from_selection(
         raise HTTPException(status_code=400, detail="No text selected")
 
     try:
-        from groq import Groq
-        import json as json_lib
-        api_key = os.getenv("GROQ_API_KEY")
-        model = os.getenv("GROQ_CHAT_MODEL", "llama-3.3-70b-versatile")
-        client = Groq(api_key=api_key)
+        from app.services.gemini_service import gemini
 
         prompts = {
             "comment": f"Generate a concise academic review comment for this passage. Return JSON: {{\"comment\": \"...\"}}.\n\nPassage: \"{selected_text}\"",
@@ -1500,21 +1472,13 @@ def ai_comment_from_selection(
             "explanation": f"Explain the academic concepts in this passage to help a student understand. Return JSON: {{\"explanation\": \"...\"}}.\n\nPassage: \"{selected_text}\"",
         }
 
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": "You are an expert academic reviewer. Return ONLY valid JSON."},
-                {"role": "user", "content": prompts.get(action_type, prompts["comment"])},
-            ],
+        result = gemini.generate_json(
+            prompt=prompts.get(action_type, prompts["comment"]),
+            system_instruction="You are an expert academic reviewer. Return ONLY valid JSON.",
+            model_tier="flash",
             temperature=0.4,
             max_tokens=512,
         )
-        raw = response.choices[0].message.content.strip()
-        if "```json" in raw:
-            raw = raw.split("```json")[1].split("```")[0].strip()
-        elif "```" in raw:
-            raw = raw.split("```")[1].split("```")[0].strip()
-        result = json_lib.loads(raw)
         return {"action_type": action_type, "result": result}
     except Exception as e:
         logger.error(f"AI comment generation failed: {e}")
