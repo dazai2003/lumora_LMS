@@ -6,6 +6,7 @@ import Link from "next/link";
 import api, { ALExam, ALStudentSubmission } from "@/lib/api";
 import { SvgIcon, IconName } from "@/components/SvgIcon";
 import { useToast } from "@/components/ui/Toast";
+import Modal from "@/components/Modal";
 
 function StudentExamStudioContent() {
   const searchParams = useSearchParams();
@@ -18,6 +19,7 @@ function StudentExamStudioContent() {
   const [exams, setExams] = useState<ALExam[]>([]);
   const [submissions, setSubmissions] = useState<ALStudentSubmission[]>([]);
   const [loading, setLoading] = useState(true);
+  const [historyModalExam, setHistoryModalExam] = useState<ALExam | null>(null);
   const { addToast } = useToast();
 
   useEffect(() => {
@@ -42,12 +44,24 @@ function StudentExamStudioContent() {
 
   // Map of exam_id to student's latest submission
   const submissionsByExamId: Record<number, ALStudentSubmission> = {};
+  // Map of exam_id to list of all submissions (sorted newest first)
+  const allSubmissionsByExamId: Record<number, ALStudentSubmission[]> = {};
+
   submissions.forEach((s) => {
     const sDate = s.started_at ? new Date(s.started_at).getTime() : 0;
     const prevDate = submissionsByExamId[s.exam_id]?.started_at ? new Date(submissionsByExamId[s.exam_id].started_at!).getTime() : 0;
     if (!submissionsByExamId[s.exam_id] || sDate > prevDate) {
       submissionsByExamId[s.exam_id] = s;
     }
+
+    if (!allSubmissionsByExamId[s.exam_id]) {
+      allSubmissionsByExamId[s.exam_id] = [];
+    }
+    allSubmissionsByExamId[s.exam_id].push(s);
+  });
+
+  Object.values(allSubmissionsByExamId).forEach((list) => {
+    list.sort((a, b) => new Date(b.started_at || 0).getTime() - new Date(a.started_at || 0).getTime());
   });
 
   // Filter exams by Paper Type
@@ -111,6 +125,15 @@ function StudentExamStudioContent() {
     if (g === "C") return "var(--warning)";
     if (g === "S") return "#F59E0B";
     return "var(--error)";
+  };
+
+  const getSubmissionGrade = (sub: ALStudentSubmission) => {
+    const pct = sub.percentage ?? (sub.max_score ? Math.round(((sub.scaled_score || 0) / sub.max_score) * 100) : 0);
+    if (pct >= 75) return { grade: "Grade A", badgeClass: "badge-success", color: "#10B981", percentage: pct };
+    if (pct >= 65) return { grade: "Grade B", badgeClass: "badge-info", color: "#3B82F6", percentage: pct };
+    if (pct >= 55) return { grade: "Grade C", badgeClass: "badge-purple", color: "#8B5CF6", percentage: pct };
+    if (pct >= 35) return { grade: "Grade S", badgeClass: "badge-warning", color: "#F59E0B", percentage: pct };
+    return { grade: "Grade F", badgeClass: "badge-error", color: "#EF4444", percentage: pct };
   };
 
   return (
@@ -279,7 +302,13 @@ function StudentExamStudioContent() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: "1.5rem" }}>
             {filteredExams.map((exam) => {
               const badge = getTabBadge(exam.exam_type);
-              const prevSub = submissionsByExamId[exam.id];
+              const examSubs = allSubmissionsByExamId[exam.id] || [];
+              const inProgressSub = examSubs.find((s) => s.status === "in_progress");
+              const completedSubs = examSubs.filter((s) => s.status !== "in_progress");
+              const latestCompletedSub = completedSubs[0] || null;
+              const maxAttempts = exam.max_attempts || 0;
+              const totalAttemptsUsed = examSubs.length;
+              const canRetake = maxAttempts === 0 || totalAttemptsUsed < maxAttempts;
 
               return (
                 <div
@@ -320,80 +349,124 @@ function StudentExamStudioContent() {
                   </div>
 
                   <div>
-                    {/* Previous Attempt Summary if Available */}
-                    {prevSub && (
+                    {/* Active In-Progress Session Indicator */}
+                    {inProgressSub ? (
                       <div style={{
                         padding: "0.6rem 0.8rem",
-                        background: prevSub.status === "in_progress" ? "rgba(245, 158, 11, 0.08)" : "var(--bg-secondary)",
+                        background: "rgba(245, 158, 11, 0.08)",
                         borderRadius: "var(--radius-sm)",
-                        border: prevSub.status === "in_progress" ? "1px solid rgba(245, 158, 11, 0.3)" : "1px solid var(--border)",
+                        border: "1px solid rgba(245, 158, 11, 0.3)",
                         marginBottom: "1rem",
                         display: "flex",
                         justifyContent: "space-between",
                         alignItems: "center"
                       }}>
-                        <span style={{ fontSize: "0.75rem", color: prevSub.status === "in_progress" ? "#F59E0B" : "var(--text-muted)", fontWeight: prevSub.status === "in_progress" ? 700 : 500 }}>
-                          {prevSub.status === "in_progress" ? "Active Session:" : "Last Attempt:"}
+                        <span style={{ fontSize: "0.75rem", color: "#F59E0B", fontWeight: 700, display: "flex", alignItems: "center", gap: "4px" }}>
+                          <SvgIcon name="clock" size={12} /> Active In-Progress Session
+                        </span>
+                        <span className="badge badge-warning" style={{ fontSize: "0.7rem", fontWeight: 700 }}>
+                          Unsubmitted Draft
+                        </span>
+                      </div>
+                    ) : latestCompletedSub ? (
+                      /* Previous Attempt Summary */
+                      <div style={{
+                        padding: "0.6rem 0.8rem",
+                        background: "var(--bg-secondary)",
+                        borderRadius: "var(--radius-sm)",
+                        border: "1px solid var(--border)",
+                        marginBottom: "1rem",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center"
+                      }}>
+                        <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 500 }}>
+                          Last Attempt:
                         </span>
                         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                          {prevSub.status === "in_progress" ? (
-                            <span className="badge badge-warning" style={{ fontSize: "0.7rem", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "3px" }}>
-                              <SvgIcon name="clock" size={11} /> In Progress
+                          <span style={{ fontSize: "0.8rem", fontWeight: 700, color: getGradeColor(latestCompletedSub.grade) }}>
+                            {latestCompletedSub.percentage !== undefined && latestCompletedSub.percentage !== null
+                              ? `${latestCompletedSub.percentage.toFixed(1)}%`
+                              : latestCompletedSub.status === "teacher_verified"
+                              ? "Verified"
+                              : "Submitted"}
+                          </span>
+                          {latestCompletedSub.grade && (
+                            <span className="badge badge-purple" style={{ fontSize: "0.68rem", fontWeight: 800 }}>
+                              Grade: {latestCompletedSub.grade}
                             </span>
-                          ) : (
-                            <>
-                              <span style={{ fontSize: "0.8rem", fontWeight: 700, color: getGradeColor(prevSub.grade) }}>
-                                {prevSub.percentage ? `${prevSub.percentage.toFixed(1)}%` : "Submitted"}
-                              </span>
-                              {prevSub.grade && (
-                                <span className="badge badge-purple" style={{ fontSize: "0.68rem", fontWeight: 800 }}>
-                                  Grade: {prevSub.grade}
-                                </span>
-                              )}
-                            </>
                           )}
                         </div>
                       </div>
-                    )}
+                    ) : null}
 
                     <div style={{ paddingTop: "1rem", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
-                      <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontWeight: 500 }}>
-                        {exam.total_questions || 0} Questions
+                      <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                        <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontWeight: 500 }}>
+                          {exam.total_questions || 0} Questions
+                        </div>
+                        {maxAttempts > 0 && (
+                          <div style={{ fontSize: "0.72rem", color: totalAttemptsUsed >= maxAttempts ? "var(--warning)" : "var(--text-muted)", fontWeight: 600 }}>
+                            Attempts: {totalAttemptsUsed}/{maxAttempts}
+                          </div>
+                        )}
                       </div>
 
-                      <div style={{ display: "flex", gap: "0.45rem", alignItems: "center" }}>
-                        {prevSub?.status === "in_progress" ? (
-                          <Link
-                            href={`/dashboard/student/al-exams/${exam.id}`}
-                            className="btn btn-primary"
-                            style={{ fontSize: "0.85rem", padding: "0.45rem 1.15rem", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem", background: "linear-gradient(135deg, #F59E0B, #D97706)", borderColor: "#D97706", color: "#FFFFFF" }}
-                          >
-                            <SvgIcon name="edit" size={14} />
-                            <span>Continue Paper</span>
-                          </Link>
-                        ) : prevSub ? (
+                      <div style={{ display: "flex", gap: "0.45rem", alignItems: "center", flexWrap: "wrap" }}>
+                        {/* CASE 1: ACTIVE IN-PROGRESS ATTEMPT */}
+                        {inProgressSub ? (
                           <>
+                            {completedSubs.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setHistoryModalExam(exam)}
+                                className="btn btn-secondary btn-sm"
+                                style={{ fontSize: "0.78rem", padding: "0.35rem 0.75rem", display: "inline-flex", alignItems: "center", gap: "0.3rem" }}
+                                title="View previous completed attempts"
+                              >
+                                <SvgIcon name="file-text" size={12} />
+                                <span>Past ({completedSubs.length})</span>
+                              </button>
+                            )}
                             <Link
                               href={`/dashboard/student/al-exams/${exam.id}`}
+                              className="btn btn-primary"
+                              style={{ fontSize: "0.85rem", padding: "0.45rem 1.15rem", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem", background: "linear-gradient(135deg, #F59E0B, #D97706)", borderColor: "#D97706", color: "#FFFFFF" }}
+                            >
+                              <SvgIcon name="edit" size={14} />
+                              <span>Continue Paper</span>
+                            </Link>
+                          </>
+                        ) : completedSubs.length > 0 ? (
+                          /* CASE 2: COMPLETED ATTEMPTS EXIST */
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => setHistoryModalExam(exam)}
                               className="btn btn-secondary btn-sm"
                               style={{ fontSize: "0.8rem", padding: "0.4rem 0.85rem", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
                             >
                               <SvgIcon name="file-text" size={13} />
-                              <span>Results</span>
-                            </Link>
+                              <span>View Past Attempts</span>
+                            </button>
 
-                            {(!exam.max_attempts || exam.max_attempts === 0 || exam.max_attempts > 1) && (
+                            {canRetake ? (
                               <Link
-                                href={`/dashboard/student/al-exams/${exam.id}`}
+                                href={`/dashboard/student/al-exams/${exam.id}?retake=true`}
                                 className="btn btn-primary btn-sm"
-                                style={{ fontSize: "0.8rem", padding: "0.4rem 0.85rem", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
+                                style={{ fontSize: "0.8rem", padding: "0.4rem 0.95rem", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.35rem", fontWeight: 700 }}
                               >
                                 <SvgIcon name="refresh" size={13} />
-                                <span>Retake</span>
+                                <span>Retake Exam</span>
                               </Link>
+                            ) : (
+                              <span className="badge badge-secondary" style={{ fontSize: "0.72rem", padding: "4px 8px" }}>
+                                Max Attempts Reached
+                              </span>
                             )}
                           </>
                         ) : (
+                          /* CASE 3: NOT YET STARTED */
                           <Link
                             href={`/dashboard/student/al-exams/${exam.id}`}
                             className="btn btn-primary"
@@ -590,7 +663,7 @@ function StudentExamStudioContent() {
                         {/* Action Link */}
                         <td style={{ padding: "1rem 1.25rem", textAlign: "right" }}>
                           <Link
-                            href={`/dashboard/student/al-exams/${sub.exam_id}`}
+                            href={sub.status === "in_progress" ? `/dashboard/student/al-exams/${sub.exam_id}` : `/dashboard/student/al-exams/${sub.exam_id}?submissionId=${sub.id}`}
                             className="btn btn-secondary"
                             style={{
                               fontSize: "0.78rem",
@@ -614,6 +687,106 @@ function StudentExamStudioContent() {
           </div>
         )}
       </div>
+
+      {/* ─── PAST ATTEMPTS HISTORY MODAL ─── */}
+      {historyModalExam && (
+        <Modal
+          onClose={() => setHistoryModalExam(null)}
+          title={`Attempt History — ${historyModalExam.title}`}
+          maxWidth="720px"
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem", padding: "0.5rem 0" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--bg-secondary)", padding: "0.85rem 1.15rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", fontSize: "0.85rem", flexWrap: "wrap", gap: "0.5rem" }}>
+              <span style={{ color: "var(--text-secondary)" }}>
+                Total Recorded Attempts: <strong style={{ color: "var(--text-primary)" }}>{(allSubmissionsByExamId[historyModalExam.id] || []).length}</strong>
+                {historyModalExam.max_attempts > 0 && ` / ${historyModalExam.max_attempts} max allowed`}
+              </span>
+              <span className="badge badge-primary" style={{ textTransform: "uppercase", fontSize: "0.72rem" }}>
+                {historyModalExam.exam_type?.replace(/_/g, " ") || "EXAM"}
+              </span>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", maxHeight: "420px", overflowY: "auto", paddingRight: "0.25rem" }}>
+              {(allSubmissionsByExamId[historyModalExam.id] || []).length === 0 ? (
+                <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)", fontSize: "0.9rem" }}>
+                  No previous attempts recorded for this paper.
+                </div>
+              ) : (
+                (allSubmissionsByExamId[historyModalExam.id] || []).map((sub, idx, arr) => {
+                  const attemptNumber = arr.length - idx;
+                  const statusBadge = getSubmissionStatusBadge(sub.status);
+                  const isCurrentActive = sub.status === "in_progress";
+
+                  return (
+                    <div
+                      key={sub.id}
+                      style={{
+                        background: isCurrentActive ? "rgba(245, 158, 11, 0.05)" : "var(--bg-card)",
+                        border: isCurrentActive ? "1.5px solid rgba(245, 158, 11, 0.4)" : "1px solid var(--border)",
+                        borderRadius: "var(--radius-md)",
+                        padding: "1rem 1.25rem",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        flexWrap: "wrap",
+                        gap: "0.75rem",
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
+                          <span className="badge badge-secondary" style={{ fontWeight: 800 }}>
+                            Attempt #{attemptNumber}
+                          </span>
+                          <span className={`badge ${statusBadge.className}`} style={{ fontSize: "0.7rem", display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                            <SvgIcon name={statusBadge.icon} size={11} /> {statusBadge.label}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                          {sub.submitted_at
+                            ? `Submitted on ${new Date(sub.submitted_at).toLocaleString()}`
+                            : sub.started_at
+                            ? `Started on ${new Date(sub.started_at).toLocaleString()}`
+                            : `Submission #${sub.id}`}
+                        </div>
+                      </div>
+
+                      <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+                        {!isCurrentActive && (
+                          <div style={{ textAlign: "right" }}>
+                            <div style={{ fontSize: "1.1rem", fontWeight: 800, color: getGradeColor(sub.grade) }}>
+                              {sub.scaled_score != null ? sub.scaled_score.toFixed(1) : sub.raw_score != null ? sub.raw_score.toFixed(1) : "--"} pts
+                              {sub.percentage != null && (
+                                <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginLeft: "4px" }}>
+                                  ({sub.percentage.toFixed(1)}%)
+                                </span>
+                              )}
+                            </div>
+                            {sub.grade && (
+                              <div style={{ fontSize: "0.72rem", fontWeight: 700, color: getGradeColor(sub.grade) }}>
+                                Grade: {sub.grade}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        <Link
+                          href={isCurrentActive ? `/dashboard/student/al-exams/${historyModalExam.id}` : `/dashboard/student/al-exams/${historyModalExam.id}?submissionId=${sub.id}`}
+                          className={`btn ${isCurrentActive ? "btn-primary" : "btn-secondary"} btn-sm`}
+                          style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", fontSize: "0.8rem", textDecoration: "none" }}
+                          onClick={() => setHistoryModalExam(null)}
+                        >
+                          <SvgIcon name={isCurrentActive ? "edit" : "file-text"} size={13} />
+                          <span>{isCurrentActive ? "Resume Paper" : "View Results"}</span>
+                        </Link>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

@@ -6,7 +6,7 @@ import Link from "next/link";
 
 interface GuideTopic {
   id: string;
-  category: "getting-started" | "lessons" | "coursework" | "quizzes" | "ai" | "teacher" | "billing";
+  category: "getting-started" | "lessons" | "examinations" | "analytics" | "ai" | "teacher" | "billing";
   title: string;
   badge: string;
   icon: string;
@@ -48,34 +48,34 @@ const GUIDE_TOPICS: GuideTopic[] = [
     actionLink: { href: "/dashboard/student/courses", label: "My Courses" }
   },
   {
-    id: "submitting-coursework",
-    category: "coursework",
-    title: "Coursework & SpeedGrader",
-    badge: "ASSIGNMENTS",
-    icon: "folder",
-    summary: "Submit homework, attach files (PDF, Word, Images), and view teacher feedback & rubrics.",
+    id: "al-examinations",
+    category: "examinations",
+    title: "A/L Examination Studio",
+    badge: "ASSESSMENTS",
+    icon: "award",
+    summary: "Take timed Paper I (MCQ) and Paper II (Structured & Essay) exams adhering to national standards.",
     steps: [
-      "Click 'Coursework' to view pending homework deadlines.",
-      "Type your answer or attach response files (PDF/Images).",
-      "Click 'Submit Assignment' to send to SpeedGrader for teacher review."
+      "Click 'Exam Studio' in the sidebar to view scheduled or active papers.",
+      "Complete Paper I with instant auto-scoring and template analysis.",
+      "Complete Paper II structured and essay parts for AI pre-grading and official teacher review."
     ],
-    tips: ["Draft submissions can be updated anytime before the due date."],
-    actionLink: { href: "/dashboard/student/assignments", label: "Coursework" }
+    tips: ["Exam scores update your unit mastery and cognitive performance profiles."],
+    actionLink: { href: "/dashboard/student/al-exams", label: "Exam Studio" }
   },
   {
-    id: "taking-quizzes",
-    category: "quizzes",
-    title: "Interactive MCQ Quizzes",
-    badge: "ASSESSMENTS",
-    icon: "clipboard",
-    summary: "Take timed Multiple Choice quizzes, view score breakdowns, and review AI explanations.",
+    id: "student-analytics",
+    category: "analytics",
+    title: "Syllabus Mastery & Learning Analytics",
+    badge: "INSIGHTS",
+    icon: "chart",
+    summary: "Track topic mastery, cognitive levels, assessment history, and question discrimination trends.",
     steps: [
-      "Click 'Quizzes' in the sidebar to start active tests.",
-      "Keep an eye on the top timer bar while answering questions.",
-      "Review instant score reports and AI pedagogical explanations for missed questions."
+      "Click 'My Analytics' to view your performance dashboard.",
+      "Inspect topic-by-topic mastery bars and identified weakness areas.",
+      "Review past exam submissions and teacher feedback annotations."
     ],
-    tips: ["Quiz scores contribute 20% to your overall course progress percentage."],
-    actionLink: { href: "/dashboard/student/quizzes", label: "Quizzes" }
+    tips: ["Regular practice on flagged weak topics increases overall grade prediction."],
+    actionLink: { href: "/dashboard/student/analytics", label: "My Analytics" }
   },
   {
     id: "ask-ai-tutor",
@@ -205,8 +205,8 @@ export default function StudentGuidePage() {
           { id: "all", label: "All Topics", icon: "grid" },
           { id: "getting-started", label: "Stream & Onboarding", icon: "graduation" },
           { id: "lessons", label: "Lessons", icon: "book" },
-          { id: "coursework", label: "Coursework", icon: "folder" },
-          { id: "quizzes", label: "Quizzes", icon: "clipboard" },
+          { id: "examinations", label: "A/L Exam Studio", icon: "award" },
+          { id: "analytics", label: "Mastery & Analytics", icon: "chart" },
           { id: "ai", label: "AI Tutor", icon: "sparkle" },
           { id: "teacher", label: "Teacher Q&A", icon: "mail" }
         ].map(cat => {

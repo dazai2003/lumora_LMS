@@ -6,7 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/components/ui/Toast";
 import { SvgIcon } from "@/components/SvgIcon";
 import Modal from "@/components/Modal";
-import StudentOnboardingModal from "@/components/StudentOnboardingModal";
+import StudentOnboardingModal from "@/components/auth/StudentOnboardingModal";
 import Link from "next/link";
 import { DashboardSkeleton } from "@/components/Skeleton";
 
@@ -18,7 +18,6 @@ export default function StudentDashboard() {
   const [quizHistory, setQuizHistory] = useState<StudentQuizHistory | null>(null);
   const [coursePerf, setCoursePerf] = useState<Record<number, StudentCoursePerformance>>({});
   const [notifications, setNotifications] = useState<any[]>([]);
-  const [pendingAssignments, setPendingAssignments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Daily Briefing & Onboarding Modal State
@@ -41,9 +40,8 @@ export default function StudentDashboard() {
       api.getMyEnrolledCourses(),
       api.getStudentQuizHistory(),
       api.getNotifications().catch(() => []),
-      api.listAssignments().catch(() => []),
     ])
-      .then(([progressData, coursesData, historyData, notifData, assignData]) => {
+      .then(([progressData, coursesData, historyData, notifData]) => {
         const regularCourses = (coursesData || []).filter((c: Course) => {
           const title = (c.title || "").toLowerCase();
           const subject = (c.subject || "").toLowerCase();
@@ -54,7 +52,6 @@ export default function StudentDashboard() {
         setCourses(regularCourses);
         setQuizHistory(historyData);
         setNotifications(notifData || []);
-        setPendingAssignments((assignData || []).filter((a: any) => !a.my_submission || a.my_submission.status === "draft"));
 
         // Fetch performance for each enrolled course
         Promise.all(
@@ -74,7 +71,7 @@ export default function StudentDashboard() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const [briefingTab, setBriefingTab] = useState<"priority" | "assignments" | "notifications">("priority");
+  const [briefingTab, setBriefingTab] = useState<"priority" | "notifications">("priority");
   const [activeCourseIndex, setActiveCourseIndex] = useState(0);
   const [slideDirection, setSlideDirection] = useState<"right" | "left" | "">("");
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
@@ -112,13 +109,13 @@ export default function StudentDashboard() {
 
   // Auto-open Daily Briefing Modal ONCE per day on first login
   useEffect(() => {
-    if (!loading && briefingKey && (unreadNotifs.length > 0 || pendingAssignments.length > 0)) {
+    if (!loading && briefingKey && unreadNotifs.length > 0) {
       const seenToday = localStorage.getItem(briefingKey);
       if (!seenToday) {
         setShowBriefingModal(true);
       }
     }
-  }, [loading, briefingKey, unreadNotifs.length, pendingAssignments.length]);
+  }, [loading, briefingKey, unreadNotifs.length]);
 
   const handleDismissBriefing = () => {
     if (briefingKey) {
@@ -164,14 +161,12 @@ export default function StudentDashboard() {
   // Build 360° course snapshots for Active Learning Hub
   const courseSnapshots = courses.map(c => {
     const perf = coursePerf[c.id];
-    const cAssignments = pendingAssignments.filter((a: any) => a.course_id === c.id || a.course_title === c.title);
     const cQuizzes = unattemptedQuizzes.filter((q: any) => q.course_id === c.id || q.course_title === c.title);
     const cLowQuizzes = (quizHistory?.attempts || []).filter((a: any) => a.percentage < 60 && (a.course_id === c.id || a.course_title === c.title));
 
     return {
       course: c,
       perf: perf || null,
-      assignments: cAssignments,
       quizzes: cQuizzes,
       lowQuizzes: cLowQuizzes,
       isLowProgress: (perf?.completion_percentage ?? 0) < 50 && (perf?.completion_percentage ?? 0) > 0,
@@ -196,12 +191,12 @@ export default function StudentDashboard() {
           >
             <SvgIcon name="bell" size={15} style={{ color: unreadNotifs.length > 0 ? "var(--accent-primary)" : "var(--text-muted)" }} />
             <span>Daily Briefing</span>
-            {(unreadNotifs.length > 0 || pendingAssignments.length > 0) && (
+            {unreadNotifs.length > 0 && (
               <span style={{
                 background: "var(--accent-primary)", color: "#fff", borderRadius: "10px", padding: "1px 7px",
                 fontSize: "0.7rem", fontWeight: 700, marginLeft: "2px"
               }}>
-                {unreadNotifs.length + pendingAssignments.length}
+                {unreadNotifs.length}
               </span>
             )}
           </button>
@@ -485,32 +480,22 @@ export default function StudentDashboard() {
                 </div>
               </div>
 
-              {/* Module 2: Pending Deliverables (Papers, Quizzes, Coursework) */}
+              {/* Module 2: A/L Examination Practice */}
               <div style={{ padding: "0.75rem 0.9rem", borderRadius: "var(--radius-md)", background: "var(--bg-card)", border: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
                 <div style={{ fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "0.35rem" }}>
-                  <SvgIcon name="file-text" size={13} style={{ color: "#D97706" }} />
-                  <span>Pending Deliverables</span>
+                  <SvgIcon name="award" size={13} style={{ color: "#6366F1" }} />
+                  <span>A/L Assessment Practice</span>
                 </div>
 
                 {activeSnapshot.perf?.pending_papers && activeSnapshot.perf.pending_papers.length > 0 ? (
                   <div style={{ fontSize: "0.78rem", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "0.35rem" }}>
                     <SvgIcon name="clipboard" size={13} style={{ color: "#D97706" }} />
-                    <span>Due: <strong style={{ color: "#D97706" }}>{activeSnapshot.perf.pending_papers[0].title}</strong></span>
-                  </div>
-                ) : activeSnapshot.assignments.length > 0 ? (
-                  <div style={{ fontSize: "0.78rem", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "0.35rem" }}>
-                    <SvgIcon name="file-text" size={13} style={{ color: "#D97706" }} />
-                    <span>Due: <strong style={{ color: "#D97706" }}>{activeSnapshot.assignments[0].title}</strong></span>
-                  </div>
-                ) : activeSnapshot.quizzes.length > 0 ? (
-                  <div style={{ fontSize: "0.78rem", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "0.35rem" }}>
-                    <SvgIcon name="check-circle" size={13} style={{ color: "#6366F1" }} />
-                    <span>Pending: <strong style={{ color: "#6366F1" }}>{activeSnapshot.quizzes[0].quiz_title}</strong></span>
+                    <span>Pending: <strong style={{ color: "#D97706" }}>{activeSnapshot.perf.pending_papers[0].title}</strong></span>
                   </div>
                 ) : (
                   <div style={{ fontSize: "0.78rem", color: "#10B981", fontWeight: 600, display: "flex", alignItems: "center", gap: "0.3rem" }}>
                     <SvgIcon name="check-circle" size={13} />
-                    <span>All papers &amp; coursework submitted!</span>
+                    <span>Exam Studio ready for practice!</span>
                   </div>
                 )}
               </div>
@@ -555,24 +540,6 @@ export default function StudentDashboard() {
               >
                 Exam Studio
               </Link>
-              {activeSnapshot.assignments.length > 0 && (
-                <Link
-                  href="/dashboard/student/assignments"
-                  className="btn-secondary btn-sm"
-                  style={{ textDecoration: "none", fontWeight: 600, padding: "0.35rem 0.75rem", fontSize: "0.78rem" }}
-                >
-                  Submit Assignment
-                </Link>
-              )}
-              {activeSnapshot.quizzes.length > 0 && (
-                <Link
-                  href={`/dashboard/student/quizzes/${activeSnapshot.quizzes[0].quiz_id}`}
-                  className="btn-secondary btn-sm"
-                  style={{ textDecoration: "none", fontWeight: 600, padding: "0.35rem 0.75rem", fontSize: "0.78rem" }}
-                >
-                  Take Quiz
-                </Link>
-              )}
               <Link
                 href={`/dashboard/student/courses/${activeSnapshot.course.id}`}
                 className="btn-primary btn-sm"
@@ -619,11 +586,6 @@ export default function StudentDashboard() {
               </div>
               
               <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
-                {pendingAssignments.length > 0 && (
-                  <span className="badge" style={{ background: "rgba(245,158,11,0.12)", color: "#D97706", border: "1px solid rgba(245,158,11,0.3)", fontSize: "0.725rem", fontWeight: 700 }}>
-                    {pendingAssignments.length} Assignment{pendingAssignments.length > 1 ? "s" : ""} Due
-                  </span>
-                )}
                 {unreadNotifs.length > 0 && (
                   <span className="badge" style={{ background: "rgba(37,99,235,0.12)", color: "#2563EB", border: "1px solid rgba(37,99,235,0.3)", fontSize: "0.725rem", fontWeight: 700 }}>
                     {unreadNotifs.length} Alert{unreadNotifs.length > 1 ? "s" : ""}
@@ -636,7 +598,6 @@ export default function StudentDashboard() {
             <div style={{ display: "flex", borderBottom: "1px solid var(--border-subtle)", gap: "0.5rem" }}>
               {[
                 { key: "priority" as const, label: "Top Priority Focus", icon: "sparkle" as const },
-                { key: "assignments" as const, label: `Pending Coursework (${pendingAssignments.length})`, icon: "file-text" as const },
                 { key: "notifications" as const, label: `Unread Updates (${unreadNotifs.length})`, icon: "bell" as const },
               ].map((tab) => (
                 <button
@@ -662,41 +623,7 @@ export default function StudentDashboard() {
             {/* TAB 1: TOP PRIORITY FOCUS */}
             {briefingTab === "priority" && (
               <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-                {pendingAssignments.length > 0 ? (
-                  <div className="card shadow-sm" style={{
-                    padding: "1.5rem", borderRadius: "var(--radius-md)",
-                    background: "rgba(245,158,11,0.03)", border: "1px solid rgba(245,158,11,0.25)"
-                  }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
-                      <span style={{ fontSize: "0.7rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em", color: "#D97706", background: "rgba(245,158,11,0.15)", padding: "2px 8px", borderRadius: "6px", display: "inline-flex", alignItems: "center", gap: "0.3rem" }}>
-                        <SvgIcon name="target" size={13} style={{ color: "#D97706" }} />
-                        <span>#1 Priority Focus Today</span>
-                      </span>
-                    </div>
-                    
-                    <h4 style={{ margin: "0 0 0.4rem 0", fontSize: "1.1rem", fontWeight: 800, color: "var(--text-primary)" }}>
-                      {pendingAssignments[0].title}
-                    </h4>
-                    
-                    <p style={{ margin: "0 0 1.25rem 0", fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
-                      Due Date: <strong style={{ color: "var(--text-primary)" }}>
-                        {pendingAssignments[0].due_date ? new Date(pendingAssignments[0].due_date).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "No deadline"}
-                      </strong> ({pendingAssignments[0].max_marks} Total Points)
-                    </p>
-
-                    <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                      <Link
-                        href="/dashboard/student/assignments"
-                        onClick={handleDismissBriefing}
-                        className="btn-primary btn-sm"
-                        style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem", fontWeight: 700 }}
-                      >
-                        <span>Start Assignment Now</span>
-                        <SvgIcon name="arrow-right" size={14} />
-                      </Link>
-                    </div>
-                  </div>
-                ) : unreadNotifs.length > 0 ? (
+                {unreadNotifs.length > 0 ? (
                   <div className="card shadow-sm" style={{
                     padding: "1.5rem", borderRadius: "var(--radius-md)",
                     background: "rgba(37,99,235,0.03)", border: "1px solid rgba(37,99,235,0.2)"
@@ -724,7 +651,7 @@ export default function StudentDashboard() {
                     <SvgIcon name="check-circle" size={36} style={{ color: "#10B981", marginBottom: "0.5rem" }} />
                     <h4 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 800, color: "var(--text-primary)" }}>You are completely caught up!</h4>
                     <p style={{ margin: "4px 0 0 0", fontSize: "0.825rem", color: "var(--text-secondary)" }}>
-                      Zero pending assignments and zero unread notifications. Keep up the great momentum!
+                      Zero unread notifications. Head over to Exam Studio to practice A/L past questions!
                     </p>
                   </div>
                 )}
@@ -738,46 +665,13 @@ export default function StudentDashboard() {
                   <SvgIcon name="sparkle" size={18} style={{ color: "#7C3AED", flexShrink: 0 }} />
                   <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", lineHeight: 1.4 }}>
                     <strong style={{ color: "#7C3AED" }}>AI Study Tip: </strong>
-                    Completing coursework at least 24 hours before the deadline increases score accuracy by 18%.
+                    Consistent daily practice of 10-15 MCQ questions yields superior memory retention for Sri Lankan A/L examinations.
                   </div>
                 </div>
               </div>
             )}
 
-            {/* TAB 2: PENDING COURSEWORK */}
-            {briefingTab === "assignments" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem", maxHeight: "280px", overflowY: "auto", paddingRight: "4px" }}>
-                {pendingAssignments.length === 0 ? (
-                  <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)", fontSize: "0.85rem" }}>
-                    No pending coursework submissions. Great job!
-                  </div>
-                ) : (
-                  pendingAssignments.map((assign: any) => (
-                    <div key={assign.id} className="card shadow-sm" style={{
-                      padding: "0.85rem 1.1rem", borderRadius: "var(--radius-sm)",
-                      display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem"
-                    }}>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: "0.875rem", color: "var(--text-primary)" }}>{assign.title}</div>
-                        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "2px" }}>
-                          Due: {assign.due_date ? new Date(assign.due_date).toLocaleDateString() : "No deadline"} • {assign.max_marks} pts
-                        </div>
-                      </div>
-                      <Link
-                        href="/dashboard/student/assignments"
-                        onClick={handleDismissBriefing}
-                        className="btn-secondary btn-sm"
-                        style={{ textDecoration: "none", fontSize: "0.75rem", flexShrink: 0 }}
-                      >
-                        Submit &rarr;
-                      </Link>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-
-            {/* TAB 3: UNREAD NOTIFICATIONS */}
+            {/* TAB 2: UNREAD NOTIFICATIONS */}
             {briefingTab === "notifications" && (
               <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem", maxHeight: "280px", overflowY: "auto", paddingRight: "4px" }}>
                 {unreadNotifs.length === 0 ? (
@@ -812,8 +706,8 @@ export default function StudentDashboard() {
               ) : <div />}
 
               <div style={{ display: "flex", gap: "0.65rem" }}>
-                <Link href="/dashboard/student/assignments" onClick={handleDismissBriefing} className="btn-secondary btn-sm" style={{ textDecoration: "none" }}>
-                  View Coursework
+                <Link href="/dashboard/student/al-exams" onClick={handleDismissBriefing} className="btn-secondary btn-sm" style={{ textDecoration: "none" }}>
+                  Exam Studio
                 </Link>
                 <button type="button" className="btn-primary btn-sm" onClick={handleDismissBriefing}>
                   Got It

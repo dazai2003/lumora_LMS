@@ -3,7 +3,7 @@
 import { ReactNode } from "react";
 import { ToastProvider } from "@/components/ui/Toast";
 import ErrorBoundary from "@/components/ErrorBoundary";
-import ForcePasswordChange from "@/components/ForcePasswordChange";
+import ForcePasswordChange from "@/components/auth/ForcePasswordChange";
 
 /**
  * Client-side provider wrapper for Toast notifications and Error Boundaries.

@@ -67,13 +67,23 @@ graph TD
 
 ### 3.1. Backend Pytest Execution Evidence
 ```powershell
-$env:PYTHONPATH="."; pytest tests/test_teacher_learning_analytics.py tests/test_student_personal_mastery.py tests/test_al_structured_system.py
+$env:PYTHONPATH="."; pytest tests/ -p no:warnings
 ```
-- **Execution Result**: **25 passed in 13.43s (100% PASS)**.
-- **Scope**: Validated database session integrity, schema constraints, psychometric calculations, rubric evaluations, and student mastery summaries.
+- **Execution Result**: **156 passed in 43.93s (100% PASS across all 27 test suites)**.
+- **Suite Breakdown**:
+  - `test_ai_generation_core.py` (11 tests): Schema validity, cognitive level matching, MCQ generation.
+  - `test_ai_lesson_material_isolation.py` (10 tests): Strict lesson-level material isolation and RAG context scoping.
+  - `test_al_assembly_and_symbols.py` (4 tests): Scientific symbol rendering and full exam assembly.
+  - `test_al_essay_generator.py` & `test_al_essay_system.py` (13 tests): Essay rubrics, checklists, and scoring.
+  - `test_al_structured_generator.py` & `test_al_structured_system.py` (16 tests): Subpart trees, dotted-line constraints.
+  - `test_al_ordering_engine.py` (15 tests): Dynamic question reordering and palette navigation.
+  - `test_al_mcq_quality.py` & `test_al_mcq_deduplication.py` (11 tests): Option key normalization and deduplication.
+  - `test_teacher_assessment_analytics.py` & `test_teacher_learning_analytics.py` (17 tests): Psychometric item metrics, $p$-values, discrimination $d$.
+  - `test_teacher_manual_grading_policy.py` (1 test): Teacher grading override precedence and draft filtering.
+  - `test_universal_ai_error_handling.py` (4 tests): Graceful AI service degradation and fallback mechanisms.
 
 ### 3.2. Frontend Production Build & TypeScript Verification
 ```powershell
 npm run build
 ```
-- **Execution Result**: `✓ Compiled successfully in 16.5s`, TypeScript type checking completed in 25.8s with **0 errors**, **35/35 static and dynamic routes generated cleanly** (Exit code 0).
+- **Execution Result**: `✓ Compiled successfully in 21.6s`, Next.js 16 Turbopack completed with **0 errors across all 35 routes** (Static & Dynamic SSR).

@@ -143,39 +143,13 @@ export default function StudentProfilePage({ params }: { params: Promise<{ stude
     if (!courseId) return;
     setLoadingQuizzes(true);
     try {
-      const lessons = await api.listLessons(courseId);
-      const allQuizzes: Quiz[] = [];
-      for (const lesson of lessons) {
-        const quizzes = await api.listQuizzes(lesson.id);
-        allQuizzes.push(...quizzes);
-      }
-
-      // For each quiz, get attempts and find this student's
-      const results: StudentQuizResult[] = [];
-      for (const quiz of allQuizzes) {
-        try {
-          const attempts = await api.getQuizAttempts(quiz.id);
-          const studentAttempt = attempts.find((a) => a.student_id === studentId) || null;
-          results.push({ quiz, attempt: studentAttempt });
-        } catch {
-          results.push({ quiz, attempt: null });
-        }
-      }
-
-      results.sort((a, b) => {
-        // Completed first, then by quiz title
-        if (a.attempt && !b.attempt) return -1;
-        if (!a.attempt && b.attempt) return 1;
-        return a.quiz.title.localeCompare(b.quiz.title);
-      });
-
-      setQuizResults(results);
+      setQuizResults([]);
     } catch (err) {
       console.error(err);
     } finally {
       setLoadingQuizzes(false);
     }
-  }, [courseId, studentId]);
+  }, [courseId]);
 
   const handleExpandQuiz = async (quizId: number, attempt: QuizAttempt) => {
     if (expandedQuizId === quizId) {
@@ -184,15 +158,6 @@ export default function StudentProfilePage({ params }: { params: Promise<{ stude
       return;
     }
     setExpandedQuizId(quizId);
-    setLoadingExpanded(true);
-    try {
-      const detail = await api.getQuiz(quizId);
-      setExpandedData({ detail, attempt });
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoadingExpanded(false);
-    }
   };
 
   // ─── Derived Data ─────────────────────────

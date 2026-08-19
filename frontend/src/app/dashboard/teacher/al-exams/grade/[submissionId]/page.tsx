@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use, useMemo } from "react";
+import { useEffect, useState, use, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import api, { ALExam, ALQuestion, ALStudentSubmission, ALStudentAnswer } from "@/lib/api";
@@ -389,6 +389,7 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
 
   // Focus layout & reading space states
   const [readingLayout, setReadingLayout] = useState<"standard" | "wide_focus">("wide_focus");
+  const [activeSectionTab, setActiveSectionTab] = useState<"all" | "paper1" | "paper2_structured" | "paper2_essay">("all");
   const [zenModalQuestion, setZenModalQuestion] = useState<{ question: any; ans: any; qNum: number; type: "structured" | "essay" } | null>(null);
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   const [essayFontSize, setEssayFontSize] = useState<"normal" | "large">("normal");
@@ -467,6 +468,42 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
       })
       .finally(() => setLoading(false));
   }, [submissionId, addToast]);
+
+  const isQuestionStructured = useCallback((q: any) =>
+    q.template_type === "structured_subparts" ||
+    (Array.isArray(q.structured_subparts_json) && q.structured_subparts_json.length > 0), []);
+
+  const isQuestionEssay = useCallback((q: any) =>
+    (q.template_type as string) === "essay_rubric" ||
+    (q.template_type as string) === "essay_checklist" ||
+    (q.template_type as string) === "essay" ||
+    Boolean(q.essay_checklist_json), []);
+
+  const isQuestionMCQ = useCallback((q: any) => !isQuestionStructured(q) && !isQuestionEssay(q), [isQuestionStructured, isQuestionEssay]);
+
+  const questionList = useMemo(() => exam?.questions && exam.questions.length > 0 ? exam.questions : [], [exam]);
+
+  const mcqQuestions = useMemo(() => {
+    return questionList.filter(isQuestionMCQ);
+  }, [questionList, isQuestionMCQ]);
+
+  const structuredQuestions = useMemo(() => {
+    return questionList.filter(isQuestionStructured);
+  }, [questionList, isQuestionStructured]);
+
+  const essayQuestions = useMemo(() => {
+    return questionList.filter(isQuestionEssay);
+  }, [questionList, isQuestionEssay]);
+
+  const paperType = exam?.exam_type || (submission?.exam_id === 210 ? "paper_1_mcq" : submission?.exam_id === 212 ? "paper_2_structured" : "paper_2_essay");
+  const isMcq = paperType === "paper_1_mcq";
+  const isStructured = paperType === "paper_2_structured";
+  const isEssay = paperType === "paper_2_essay";
+
+  const hasMcq = mcqQuestions.length > 0 || isMcq;
+  const hasStructured = structuredQuestions.length > 0 || isStructured;
+  const hasEssay = essayQuestions.length > 0 || isEssay;
+  const isFullPaper = (paperType as string) === "full_paper" || (paperType as string) === "full_exam" || (hasMcq && (hasStructured || hasEssay));
 
   // Compute live totals
   const liveTotalScore = useMemo(() => {
@@ -763,18 +800,11 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
     );
   }
 
-  const paperType = exam?.exam_type || (submission.exam_id === 210 ? "paper_1_mcq" : submission.exam_id === 212 ? "paper_2_structured" : "paper_2_essay");
-  const isMcq = paperType === "paper_1_mcq";
-  const isStructured = paperType === "paper_2_structured";
-  const isEssay = paperType === "paper_2_essay";
-
   // Map answers by question_id for easy lookup
   const answersByQuestionId: Record<number, ALStudentAnswer> = {};
   (submission.answers || []).forEach((a) => {
     answersByQuestionId[a.question_id] = a;
   });
-
-  const questionList = exam?.questions || [];
 
   return (
     <div style={{ maxWidth: readingLayout === "wide_focus" ? "1560px" : "1280px", width: "98%", margin: "0 auto", padding: "0 1rem 4rem 1rem", boxSizing: "border-box", transition: "max-width 0.25s ease" }}>
@@ -862,20 +892,67 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
         </div>
       </div>
 
+      {/* ──────────────── SECTION NAVIGATION TABS (FOR FULL PAPER / MULTI-SECTION PAPERS) ──────────────── */}
+      {(isFullPaper || (Number(hasMcq) + Number(hasStructured) + Number(hasEssay) > 1)) && (
+        <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1.5rem", flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onClick={() => setActiveSectionTab("all")}
+            className={`btn btn-sm ${activeSectionTab === "all" ? "btn-primary" : "btn-secondary"}`}
+            style={{ fontWeight: 700 }}
+          >
+            All Sections ({questionList.length} Items)
+          </button>
+          {hasMcq && (
+            <button
+              type="button"
+              onClick={() => setActiveSectionTab("paper1")}
+              className={`btn btn-sm ${activeSectionTab === "paper1" ? "btn-primary" : "btn-secondary"}`}
+              style={{ fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
+            >
+              <span>Paper I — MCQ</span>
+              <span className="badge badge-info" style={{ fontSize: "0.68rem", padding: "1px 6px" }}>{mcqQuestions.length || 50}</span>
+            </button>
+          )}
+          {hasStructured && (
+            <button
+              type="button"
+              onClick={() => setActiveSectionTab("paper2_structured")}
+              className={`btn btn-sm ${activeSectionTab === "paper2_structured" ? "btn-primary" : "btn-secondary"}`}
+              style={{ fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
+            >
+              <span>Paper II-A — Structured</span>
+              <span className="badge badge-purple" style={{ fontSize: "0.68rem", padding: "1px 6px" }}>{structuredQuestions.length || 4}</span>
+            </button>
+          )}
+          {hasEssay && (
+            <button
+              type="button"
+              onClick={() => setActiveSectionTab("paper2_essay")}
+              className={`btn btn-sm ${activeSectionTab === "paper2_essay" ? "btn-primary" : "btn-secondary"}`}
+              style={{ fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
+            >
+              <span>Paper II-B — Essay</span>
+              <span className="badge badge-amber" style={{ fontSize: "0.68rem", padding: "1px 6px" }}>{essayQuestions.length || 3}</span>
+            </button>
+          )}
+        </div>
+      )}
+
       {/* ═══════════════════════════════════════════════════════════════
           CASE A: PAPER I (MCQ) SUBMISSION REVIEW (50 QUESTIONS)
          ═══════════════════════════════════════════════════════════════ */}
-      {isMcq && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+      {hasMcq && (activeSectionTab === "all" || activeSectionTab === "paper1") && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem", marginBottom: "2rem" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <h2 style={{ fontSize: "1.15rem", fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
               Paper I — MCQ Submissions &amp; Deterministic Answer Analysis
             </h2>
-            <span className="badge badge-info">{questionList.length || 50} Items • Deterministic Auto-Graded</span>
+            <span className="badge badge-info">{(mcqQuestions.length > 0 ? mcqQuestions.length : 50)} Items • Deterministic Auto-Graded</span>
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            {(questionList.length > 0 ? questionList : submission.answers || []).map((qOrAns: any, qIdx: number) => {
+            {(mcqQuestions.length > 0 ? mcqQuestions : (isMcq ? (questionList.length > 0 ? questionList : submission.answers || []) : [])).map((qOrAns: any, qIdx: number) => {
               const qId = qOrAns.question_id || qOrAns.id;
               const qNum = qOrAns.question_number || qIdx + 1;
               const ans = answersByQuestionId[qId];
@@ -980,17 +1057,17 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
       {/* ═══════════════════════════════════════════════════════════════
           CASE B: PAPER II-A (STRUCTURED) SUBMISSION REVIEW (4 QUESTIONS)
          ═══════════════════════════════════════════════════════════════ */}
-      {isStructured && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+      {hasStructured && (activeSectionTab === "all" || activeSectionTab === "paper2_structured") && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem", marginBottom: "2rem" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <h2 style={{ fontSize: "1.15rem", fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
               Paper II-A — Structured Subpart Submissions &amp; Academic Hierarchy
             </h2>
-            <span className="badge badge-purple">4 Questions • 160 Maximum Marks</span>
+            <span className="badge badge-purple">{(structuredQuestions.length > 0 ? structuredQuestions.length : 4)} Questions • Structured Dotted Lines</span>
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-            {(questionList.length > 0 ? questionList : submission.answers || []).map((qOrAns: any, qIdx: number) => {
+            {(structuredQuestions.length > 0 ? structuredQuestions : (isStructured ? (questionList.length > 0 ? questionList : submission.answers || []) : [])).map((qOrAns: any, qIdx: number) => {
               const qId = qOrAns.question_id || qOrAns.id;
               const qNum = qOrAns.question_number || qIdx + 1;
               const ans = answersByQuestionId[qId];
@@ -1233,17 +1310,17 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
       {/* ═══════════════════════════════════════════════════════════════
           CASE C: PAPER II-B (ESSAY) SUBMISSION REVIEW (3 ESSAYS)
          ═══════════════════════════════════════════════════════════════ */}
-      {isEssay && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+      {hasEssay && (activeSectionTab === "all" || activeSectionTab === "paper2_essay") && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem", marginBottom: "2rem" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <h2 style={{ fontSize: "1.15rem", fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
               Paper II-B — Essay Responses &amp; Flexible Rubric Evaluation
             </h2>
-            <span className="badge badge-amber">3 Essay Questions • 120 Maximum Marks</span>
+            <span className="badge badge-amber">{(essayQuestions.length > 0 ? essayQuestions.length : 3)} Essay Questions • 40-Point Rubric Checklists</span>
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "1.75rem" }}>
-            {(questionList.length > 0 ? questionList : submission.answers || []).map((qOrAns: any, qIdx: number) => {
+            {(essayQuestions.length > 0 ? essayQuestions : (isEssay ? (questionList.length > 0 ? questionList : submission.answers || []) : [])).map((qOrAns: any, qIdx: number) => {
               const qId = qOrAns.question_id || qOrAns.id;
               const qNum = qOrAns.question_number || qIdx + 1;
               const ans = answersByQuestionId[qId];

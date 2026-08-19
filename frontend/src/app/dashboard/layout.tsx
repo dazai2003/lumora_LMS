@@ -9,8 +9,8 @@ import NotificationBell from "@/components/NotificationBell";
 import { SvgIcon } from "@/components/SvgIcon";
 import type { IconName } from "@/components/SvgIcon";
 import lumoraLogo from "@/components/ico/Black_background_Logo.png";
-import StudentAccountModal from "@/components/StudentAccountModal";
-import TeacherAccountModal from "@/components/TeacherAccountModal";
+import StudentAccountModal from "@/components/auth/StudentAccountModal";
+import TeacherAccountModal from "@/components/auth/TeacherAccountModal";
 import api from "@/lib/api";
 
 const navConfig: Record<string, { label: string; items: { href: string; label: string; icon: string }[] }[]> = {

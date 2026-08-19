@@ -2,9 +2,9 @@
 
 import { useState, useEffect, use } from "react";
 import { useSearchParams } from "next/navigation";
-import api, { Lesson, Material, Quiz, ApiError, UnitWithLessons } from "@/lib/api";
+import api, { Lesson, Material, ApiError, UnitWithLessons } from "@/lib/api";
 import Link from "next/link";
-import MaterialViewer from "@/components/MaterialViewer";
+import MaterialViewer from "@/components/materials/MaterialViewer";
 import { SvgIcon, IconName } from "@/components/SvgIcon";
 
 export default function StudentLessonDetailPage({ params }: { params: Promise<{ id: string; lessonId: string }> }) {
@@ -17,7 +17,6 @@ export default function StudentLessonDetailPage({ params }: { params: Promise<{ 
 
   const [lesson, setLesson] = useState<Lesson | null>(null);
   const [materials, setMaterials] = useState<Material[]>([]);
-  const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [units, setUnits] = useState<UnitWithLessons[]>([]);
   const [matProgressMap, setMatProgressMap] = useState<Record<number, { is_completed: boolean; last_position: number }>>({});
   const [loading, setLoading] = useState(true);
@@ -28,15 +27,13 @@ export default function StudentLessonDetailPage({ params }: { params: Promise<{ 
     Promise.all([
       api.getLesson(lId),
       api.listMaterials(lId),
-      api.listQuizzes(lId).catch(() => []),
       api.listUnits(courseId).catch(() => []),
       api.getStudentCoursePerformance(courseId).catch(() => null)
     ])
-      .then(([l, m, q, u, perf]) => { 
+      .then(([l, m, u, perf]) => { 
         setLesson(l); 
         const mats = m || [];
         setMaterials(mats); 
-        setQuizzes((q || []).filter((qz: Quiz) => qz.status === "published")); 
         setUnits(u || []);
 
         const pMap: Record<number, { is_completed: boolean; last_position: number }> = {};
@@ -331,31 +328,19 @@ export default function StudentLessonDetailPage({ params }: { params: Promise<{ 
                 <SvgIcon name="arrow-left" size={16} /> Back to Course Outline
               </Link>
 
-              {quizzes.length > 0 && (
-                <>
-                  <h3 style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.75rem" }}>
-                    Assessments
-                  </h3>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                    {quizzes.map(quiz => (
-                      <Link key={quiz.id} href={`/dashboard/student/quizzes/${quiz.id}`} style={{ textDecoration: "none" }}>
-                        <div style={{ background: "var(--bg-primary)", padding: "1rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column", gap: "0.75rem", transition: "border-color 0.2s" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--text-primary)", fontWeight: 500, fontSize: "0.9rem" }}>
-                            <SvgIcon name={quiz.is_ai_generated ? "sparkle" : "clipboard"} size={16} />
-                            {quiz.title}
-                          </div>
-                          <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                            {quiz.question_count} questions
-                          </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: "0.25rem", color: "var(--accent-primary)", fontSize: "0.8rem", fontWeight: 500 }}>
-                            Assessment for this lesson <SvgIcon name="arrow-right" size={14} />
-                          </div>
-                        </div>
-                      </Link>
-                    ))}
-                  </div>
-                </>
-              )}
+              <div style={{ background: "var(--bg-primary)", padding: "1rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--text-primary)", fontWeight: 600, fontSize: "0.875rem" }}>
+                  <SvgIcon name="award" size={16} style={{ color: "#6366F1" }} />
+                  <span>A/L Exam Studio</span>
+                </div>
+                <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", lineHeight: 1.4 }}>
+                  Test your mastery on Paper I MCQs, Structured, and Essay questions for this syllabus unit.
+                </div>
+                <Link href="/dashboard/student/al-exams" className="btn-primary btn-sm" style={{ textDecoration: "none", justifyContent: "center" }}>
+                  <span>Open Exam Studio</span>
+                  <SvgIcon name="arrow-right" size={14} />
+                </Link>
+              </div>
             </div>
           </div>
         </div>

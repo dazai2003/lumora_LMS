@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, Suspense } from "react";
 import api, { Course, QAResponse, UnitWithLessons } from "@/lib/api";
-import MaterialViewer from "@/components/viewer/MaterialViewer";
+import RagSourceViewer from "@/components/ai/RagSourceViewer";
 import ReactMarkdown from "react-markdown";
 import { SvgIcon } from "@/components/SvgIcon";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -931,7 +931,7 @@ function AskAIPageContent() {
                 </button>
               </div>
               <div style={{ flex: 1, padding: "1rem", overflowY: "auto" }}>
-                <MaterialViewer source={activeSource} onClose={() => setActiveSource(null)} />
+                <RagSourceViewer source={activeSource} onClose={() => setActiveSource(null)} />
               </div>
             </div>
           )}

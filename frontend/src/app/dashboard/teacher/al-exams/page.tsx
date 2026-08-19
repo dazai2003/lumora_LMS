@@ -8,10 +8,10 @@ import { SvgIcon } from "@/components/SvgIcon";
 import { useToast } from "@/components/ui/Toast";
 import Modal from "@/components/Modal";
 import ConfirmDialog from "@/components/ConfirmDialog";
-import ALExamPaperCard, { ALExamPaperCardSkeleton } from "@/components/al-exams/ALExamPaperCard";
-import MCQQuestionPaperRenderer from "@/components/al-exams/MCQQuestionPaperRenderer";
-import StructuredQuestionPaperRenderer from "@/components/al-exams/StructuredQuestionPaperRenderer";
-import EssayQuestionPaperRenderer from "@/components/al-exams/EssayQuestionPaperRenderer";
+import ALExamPaperCard, { ALExamPaperCardSkeleton } from "@/components/assessments/ALExamPaperCard";
+import MCQQuestionPaperRenderer from "@/components/assessments/MCQQuestionPaperRenderer";
+import StructuredQuestionPaperRenderer from "@/components/assessments/StructuredQuestionPaperRenderer";
+import EssayQuestionPaperRenderer from "@/components/assessments/EssayQuestionPaperRenderer";
 import { normalizeLegacyEssayData } from "@/lib/alEssayTreeUtils";
 
 function TeacherExamEngineContent() {

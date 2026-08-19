@@ -78,8 +78,8 @@ export default function NotificationBell() {
           router.push("/dashboard/student/assessments");
         }
       } else {
-        // Teacher course notifications (e.g. manual quiz grading needed)
-        router.push("/dashboard/teacher/grading");
+        // Teacher course notifications (e.g. A/L exam grading needed)
+        router.push("/dashboard/teacher/al-exams/marking");
       }
     } else if (n.type === "reminder") {
       if (role === "student") {

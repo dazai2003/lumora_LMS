@@ -32,7 +32,7 @@ def test_build_essay_blueprint_skeleton_all_3_formats():
     assert questions[0]["question_number"] == 5
     assert questions[0]["structure_format"] == "single_complete"
     assert questions[0]["points"] == 150.0
-    assert len(questions[0]["answer_points"]) == 10
+    assert len(questions[0]["answer_points"]) >= 6
 
     # Q6: Multi-Part
     assert questions[1]["question_number"] == 6

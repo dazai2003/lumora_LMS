@@ -29,7 +29,6 @@ def test_paper_2_submission_requires_teacher_manual_grading(db_session):
     - grade is None (not a premature provisional grade)
     - AI auto-scoring does NOT award provisional final marks
     """
-    # 1. Setup Teacher & Student
     teacher = db_session.query(User).filter(User.email == "teacher_grading_test@lumora.com").first()
     if not teacher:
         teacher = User(
@@ -42,6 +41,10 @@ def test_paper_2_submission_requires_teacher_manual_grading(db_session):
         db_session.add(teacher)
         db_session.commit()
         db_session.refresh(teacher)
+    else:
+        teacher.role = UserRole.TEACHER
+        teacher.is_active = True
+        db_session.commit()
 
     student = db_session.query(User).filter(User.email == "student_grading_test@lumora.com").first()
     if not student:
@@ -55,6 +58,10 @@ def test_paper_2_submission_requires_teacher_manual_grading(db_session):
         db_session.add(student)
         db_session.commit()
         db_session.refresh(student)
+    else:
+        student.role = UserRole.STUDENT
+        student.is_active = True
+        db_session.commit()
 
     # 2. Setup Course & Exam with Structured Question
     course = db_session.query(Course).filter(Course.title == "Grading Test Course").first()
@@ -67,6 +74,9 @@ def test_paper_2_submission_requires_teacher_manual_grading(db_session):
         db_session.add(course)
         db_session.commit()
         db_session.refresh(course)
+    else:
+        course.teacher_id = teacher.id
+        db_session.commit()
 
     exam = db_session.query(ALExam).filter(ALExam.title == "Test Paper 2 Structured Exam").first()
     if not exam:
@@ -82,6 +92,9 @@ def test_paper_2_submission_requires_teacher_manual_grading(db_session):
         db_session.add(exam)
         db_session.commit()
         db_session.refresh(exam)
+    else:
+        exam.course_id = course.id
+        db_session.commit()
 
     # Question with structured subparts
     question = db_session.query(ALQuestion).filter(ALQuestion.exam_id == exam.id).first()
@@ -123,7 +136,7 @@ def test_paper_2_submission_requires_teacher_manual_grading(db_session):
     db_session.commit()
     db_session.refresh(submission)
 
-    student_token = create_access_token(data={"sub": student.email, "role": student.role.value})
+    student_token = create_access_token(data={"sub": str(student.id), "role": student.role.value})
 
     # 4. Student submits exam with composite subpart answers
     submit_payload = {
@@ -154,7 +167,7 @@ def test_paper_2_submission_requires_teacher_manual_grading(db_session):
     assert res_data["grade"] is None
 
     # 5. Teacher verifies and publishes official grade
-    teacher_token = create_access_token(data={"sub": teacher.email, "role": teacher.role.value})
+    teacher_token = create_access_token(data={"sub": str(teacher.id), "role": teacher.role.value})
     answers = db_session.query(ALStudentAnswer).filter(ALStudentAnswer.submission_id == submission.id).all()
     ans_id = answers[0].id
 
@@ -174,7 +187,7 @@ def test_paper_2_submission_requires_teacher_manual_grading(db_session):
         json=verify_payload,
         headers={"Authorization": f"Bearer {teacher_token}"}
     )
-    assert verify_res.status_code == 200
+    assert verify_res.status_code == 200, f"Verify failed: {verify_res.status_code} - {verify_res.text}"
     v_data = verify_res.json()
 
     # Verify official teacher verification

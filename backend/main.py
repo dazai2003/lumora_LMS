@@ -22,7 +22,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
-from app.api import auth, users, courses, units, lessons, materials, quizzes, analytics, qa, notifications, messages, payments, questions, jobs, audit, pools, rubrics, recommendations, students, materials_ai, admin_ai, assignments, al_exams, al_past_papers, al_authoring, al_curriculum, al_mcq, al_analytics
+from app.api import (
+    auth, users, courses, units, lessons, materials, analytics, qa,
+    notifications, messages, payments, questions, jobs, audit, pools,
+    rubrics, recommendations, students, materials_ai, exams, past_papers,
+    exam_authoring, exam_curriculum, exam_mcq, assessment_analytics
+)
 
 from sqlalchemy import text
 from app.database import engine, Base
@@ -74,13 +79,10 @@ app.include_router(units.router, prefix="/api/units", tags=["Units"])
 app.include_router(lessons.router, prefix="/api/lessons", tags=["Lessons"])
 app.include_router(materials.router, prefix="/api/materials", tags=["Materials"])
 app.include_router(materials_ai.router, prefix="/api/materials", tags=["Material AI Insights"])
-app.include_router(quizzes.router, prefix="/api/quizzes", tags=["Quizzes"])
-app.include_router(assignments.router, prefix="/api/assignments", tags=["Assignments"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 app.include_router(qa.router, prefix="/api/qa", tags=["Q&A"])
 app.include_router(recommendations.router, prefix="/api/recommendations", tags=["Recommendations"])
 app.include_router(students.router, prefix="/api/students", tags=["Student Profile"])
-app.include_router(admin_ai.router, prefix="/api/admin", tags=["Admin AI Config"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["Notifications"])
 app.include_router(messages.router, prefix="/api/messages", tags=["Messages"])
 app.include_router(payments.router, prefix="/api/payments", tags=["Payments"])
@@ -89,12 +91,12 @@ app.include_router(jobs.router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(audit.router, prefix="/api/audit", tags=["Audit"])
 app.include_router(pools.router, prefix="/api/pools", tags=["Pools"])
 app.include_router(rubrics.router, prefix="/api/rubrics", tags=["Rubrics"])
-app.include_router(al_exams.router, prefix="/api/al-exams", tags=["A/L Exam Engine"])
-app.include_router(al_past_papers.router, prefix="/api/al-past-papers", tags=["A/L Past Papers"])
-app.include_router(al_authoring.router, prefix="/api/al-authoring", tags=["A/L Authoring"])
-app.include_router(al_curriculum.router, prefix="/api/al-curriculum", tags=["A/L Curriculum & Scope Slicer"])
-app.include_router(al_mcq.router, prefix="/api/al-mcq", tags=["A/L Paper I MCQ Engine"])
-app.include_router(al_analytics.router, prefix="/api/analytics", tags=["A/L Assessment Analytics Foundation"])
+app.include_router(exams.router, prefix="/api/al-exams", tags=["A/L Exam Engine"])
+app.include_router(past_papers.router, prefix="/api/al-past-papers", tags=["A/L Past Papers"])
+app.include_router(exam_authoring.router, prefix="/api/al-authoring", tags=["A/L Authoring"])
+app.include_router(exam_curriculum.router, prefix="/api/al-curriculum", tags=["A/L Curriculum & Scope Slicer"])
+app.include_router(exam_mcq.router, prefix="/api/al-mcq", tags=["A/L Paper I MCQ Engine"])
+app.include_router(assessment_analytics.router, prefix="/api/analytics", tags=["A/L Assessment Analytics Foundation"])
 
 
 @app.get("/", tags=["Root"])

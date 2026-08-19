@@ -41,14 +41,17 @@ This document provides a comprehensive, structured reference for all primary RES
 | Method | Endpoint | Auth Required | Roles | Description | Request Body / Params | Response Summary |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | `GET` | `/api/al-exams` | Bearer JWT | All | Lists A/L exam papers for a course. | Query: `course_id`, `exam_type` | List of ALExam summaries |
-| `POST` | `/api/al-exams` | Bearer JWT | Teacher, Admin | Creates an A/L examination paper. | JSON: `{title, exam_type, time_limit_minutes, total_questions, course_id}` | Created ALExam entity |
+| `POST` | `/api/al-exams` | Bearer JWT | Teacher, Admin | Creates an A/L examination paper (Full Paper, MCQ, Structured, Essay). | JSON: `{title, exam_type, time_limit_minutes, total_questions, max_attempts, course_id}` | Created ALExam entity |
 | `GET` | `/api/al-exams/{id}` | Bearer JWT | All | Retrieves full exam paper structure and questions. | Path: `id` | ALExam with ordered ALQuestions |
 | `DELETE` | `/api/al-exams/{id}` | Bearer JWT | Teacher, Admin | Deletes exam with optional Question Bank cascade preservation. | Query: `delete_banked_questions=bool` | `{message: "Exam deleted successfully"}` |
-| `POST` | `/api/al-exams/{id}/start` | Bearer JWT | Student | Initiates an examination attempt for student. | Path: `id` | `{submission_id: N, started_at: ...}` |
-| `PUT` | `/api/al-exams/submissions/{sub_id}/answers` | Bearer JWT | Student | Autosaves student answer payload. | JSON: `{question_id, selected_option, subpart_answers_json, essay_text_answer}` | `{status: "saved"}` |
-| `POST` | `/api/al-exams/submissions/{sub_id}/submit` | Bearer JWT | Student | Submits exam paper for grading and triggers automated evaluation. | Path: `sub_id` | Submission entity with score |
+| `POST` | `/api/al-exams/{id}/start` | Bearer JWT | Student | Initiates or resumes an active examination attempt. | Path: `id` | `{submission_id: N, started_at: ..., saved_answers: {...}}` |
+| `POST` | `/api/al-exams/submissions/{sub_id}/autosave` | Bearer JWT | Student | Throttled background autosave of candidate answers. | JSON: `List[{question_id, selected_option, subpart_answers_json, essay_text_answer}]` | `{message: "Answers autosaved successfully"}` |
+| `POST` | `/api/al-exams/submissions/{sub_id}/submit` | Bearer JWT | Student | Submits exam paper for grading (instant MCQ scoring, background AI Paper 2). | JSON: `{answers: [...]}` | Submission entity with score & status |
+| `GET` | `/api/al-exams/{id}/my-submission` | Bearer JWT | Student | Fetches candidate's latest submission for this exam. | Path: `id` | ALStudentSubmission or null |
+| `GET` | `/api/al-exams/my-submissions` | Bearer JWT | Student | Retrieves all candidate exam submissions across courses. | None | List of ALStudentSubmission entities |
+| `GET` | `/api/al-exams/teacher/submissions` | Bearer JWT | Teacher, Admin | Lists completed submissions for teacher review (excluding unsubmitted retry drafts). | Query: `exam_id`, `status` | List of completed submissions |
 | `GET` | `/api/al-exams/submissions/{sub_id}` | Bearer JWT | All (Authorized) | Fetches candidate submission script, questions, and grading scores. | Path: `sub_id` | Submission with full ALStudentAnswers |
-| `POST` | `/api/al-exams/submissions/{sub_id}/verify` | Bearer JWT | Teacher, Admin | Commits teacher overrides and publishes verified grade. | JSON: `{overrides: [...], teacher_feedback: "..."}` | Verified ALStudentSubmission entity |
+| `POST` | `/api/al-exams/submissions/{sub_id}/verify` | Bearer JWT | Teacher, Admin | Commits teacher overrides (subpart marks, rubric checklist, custom criteria) and publishes grade. | JSON: `{answers: [{answer_id, teacher_override_points, teacher_checklist_results_json, feedback_notes}], teacher_feedback}` | Verified ALStudentSubmission entity |
 | `POST` | `/api/al-authoring/generate-mcq` | Bearer JWT | Teacher, Admin | Invokes Gemini to generate Paper I MCQ questions across 7 templates. | JSON: `{topic, count, template_type, difficulty}` | List of generated ALQuestion schemas |
 | `POST` | `/api/al-authoring/generate-structured` | Bearer JWT | Teacher, Admin | Invokes Gemini to generate Structured subpart question trees. | JSON: `{topic, total_points, subpart_count}` | Structured ALQuestion schema |
 | `POST` | `/api/al-authoring/generate-essay` | Bearer JWT | Teacher, Admin | Invokes Gemini to generate Essay prompts and 10–15 item rubric checklists. | JSON: `{topic, max_points, criteria_count}` | Essay ALQuestion schema |

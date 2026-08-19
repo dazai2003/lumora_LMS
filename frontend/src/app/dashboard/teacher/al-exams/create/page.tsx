@@ -19,16 +19,16 @@ import {
   calculateExactQuestionCounts,
 } from "@/lib/alDistributionUtils";
 import { normalizeScientificSymbols } from "@/lib/scientificSymbolUtils";
-import QuestionDiagramImage from "@/components/al-exams/QuestionDiagramImage";
-import StructuredQuestionPaperRenderer from "@/components/al-exams/StructuredQuestionPaperRenderer";
-import { StructuredSkeletonBuilder, StructuredContentAuthoringForm } from "@/components/al-exams/StructuredQuestionEditor";
-import StructuredAiGenerationModal from "@/components/al-exams/StructuredAiGenerationModal";
-import StructuredCandidateReviewModal from "@/components/al-exams/StructuredCandidateReviewModal";
-import EssayAIGeneratorModal from "@/components/al-exams/EssayAIGeneratorModal";
-import EssayCandidateReviewModal from "@/components/al-exams/EssayCandidateReviewModal";
-import AddEssayStructureModal, { EssayStructureFormat } from "@/components/al-exams/AddEssayStructureModal";
-import EssayContentAuthoringForm, { EssayAnswerPoint, EssaySubpart, createEmptySubpart, createEmptyAnswerPoint } from "@/components/al-exams/EssayContentAuthoringForm";
-import EssayQuestionPaperRenderer from "@/components/al-exams/EssayQuestionPaperRenderer";
+import QuestionDiagramImage from "@/components/assessments/QuestionDiagramImage";
+import StructuredQuestionPaperRenderer from "@/components/assessments/StructuredQuestionPaperRenderer";
+import { StructuredSkeletonBuilder, StructuredContentAuthoringForm } from "@/components/assessments/StructuredQuestionEditor";
+import StructuredAiGenerationModal from "@/components/assessments/StructuredAiGenerationModal";
+import StructuredCandidateReviewModal from "@/components/assessments/StructuredCandidateReviewModal";
+import EssayAIGeneratorModal from "@/components/assessments/EssayAIGeneratorModal";
+import EssayCandidateReviewModal from "@/components/assessments/EssayCandidateReviewModal";
+import AddEssayStructureModal, { EssayStructureFormat } from "@/components/assessments/AddEssayStructureModal";
+import EssayContentAuthoringForm, { EssayAnswerPoint, EssaySubpart, createEmptySubpart, createEmptyAnswerPoint } from "@/components/assessments/EssayContentAuthoringForm";
+import EssayQuestionPaperRenderer from "@/components/assessments/EssayQuestionPaperRenderer";
 import { EssayPaperBlueprint } from "@/lib/alEssayBlueprintUtils";
 import {
   normalizeLegacyEssayData,
@@ -37,8 +37,8 @@ import {
   reindexEssaySubparts,
   stripLeadingNumberingPrefix,
 } from "@/lib/alEssayTreeUtils";
-import AILoadingProgressBox from "@/components/al-exams/AILoadingProgressBox";
-import AIGenerationErrorAlert from "@/components/al-exams/AIGenerationErrorAlert";
+import AILoadingProgressBox from "@/components/assessments/AILoadingProgressBox";
+import AIGenerationErrorAlert from "@/components/assessments/AIGenerationErrorAlert";
 import { classifyAIError, ClassifiedAIError } from "@/lib/aiErrorClassifier";
 import { StructuredNode, cloneStructuredTree, getStructureSummary, createBlankNode } from "@/lib/alStructuredTreeUtils";
 

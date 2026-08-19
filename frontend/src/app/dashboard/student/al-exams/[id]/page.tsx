@@ -1,16 +1,17 @@
 "use client";
 
-import React, { useState, useEffect, use, useCallback, useRef, useMemo } from "react";
+import React, { useState, useEffect, use, useCallback, useRef, useMemo, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import api, { ALExam, ALQuestion, ALStudentSubmission } from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
 import { SvgIcon } from "@/components/SvgIcon";
-import QuestionNavigator from "@/components/al-exams/QuestionNavigator";
+import QuestionNavigator from "@/components/assessments/QuestionNavigator";
 import DottedLineField from "@/components/DottedLineField";
-import QuestionDiagramImage from "@/components/al-exams/QuestionDiagramImage";
-import MCQQuestionPaperRenderer, { normalizeScientificSymbols } from "@/components/al-exams/MCQQuestionPaperRenderer";
-import StudentEssayRichAnswerArea from "@/components/al-exams/StudentEssayRichAnswerArea";
-import StudentStructuredQuestionRenderer from "@/components/al-exams/StudentStructuredQuestionRenderer";
+import QuestionDiagramImage from "@/components/assessments/QuestionDiagramImage";
+import MCQQuestionPaperRenderer, { normalizeScientificSymbols } from "@/components/assessments/MCQQuestionPaperRenderer";
+import StudentEssayRichAnswerArea from "@/components/assessments/StudentEssayRichAnswerArea";
+import StudentStructuredQuestionRenderer from "@/components/assessments/StudentStructuredQuestionRenderer";
 import {
   normalizeLegacyEssayData,
   stripLeadingNumberingPrefix,
@@ -362,9 +363,13 @@ function renderCandidateSubpartAnswer(val: any): React.ReactNode {
   return normalizeScientificSymbols(String(val));
 }
 
-export default function StudentALExamTakePage({ params }: { params: Promise<{ id: string }> }) {
+function StudentALExamTakeContent({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const examId = parseInt(id);
+  const searchParams = useSearchParams();
+  const submissionIdParam = searchParams.get("submissionId");
+  const requestedSubmissionId = submissionIdParam ? parseInt(submissionIdParam, 10) : null;
+  const isRetakeRequested = searchParams.get("retake") === "true";
   const { addToast } = useToast();
 
   const [exam, setExam] = useState<ALExam | null>(null);
@@ -396,18 +401,49 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
   // Timer state
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
 
-  // Fetch initial exam info and check if already submitted
+  // Fetch initial exam info and check if already submitted or if viewing specific submission
   useEffect(() => {
     api.getALExam(examId)
       .then(async (data) => {
         setExam(data);
         if (data.questions) setQuestions(data.questions);
 
+        // Case 1: Specific submission explicitly requested (e.g. from Past Attempts modal or table link)
+        if (requestedSubmissionId && !isNaN(requestedSubmissionId)) {
+          try {
+            const specificSub = await api.getALSubmission(requestedSubmissionId);
+            if (specificSub) {
+              if (specificSub.status === "in_progress") {
+                // Resume active attempt
+                handleStartExam();
+                return;
+              } else {
+                setResult(specificSub);
+                setSubmissionId(specificSub.id);
+                setSessionState("review");
+                return;
+              }
+            }
+          } catch (err) {
+            console.error("Failed to load requested submission:", err);
+          }
+        }
+
+        // Case 2: Student explicitly clicked "Retake Exam"
+        if (isRetakeRequested) {
+          setSessionState("available");
+          return;
+        }
+
+        // Case 3: Default check latest submission
         try {
           const mySub = await api.getMyALSubmission(examId);
-          if (mySub && (mySub.status === "submitted" || mySub.status === "ai_graded" || mySub.status === "teacher_verified")) {
+          if (mySub && (mySub.status === "submitted" || mySub.status === "ai_graded" || mySub.status === "teacher_verified" || mySub.status === "graded")) {
             setResult(mySub);
+            setSubmissionId(mySub.id);
             setSessionState("review");
+          } else if (mySub && mySub.status === "in_progress") {
+            setSessionState("available");
           }
         } catch (e) {
           // not previously submitted
@@ -418,7 +454,7 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
         addToast("Failed to load A/L Exam details.", "error");
       })
       .finally(() => setLoading(false));
-  }, [examId, addToast]);
+  }, [examId, requestedSubmissionId, isRetakeRequested, addToast]);
 
   // Start exam attempt handler
   const handleStartExam = async () => {
@@ -686,10 +722,19 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
   if (sessionState === "available") {
     return (
       <div style={{ maxWidth: "800px", margin: "3rem auto", paddingBottom: "3rem" }}>
-        <div className="breadcrumb" style={{ marginBottom: "1.5rem" }}>
-          <Link href={`/dashboard/student/courses/${exam.course_id}`} style={{ color: "var(--text-secondary)", textDecoration: "none" }}>Course</Link>
-          <span className="breadcrumb-sep" style={{ margin: "0 0.5rem" }}>/</span>
-          <span style={{ color: "var(--text-primary)" }}>{exam.title}</span>
+        <div style={{ marginBottom: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
+          <div className="breadcrumb" style={{ margin: 0 }}>
+            <Link href="/dashboard/student/al-exams" style={{ color: "var(--text-secondary)", textDecoration: "none" }}>Exam Studio</Link>
+            <span className="breadcrumb-sep" style={{ margin: "0 0.5rem" }}>/</span>
+            <span style={{ color: "var(--text-primary)" }}>{exam.title}</span>
+          </div>
+          <Link
+            href="/dashboard/student/al-exams"
+            className="btn btn-secondary btn-sm"
+            style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", textDecoration: "none" }}
+          >
+            <SvgIcon name="arrow-left" size={13} /> Back to Exam Studio
+          </Link>
         </div>
 
         <div className="card" style={{ padding: "2.5rem", background: "var(--bg-card)", border: "1px solid var(--border)" }}>
@@ -956,17 +1001,28 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
                 )}
               </div>
 
-              {canRetake && (
-                <button
-                  type="button"
-                  onClick={handleStartExam}
-                  className="btn btn-primary"
-                  style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem", padding: "0.55rem 1.15rem", fontSize: "0.88rem", fontWeight: 700, borderRadius: "var(--radius-md)" }}
+              <div style={{ display: "flex", gap: "0.65rem", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                <Link
+                  href="/dashboard/student/al-exams"
+                  className="btn btn-secondary"
+                  style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem", padding: "0.55rem 1.15rem", fontSize: "0.88rem", fontWeight: 700, borderRadius: "var(--radius-md)", textDecoration: "none" }}
                 >
-                  <SvgIcon name="refresh" size={15} />
-                  <span>Retake Examination</span>
-                </button>
-              )}
+                  <SvgIcon name="arrow-left" size={15} />
+                  <span>Back to Exam Studio</span>
+                </Link>
+
+                {canRetake && (
+                  <button
+                    type="button"
+                    onClick={handleStartExam}
+                    className="btn btn-primary"
+                    style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem", padding: "0.55rem 1.15rem", fontSize: "0.88rem", fontWeight: 700, borderRadius: "var(--radius-md)" }}
+                  >
+                    <SvgIcon name="refresh" size={15} />
+                    <span>Retake Examination</span>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -1493,6 +1549,14 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
           {/* Left: Badge, Title & Status */}
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+              <Link
+                href="/dashboard/student/al-exams"
+                className="btn btn-secondary btn-sm"
+                style={{ fontSize: "0.72rem", padding: "0.2rem 0.55rem", display: "inline-flex", alignItems: "center", gap: "0.25rem", textDecoration: "none" }}
+                title="Save & Return to Exam Studio (Attempt stays active)"
+              >
+                <SvgIcon name="arrow-left" size={11} /> Exam Studio
+              </Link>
               <span className="badge badge-info" style={{ fontSize: "0.72rem", fontWeight: 700 }}>
                 {hasBothPapers
                   ? paperStage === "paper1"
@@ -2209,5 +2273,13 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
         </div>
       )}
     </div>
+  );
+}
+
+export default function StudentALExamTakePage({ params }: { params: Promise<{ id: string }> }) {
+  return (
+    <Suspense fallback={<div style={{ padding: "3rem", textAlign: "center" }}><div className="spinner" /> Loading Examination...</div>}>
+      <StudentALExamTakeContent params={params} />
+    </Suspense>
   );
 }

@@ -2,14 +2,21 @@
 
 ## 1. National Examination Standards & Paper Archetypes
 
-Lumora is specifically engineered to support the exact assessment structures defined by the **Sri Lankan Department of Examinations** for the **G.C.E. Advanced Level Examination**. The system natively models three distinct paper archetypes:
+Lumora is specifically engineered to support the exact assessment structures defined by the **Sri Lankan Department of Examinations** for the **G.C.E. Advanced Level Examination**. The system natively models four distinct paper archetypes:
 
 ```mermaid
 graph TD
     Exam[G.C.E. Advanced Level Examination]
+    Exam --> FullPaper[Full Examination Paper: Composite Paper I + Paper II]
     Exam --> Paper1[Paper I: Multiple Choice Questions - MCQ]
     Exam --> Paper2A[Paper II-A: Structured Essay Questions]
     Exam --> Paper2B[Paper II-B: Extended Analytical Essay Questions]
+
+    subgraph Full Paper Specifications
+        FullPaper --> FP_Stages[Multi-Stage: Paper I -> Breather Transition -> Paper II]
+        FullPaper --> FP_Time[300 Minutes Combined: 120m P1 + 180m P2]
+        FullPaper --> FP_Scoring[Standard Weighted Composite: 100% Scale]
+    end
 
     subgraph Paper I Specifications
         Paper1 --> P1_Count[50 Questions • 5 Options A-E]
@@ -20,9 +27,9 @@ graph TD
 
     subgraph Paper II-A Specifications
         Paper2A --> P2A_Count[4 Compulsory Structured Questions]
-        Paper2A --> P2A_Time[180 Minutes Combined]
+        Paper2A --> P2A_Time[180 Minutes Combined with Part B]
         Paper2A --> P2A_Score[Raw: 160 pts • Scaled: 100 pts Multiplier 2.5]
-        Paper2A --> P2A_Hierarchy[Multi-Tiered Subparts a, i, ii + Line Constraints]
+        Paper2A --> P2A_Hierarchy[Multi-Tiered Subparts a, i, ii + Dotted Line Constraints]
     end
 
     subgraph Paper II-B Specifications
@@ -35,6 +42,15 @@ graph TD
 ---
 
 ## 2. Detailed Paper Archetype Specifications
+
+### 2.1. Full Examination Paper (`full_paper` / `full_exam`)
+- **Structure**: Complete composite evaluation incorporating Paper I (MCQ items 1–50) and Paper II (Structured questions 1–4 and Essay questions 5–8).
+- **Execution Flow**:
+  1. **Phase 1 (Paper I)**: Candidate attempts the 50 MCQs.
+  2. **Phase 2 (Breather / Transition)**: Candidate submits Paper I and views the section transition screen preparing for written evaluation.
+  3. **Phase 3 (Paper II)**: Candidate attempts structured subpart questions and rich-text essay responses.
+- **Teacher Marking Studio Integration**: In the Marking Studio, full papers present interactive section tabs (`All Sections`, `Paper I — MCQ`, `Paper II-A — Structured`, `Paper II-B — Essay`) for grading ease.
+- **Attempt & Retake Controls**: Governed by `max_attempts` policy (default: 1, configurable up to unlimited retakes). Active in-progress retry attempts remain private to the student until submitted.
 
 ### 2.1. Paper I: Multiple Choice Questions (50 Items)
 - **Question Structure**: 50 items, each presenting 5 distinct alternatives (A, B, C, D, E).
