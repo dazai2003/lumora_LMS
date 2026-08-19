@@ -65,35 +65,57 @@ def ask_question(
         from app.services.vector import search_similar
         results = search_similar(query=data.question, course_id=data.course_id, n_results=5)
         for hit in results:
-            context_chunks.append(hit["text"])
             meta = hit.get("metadata", {})
             mat_id = meta.get("material_id")
 
-            # Deduplicate: only add each material once as a source
-            if mat_id and mat_id not in seen_material_ids:
-                seen_material_ids.add(mat_id)
-                # Look up the full Material to get type and file path
-                material = db.query(Material).filter(Material.id == mat_id).first()
-                file_url = None
-                mat_type = "note"
-                if material:
-                    mat_type = material.material_type.value if material.material_type else "note"
-                    if material.file_path:
-                        file_url = f"/uploads/{mat_type}/{os.path.basename(material.file_path)}"
+            if not mat_id or mat_id in seen_material_ids:
+                continue
 
-                context_sources.append({
-                    "material_id": mat_id,
-                    "title": meta.get("title", material.title if material else "Unknown"),
-                    "material_type": mat_type,
-                    "file_url": file_url,
-                    "content": material.content[:500] if material and material.content else None,
-                    "extracted_text": material.extracted_text[:1000] if material and material.extracted_text else None,
-                    "relevance": round(1 - hit.get("distance", 0), 3),
-                })
+            # Strict Database Validation: Must be an active, non-private Lesson Material belonging to this Course
+            material = (
+                db.query(Material)
+                .join(Lesson, Material.lesson_id == Lesson.id)
+                .filter(
+                    Material.id == mat_id,
+                    Material.lesson_id.isnot(None),
+                    Material.is_private_rag_vault == False,
+                    Lesson.course_id == data.course_id
+                )
+                .first()
+            )
+            if not material:
+                continue
+
+            seen_material_ids.add(mat_id)
+            context_chunks.append(hit["text"])
+
+            file_url = None
+            mat_type = material.material_type.value if material.material_type else "note"
+            if material.file_path:
+                file_url = f"/uploads/{mat_type}/{os.path.basename(material.file_path)}"
+
+            lesson_title = material.lesson.title if material.lesson else None
+            unit_name = None
+            if material.lesson and material.lesson.unit:
+                u = material.lesson.unit
+                unit_name = f"Unit {u.unit_number}: {u.name}" if getattr(u, 'unit_number', None) else getattr(u, 'title', getattr(u, 'name', 'Unit'))
+
+            context_sources.append({
+                "material_id": mat_id,
+                "lesson_id": material.lesson_id,
+                "title": material.title,
+                "lesson_title": lesson_title,
+                "unit_name": unit_name,
+                "material_type": mat_type,
+                "file_url": file_url,
+                "content": material.content[:500] if material.content else None,
+                "extracted_text": material.extracted_text[:1000] if material.extracted_text else None,
+                "relevance": round(1 - hit.get("distance", 0), 3),
+            })
     except Exception as e:
         logger.warning(f"Vector search failed: {e}")
 
-    # Build prompt and call Groq LLM
+    # Build prompt and call Gemini LLM
     response_text = _call_groq_llm(data.question, context_chunks, data.course_id, db)
 
     # Save AI response
@@ -149,7 +171,7 @@ async def ask_question_stream(
     current_user: User = Depends(require_role(UserRole.STUDENT)),
     db: Session = Depends(get_db),
 ):
-    """Student asks a question about a course. AI streams answer using course materials."""
+    """Student asks a question about a course. AI streams answer using lesson learning materials."""
     import time
     import json
     start_time = time.time()
@@ -216,7 +238,7 @@ async def ask_question_stream(
     except Exception as timeout_err:
         logger.warning(f"Vector search timed out or failed: {timeout_err}")
 
-    # Process vector search results with strict relevance filtering
+    # Process vector search results with strict Lesson-Material validation
     question_keywords = [w.lower().strip() for w in data.question.split() if len(w.strip()) > 3]
 
     if results:
@@ -226,56 +248,75 @@ async def ask_question_stream(
             meta = hit.get("metadata", {})
             mat_id = meta.get("material_id")
 
-            # Check if snippet has high semantic similarity OR contains direct question keywords
+            if not mat_id or mat_id in seen_material_ids:
+                continue
+
+            # Strict Database Validation: Must be an active, non-private Lesson Material belonging to this Course
+            material = (
+                db.query(Material)
+                .join(Lesson, Material.lesson_id == Lesson.id)
+                .filter(
+                    Material.id == mat_id,
+                    Material.lesson_id.isnot(None),
+                    Material.is_private_rag_vault == False,
+                    Lesson.course_id == data.course_id
+                )
+                .first()
+            )
+            if not material:
+                continue
+
+            # Check if snippet has semantic similarity OR contains direct question keywords
             has_keyword_match = any(kw in text_snippet.lower() for kw in question_keywords)
             is_relevant_distance = distance < 0.45
 
             if (is_relevant_distance or (has_keyword_match and distance < 0.60)) and text_snippet:
+                seen_material_ids.add(mat_id)
                 context_chunks.append(text_snippet)
-                if mat_id and mat_id not in seen_material_ids:
-                    seen_material_ids.add(mat_id)
-                    material = db.query(Material).filter(Material.id == mat_id).first()
-                    file_url = None
-                    mat_type = "note"
-                    lesson_title = None
-                    unit_name = None
-                    lesson_id = None
 
-                    if material:
-                        mat_type = material.material_type.value if material.material_type else "note"
-                        lesson_id = material.lesson_id
-                        if material.file_path:
-                            file_url = f"/uploads/{mat_type}/{os.path.basename(material.file_path)}"
-                        if material.lesson:
-                            lesson_title = material.lesson.title
-                            if material.lesson.unit:
-                                u = material.lesson.unit
-                                unit_name = f"Unit {u.unit_number}: {u.name}" if u.unit_number else u.name
+                file_url = None
+                mat_type = material.material_type.value if material.material_type else "note"
+                if material.file_path:
+                    file_url = f"/uploads/{mat_type}/{os.path.basename(material.file_path)}"
 
-                    context_sources.append({
-                        "course_id": material.course_id if material and material.course_id else data.course_id,
-                        "lesson_id": lesson_id,
-                        "material_id": mat_id,
-                        "title": material.title if material else meta.get("title", "Course Material"),
-                        "material_type": mat_type,
-                        "lesson_title": lesson_title,
-                        "unit_name": unit_name,
-                        "file_url": file_url,
-                        "relevance": round(1 - distance, 3),
-                    })
+                lesson_title = material.lesson.title if material.lesson else None
+                unit_name = None
+                if material.lesson and material.lesson.unit:
+                    u = material.lesson.unit
+                    unit_name = f"Unit {u.unit_number}: {u.name}" if getattr(u, 'unit_number', None) else getattr(u, 'title', getattr(u, 'name', 'Unit'))
+
+                context_sources.append({
+                    "course_id": data.course_id,
+                    "lesson_id": material.lesson_id,
+                    "material_id": mat_id,
+                    "title": material.title,
+                    "material_type": mat_type,
+                    "lesson_title": lesson_title,
+                    "unit_name": unit_name,
+                    "file_url": file_url,
+                    "relevance": round(1 - distance, 3),
+                })
 
     # Fast SQL Fallback if no vector search results found and direct keyword match exists
     if not context_chunks and question_keywords:
         try:
             from sqlalchemy import or_
-            mat_matches = db.query(Material).filter(
-                Material.course_id == data.course_id,
-                or_(*[Material.title.ilike(f"%{kw}%") for kw in question_keywords[:3]])
-            ).limit(2).all()
+            mat_matches = (
+                db.query(Material)
+                .join(Lesson, Material.lesson_id == Lesson.id)
+                .filter(
+                    Lesson.course_id == data.course_id,
+                    Material.lesson_id.isnot(None),
+                    Material.is_private_rag_vault == False,
+                    or_(*[Material.title.ilike(f"%{kw}%") for kw in question_keywords[:3]])
+                )
+                .limit(2)
+                .all()
+            )
 
             for mat in mat_matches:
-                if mat.content_text or mat.content or mat.extracted_text:
-                    raw = mat.content_text or mat.content or mat.extracted_text
+                if mat.content or mat.extracted_text:
+                    raw = mat.content or mat.extracted_text
                     context_chunks.append(raw[:800])
                 mat_type = mat.material_type.value if mat.material_type else "note"
                 file_url = f"/uploads/{mat_type}/{os.path.basename(mat.file_path)}" if mat.file_path else None
@@ -285,10 +326,10 @@ async def ask_question_stream(
                     unit_name = None
                     if mat.lesson and mat.lesson.unit:
                         u = mat.lesson.unit
-                        unit_name = f"Unit {u.unit_number}: {u.name}" if u.unit_number else u.name
+                        unit_name = f"Unit {u.unit_number}: {u.name}" if getattr(u, 'unit_number', None) else getattr(u, 'title', getattr(u, 'name', 'Unit'))
 
                     context_sources.append({
-                        "course_id": mat.course_id or data.course_id,
+                        "course_id": data.course_id,
                         "lesson_id": mat.lesson_id,
                         "material_id": mat.id,
                         "title": mat.title,
@@ -310,17 +351,17 @@ async def ask_question_stream(
     if is_grounded:
         context = "\n\n---\n\n".join(context_chunks[:3])
         system_prompt = f"""You are an expert AI tutor for the Sri Lankan G.C.E. Advanced Level Biology course "{course_title}".
-Your task is to answer the student's question directly, clearly, concisely, and educationally using the provided relevant course material excerpts.
+Your task is to answer the student's question directly, clearly, concisely, and educationally using the provided relevant lesson learning material excerpts.
 
 CRITICAL INSTRUCTIONS:
 - Directly answer the student's question first.
 - DO NOT dump or list unrelated course outlines, syllabus headings, or material introductory text.
-- Ground your explanation in the provided material without copying verbatim blocks of unrelated text.
+- Ground your explanation in the provided lesson materials without copying verbatim blocks of unrelated text.
 - If the question is simple, provide a direct, concise answer (2-4 sentences).
 - If the question requires an explanation, explain the biological concept or mechanism step-by-step with clear scientific terminology.
 - Use markdown formatting (bold, bullet points) where appropriate.
 
-RELEVANT COURSE MATERIAL EXCERPTS:
+RELEVANT LESSON MATERIAL EXCERPTS:
 {context}"""
     else:
         system_prompt = f"""You are an expert AI tutor for the Sri Lankan G.C.E. Advanced Level Biology course "{course_title}".
@@ -356,7 +397,7 @@ CRITICAL INSTRUCTIONS:
             )
 
             stream_succeeded = False
-            for stream_model in ["gemini-flash-lite-latest", "gemini-3.7-flash", "gemini-3-flash-preview", "gemini-flash-latest"]:
+            for stream_model in ["gemini-flash-lite-latest", "gemini-flash-latest"]:
                 try:
                     stream = client.models.generate_content_stream(
                         model=stream_model,
@@ -783,16 +824,16 @@ def _call_groq_llm(question: str, context_chunks: list, course_id: int, db: Sess
         if context_chunks:
             context = "\n\n---\n\n".join(context_chunks[:5])
             system_prompt = f"""You are an AI tutor for the course "{course_title}". 
-Answer the student's question using ONLY the provided course materials below.
+Answer the student's question using ONLY the provided lesson learning materials below.
 If the materials don't contain enough information to answer, say so honestly.
 Be clear, concise, and educational. Use examples when helpful.
 
-COURSE MATERIALS:
+LESSON LEARNING MATERIALS:
 {context}"""
         else:
             system_prompt = f"""You are an AI tutor for the course "{course_title}".
-The student asked a question but no relevant course materials were found in the database.
-Provide a helpful general answer, but clearly note that this answer is not based on specific course materials.
+The student asked a question but no relevant lesson learning materials were found in the database.
+Provide a helpful general answer, but clearly note that this answer is not based on specific lesson materials.
 Suggest the student check their course lessons for more detailed information."""
 
         return gemini.generate_text(

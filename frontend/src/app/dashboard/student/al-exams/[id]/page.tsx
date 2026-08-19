@@ -97,13 +97,235 @@ function extractEssayCriteriaList(question: ALQuestion): Array<{ item_number: nu
   return list;
 }
 
+function resolveCandidateSubpartAnswer(node: any, depth: number, index: number, answersMap: Record<string, any>): any {
+  if (!answersMap || typeof answersMap !== "object") return null;
+  const nodeId = String(node?.id || "").trim();
+  const partLabel = getAcademicSubpartLabel(node, depth, index);
+  const displayLabel = String(node?.display_label || node?.label || node?.part_label || "").trim();
+
+  // 1. Check direct keys
+  if (nodeId && answersMap[nodeId] !== undefined && answersMap[nodeId] !== "") return answersMap[nodeId];
+  if (displayLabel && answersMap[displayLabel] !== undefined && answersMap[displayLabel] !== "") return answersMap[displayLabel];
+  if (partLabel && answersMap[partLabel] !== undefined && answersMap[partLabel] !== "") return answersMap[partLabel];
+
+  // 2. Scan for composite keys matching this node
+  const searchPrefixes = [nodeId, displayLabel, partLabel].filter(Boolean);
+  const allKeys = Object.keys(answersMap);
+
+  for (const prefix of searchPrefixes) {
+    const matchingKeys = allKeys.filter((k) => k === prefix || k.startsWith(`${prefix}__`));
+    if (matchingKeys.length === 0) continue;
+
+    // A. Biological drawing
+    const drawingKey = matchingKeys.find((k) => k.endsWith("__drawing"));
+    if (drawingKey && answersMap[drawingKey]) {
+      return { type: "drawing", data: answersMap[drawingKey] };
+    }
+
+    // B. Sequential pathway steps (__seq_0, __seq_1, ...)
+    const seqKeys = matchingKeys.filter((k) => k.includes("__seq_")).sort((a, b) => {
+      const idxA = parseInt(a.split("__seq_")[1] || "0", 10);
+      const idxB = parseInt(b.split("__seq_")[1] || "0", 10);
+      return idxA - idxB;
+    });
+    if (seqKeys.length > 0) {
+      const steps = seqKeys
+        .map((k, idx) => ({
+          step: idx + 1,
+          text: answersMap[k],
+        }))
+        .filter((s) => Boolean(s.text && String(s.text).trim()));
+      if (steps.length > 0) {
+        return { type: "sequence", steps };
+      }
+    }
+
+    // C. Comparison table (__comp_0_v1, __comp_0_v2, ...)
+    const compKeys = matchingKeys.filter((k) => k.includes("__comp_"));
+    if (compKeys.length > 0) {
+      const pairs = node.comparison_pairs || node.comparison_data?.pairs || [];
+      const header1 = node.comparison_header_1 || "Structure / Feature A";
+      const header2 = node.comparison_header_2 || "Structure / Feature B";
+      const rows: Array<{ criterion: string; val1: string; val2: string }> = [];
+
+      pairs.forEach((cp: any, idx: number) => {
+        const k1 = `${prefix}__comp_${idx}_v1`;
+        const k2 = `${prefix}__comp_${idx}_v2`;
+        const v1 = answersMap[k1] || "";
+        const v2 = answersMap[k2] || "";
+        if (v1 || v2) {
+          rows.push({
+            criterion: cp.criterion || `Feature ${idx + 1}`,
+            val1: v1,
+            val2: v2,
+          });
+        }
+      });
+
+      if (rows.length === 0) {
+        compKeys.forEach((k) => {
+          if (answersMap[k]) {
+            rows.push({ criterion: k.replace(`${prefix}__comp_`, "Comparison "), val1: answersMap[k], val2: "" });
+          }
+        });
+      }
+
+      if (rows.length > 0) {
+        return { type: "comparison", header1, header2, rows };
+      }
+    }
+
+    // D. Matrix / Classification Table (__cell_0_1, ...)
+    const cellKeys = matchingKeys.filter((k) => k.includes("__cell_"));
+    if (cellKeys.length > 0) {
+      const matrixRows = node.matrix_data?.rows || node.table_data?.rows || [];
+      const headers = node.matrix_data?.col_headers || node.table_data?.headers || ["Biological Item / Structure", "Function / Classification"];
+      const rows: Array<{ item: string; value: string }> = [];
+
+      matrixRows.forEach((row: any, rIdx: number) => {
+        const isObj = Boolean(row && typeof row === "object" && "item" in row);
+        const itemLabel = isObj ? row.item : Array.isArray(row) ? row[0] : `Row ${rIdx + 1}`;
+        const cKey = `${prefix}__cell_${rIdx}_1`;
+        const cVal = answersMap[cKey] || "";
+        if (cVal) {
+          rows.push({ item: itemLabel, value: cVal });
+        }
+      });
+
+      if (rows.length === 0) {
+        cellKeys.forEach((k, idx) => {
+          if (answersMap[k]) {
+            rows.push({ item: `Entry ${idx + 1}`, value: answersMap[k] });
+          }
+        });
+      }
+
+      if (rows.length > 0) {
+        return { type: "matrix", headers, rows };
+      }
+    }
+
+    // E. General matching keys aggregation
+    const nonBlankEntries = matchingKeys
+      .filter((k) => answersMap[k] && String(answersMap[k]).trim())
+      .map((k) => [k.replace(`${prefix}__`, ""), answersMap[k]]);
+    if (nonBlankEntries.length > 0) {
+      return Object.fromEntries(nonBlankEntries);
+    }
+  }
+
+  return null;
+}
+
 function renderCandidateSubpartAnswer(val: any): React.ReactNode {
   if (val === null || val === undefined || val === "") {
     return <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>— Unanswered —</span>;
   }
-  if (typeof val === "string" || typeof val === "number" || typeof val === "boolean") {
-    return String(val);
+
+  // Biological Drawing
+  if (typeof val === "object" && val.type === "drawing" && val.data) {
+    return (
+      <div style={{ marginTop: "0.4rem" }}>
+        <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--accent-primary)", marginBottom: "0.35rem", display: "flex", alignItems: "center", gap: "0.35rem" }}>
+          <SvgIcon name="image" size={13} />
+          <span>Biological Diagram / Canvas Response:</span>
+        </div>
+        <img
+          src={val.data}
+          alt="Candidate Drawing"
+          style={{ maxWidth: "100%", maxHeight: "260px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", background: "#ffffff" }}
+        />
+      </div>
+    );
   }
+
+  // Sequential Pathway
+  if (typeof val === "object" && val.type === "sequence" && Array.isArray(val.steps)) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginTop: "0.25rem" }}>
+        <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--accent-primary)", display: "flex", alignItems: "center", gap: "0.35rem" }}>
+          <SvgIcon name="arrow-right" size={13} />
+          <span>Sequential Pathway Steps:</span>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "stretch", gap: "0.5rem" }}>
+          {val.steps.map((s: any, sIdx: number) => (
+            <div
+              key={sIdx}
+              style={{
+                flex: "1 1 200px",
+                padding: "0.6rem 0.85rem",
+                background: "var(--bg-secondary)",
+                borderRadius: "var(--radius-sm)",
+                border: "1px solid var(--border-subtle)",
+              }}
+            >
+              <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--accent-primary)", marginBottom: "0.2rem" }}>
+                Step {s.step}
+              </div>
+              <div style={{ fontSize: "0.88rem", color: "var(--text-primary)", whiteSpace: "pre-wrap" }}>
+                {normalizeScientificSymbols(s.text)}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Comparison Table
+  if (typeof val === "object" && val.type === "comparison" && Array.isArray(val.rows)) {
+    return (
+      <div style={{ overflowX: "auto", marginTop: "0.35rem" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", border: "1px solid var(--border)", fontSize: "0.85rem" }}>
+          <thead>
+            <tr style={{ background: "var(--bg-secondary)" }}>
+              <th style={{ border: "1px solid var(--border)", padding: "0.45rem 0.65rem", textAlign: "left", fontWeight: 700 }}>Feature / Criterion</th>
+              <th style={{ border: "1px solid var(--border)", padding: "0.45rem 0.65rem", textAlign: "left", fontWeight: 700 }}>{val.header1 || "Structure A"}</th>
+              <th style={{ border: "1px solid var(--border)", padding: "0.45rem 0.65rem", textAlign: "left", fontWeight: 700 }}>{val.header2 || "Structure B"}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {val.rows.map((r: any, rIdx: number) => (
+              <tr key={rIdx}>
+                <td style={{ border: "1px solid var(--border)", padding: "0.45rem 0.65rem", fontWeight: 600, background: "var(--bg-secondary)" }}>{r.criterion}</td>
+                <td style={{ border: "1px solid var(--border)", padding: "0.45rem 0.65rem" }}>{normalizeScientificSymbols(r.val1)}</td>
+                <td style={{ border: "1px solid var(--border)", padding: "0.45rem 0.65rem" }}>{normalizeScientificSymbols(r.val2)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  // Matrix Table
+  if (typeof val === "object" && val.type === "matrix" && Array.isArray(val.rows)) {
+    return (
+      <div style={{ overflowX: "auto", marginTop: "0.35rem" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", border: "1px solid var(--border)", fontSize: "0.85rem" }}>
+          <thead>
+            <tr style={{ background: "var(--bg-secondary)" }}>
+              <th style={{ border: "1px solid var(--border)", padding: "0.45rem 0.65rem", textAlign: "left", fontWeight: 700 }}>{val.headers?.[0] || "Item"}</th>
+              <th style={{ border: "1px solid var(--border)", padding: "0.45rem 0.65rem", textAlign: "left", fontWeight: 700 }}>{val.headers?.[1] || "Response"}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {val.rows.map((r: any, rIdx: number) => (
+              <tr key={rIdx}>
+                <td style={{ border: "1px solid var(--border)", padding: "0.45rem 0.65rem", fontWeight: 600, background: "var(--bg-secondary)" }}>{r.item}</td>
+                <td style={{ border: "1px solid var(--border)", padding: "0.45rem 0.65rem" }}>{normalizeScientificSymbols(r.value)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  if (typeof val === "string" || typeof val === "number" || typeof val === "boolean") {
+    return normalizeScientificSymbols(String(val));
+  }
+
   if (Array.isArray(val)) {
     if (val.length === 0) {
       return <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>— Unanswered —</span>;
@@ -113,29 +335,31 @@ function renderCandidateSubpartAnswer(val: any): React.ReactNode {
         {val.map((item, i) => (
           <div key={i} style={{ display: "flex", gap: "0.4rem", alignItems: "flex-start" }}>
             <span style={{ color: "var(--accent-primary)", fontWeight: 700 }}>•</span>
-            <span>{typeof item === "object" ? JSON.stringify(item) : String(item)}</span>
+            <span>{typeof item === "object" ? JSON.stringify(item) : normalizeScientificSymbols(String(item))}</span>
           </div>
         ))}
       </div>
     );
   }
+
   if (typeof val === "object") {
     const entries = Object.entries(val);
     if (entries.length === 0) {
       return <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>— Unanswered —</span>;
     }
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
         {entries.map(([k, v]) => (
           <div key={k} style={{ padding: "0.35rem 0.6rem", background: "var(--bg-card)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)", fontSize: "0.85rem" }}>
             <strong style={{ color: "var(--accent-primary)", marginRight: "0.4rem" }}>{k}:</strong>
-            <span>{typeof v === "object" ? JSON.stringify(v) : String(v)}</span>
+            <span>{typeof v === "object" ? JSON.stringify(v) : normalizeScientificSymbols(String(v))}</span>
           </div>
         ))}
       </div>
     );
   }
-  return String(val);
+
+  return normalizeScientificSymbols(String(val));
 }
 
 export default function StudentALExamTakePage({ params }: { params: Promise<{ id: string }> }) {
@@ -232,9 +456,16 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
         setEssayImages(restoredImages);
       }
 
-      if (session.time_limit_minutes > 0) {
+      if (session.time_remaining_seconds !== undefined && session.time_remaining_seconds !== null) {
+        setSecondsRemaining(session.time_remaining_seconds);
+      } else if (session.time_limit_minutes > 0) {
         setSecondsRemaining(session.time_limit_minutes * 60);
       }
+
+      if (session.is_resumed) {
+        addToast("Resumed active examination. All previously entered answers restored.", "info");
+      }
+
       setSessionState("taking");
     } catch (err: any) {
       console.error(err);
@@ -293,6 +524,28 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
+  }, [answers, subpartAnswers, essayAnswers, essayImages, sessionState, submissionId, questions]);
+
+  // Window beforeunload listener to ensure in-flight answers are saved immediately
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (sessionState === "taking" && submissionId) {
+        const formattedAnswers = questions.map((q) => ({
+          question_id: q.id,
+          selected_option: answers[q.id] || undefined,
+          subpart_answers_json: subpartAnswers[q.id] || undefined,
+          essay_text_answer: essayAnswers[q.id] || undefined,
+          essay_attachment_url: essayImages[q.id] || undefined,
+        })).filter((a) => a.selected_option || a.subpart_answers_json || a.essay_text_answer || a.essay_attachment_url);
+
+        if (formattedAnswers.length > 0) {
+          api.autosaveALAnswers(submissionId, formattedAnswers).catch(() => {});
+        }
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [answers, subpartAnswers, essayAnswers, essayImages, sessionState, submissionId, questions]);
 
   // Final Submit Handler
@@ -565,75 +818,180 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
 
     const correctCount = mcqAnswers.filter((a) => a.is_correct).length;
     const incorrectCount = mcqAnswers.length - correctCount;
+    const canRetake = !exam.max_attempts || exam.max_attempts === 0 || exam.max_attempts > 1;
+
+    const hasPaper2 = structuredAnswers.length > 0 || essayAnswersList.length > 0;
+    const isTeacherVerified = result.status === "teacher_verified";
+    const isPendingTeacherGrading = hasPaper2 && !isTeacherVerified;
+
+    // Instant Paper 1 MCQ Score Calculation
+    const mcqPointsEarned = mcqAnswers.reduce((sum, a) => {
+      return sum + (a.final_score ?? a.scaled_points_earned ?? (a.is_correct ? (questions.find(q => q.id === a.question_id)?.points || 1.0) : 0.0));
+    }, 0);
+    const mcqMaxPoints = mcqAnswers.reduce((sum, a) => {
+      const q = questions.find(item => item.id === a.question_id);
+      return sum + (q?.points || 1.0);
+    }, 0);
+    const mcqPercentage = mcqMaxPoints > 0 ? Math.round((mcqPointsEarned / mcqMaxPoints) * 100) : 0;
 
     return (
       <div style={{ maxWidth: "1100px", margin: "0 auto", paddingBottom: "4rem" }}>
         {/* Results Header Card */}
-        <div className="card" style={{ marginBottom: "2rem", padding: "2rem", background: "var(--bg-card)", border: "1px solid var(--border)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "2rem", flexWrap: "wrap" }}>
+        <div className="card" style={{ marginBottom: "2rem", padding: "2rem", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "1.5rem", flexWrap: "wrap" }}>
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem", flexWrap: "wrap" }}>
-                <span className={`badge ${result.status === "teacher_verified" ? "badge-success" : "badge-info"}`}>
-                  {result.status === "teacher_verified" ? "✓ Verified by Teacher" : "AI Evaluated (Provisional)"}
-                </span>
+                {isTeacherVerified ? (
+                  <span className="badge badge-success" style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", fontWeight: 700 }}>
+                    <SvgIcon name="check-circle" size={13} />
+                    Verified by Teacher
+                  </span>
+                ) : isPendingTeacherGrading ? (
+                  <span className="badge badge-warning" style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", fontWeight: 700 }}>
+                    <SvgIcon name="clock" size={13} />
+                    Submitted — Paper II Pending Teacher Marking
+                  </span>
+                ) : (
+                  <span className="badge badge-info" style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", fontWeight: 700 }}>
+                    <SvgIcon name="check-circle" size={13} />
+                    Graded (MCQ Auto-Evaluated)
+                  </span>
+                )}
+
                 <span className="badge badge-primary">
                   {exam.exam_type === "paper_1_mcq" ? "Paper I — MCQ" : exam.exam_type === "paper_2_structured" ? "Paper II-A — Structured" : exam.exam_type === "paper_2_essay" ? "Paper II-B — Essay" : "Full G.C.E. A/L Paper"}
                 </span>
               </div>
 
-              <h1 style={{ fontSize: "1.75rem", fontWeight: 700, marginBottom: "0.4rem", color: "var(--text-primary)" }}>
-                {exam.title} &mdash; Examination Results
+              <h1 style={{ fontSize: "1.75rem", fontWeight: 800, marginBottom: "0.4rem", color: "var(--text-primary)" }}>
+                {exam.title} &mdash; {isPendingTeacherGrading ? "Paper Submitted" : "Examination Results"}
               </h1>
-              <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", margin: 0 }}>
-                {result.status === "teacher_verified"
-                  ? "Your examination script has been officially reviewed, graded, and verified by your teacher."
-                  : "Automated evaluation completed based on official G.C.E. A/L Biology marking standards."}
+              <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", margin: 0, lineHeight: 1.5, maxWidth: "600px" }}>
+                {isTeacherVerified
+                  ? "Your examination script has been officially reviewed, marked, and verified by your teacher."
+                  : isPendingTeacherGrading
+                  ? "Paper I (MCQ) marks are computed below immediately. Your Paper II structured and essay answers have been submitted to your teacher for manual marking."
+                  : "Automated evaluation completed based on official G.C.E. A/L marking standards."}
               </p>
             </div>
 
-            {/* Score & Grade Display */}
-            <div style={{ display: "flex", alignItems: "center", gap: "1.25rem", background: "var(--bg-secondary)", padding: "1rem 1.5rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border)" }}>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Score</div>
-                <div style={{ fontSize: "1.75rem", fontWeight: 800, color: "var(--text-primary)" }}>
-                  {rawScore}<span style={{ fontSize: "0.9rem", color: "var(--text-muted)" }}>/{maxPoints}</span>
-                </div>
+            {/* Score & Grade Display + Retake Action */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem", alignItems: "flex-end" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "1.25rem", background: "var(--bg-secondary)", padding: "0.85rem 1.35rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", flexWrap: "wrap" }}>
+                {isPendingTeacherGrading ? (
+                  <>
+                    {/* Instant Paper 1 MCQ Score */}
+                    {mcqAnswers.length > 0 && (
+                      <div style={{ textAlign: "center", minWidth: "90px" }}>
+                        <div style={{ fontSize: "0.68rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>Paper I (MCQ)</div>
+                        <div style={{ fontSize: "1.45rem", fontWeight: 800, color: "var(--text-primary)" }}>
+                          {mcqPointsEarned}<span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>/{mcqMaxPoints}</span>
+                        </div>
+                        <div style={{ fontSize: "0.72rem", color: "var(--success)", fontWeight: 700 }}>
+                          {mcqPercentage}% Auto-Graded
+                        </div>
+                      </div>
+                    )}
+
+                    {mcqAnswers.length > 0 && <div style={{ width: "1px", height: "36px", background: "var(--border)" }} />}
+
+                    {/* Paper 2 Status */}
+                    <div style={{ textAlign: "center", minWidth: "120px" }}>
+                      <div style={{ fontSize: "0.68rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>Paper II Status</div>
+                      <div style={{ fontSize: "0.95rem", fontWeight: 800, color: "var(--warning)", marginTop: "2px", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.3rem" }}>
+                        <SvgIcon name="clock" size={14} />
+                        <span>Needs Marking</span>
+                      </div>
+                      <div style={{ fontSize: "0.68rem", color: "var(--text-muted)", marginTop: "2px" }}>
+                        Teacher Evaluating
+                      </div>
+                    </div>
+
+                    <div style={{ width: "1px", height: "36px", background: "var(--border)" }} />
+
+                    {/* Official Composite Grade */}
+                    <div style={{ textAlign: "center", minWidth: "95px" }}>
+                      <div style={{ fontSize: "0.68rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>Composite Grade</div>
+                      <div style={{ fontSize: "0.95rem", fontWeight: 800, color: "var(--text-secondary)", marginTop: "2px" }}>
+                        Pending
+                      </div>
+                      <div style={{ fontSize: "0.68rem", color: "var(--text-muted)", marginTop: "2px" }}>
+                        Releases on Verification
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>Score</div>
+                      <div style={{ fontSize: "1.65rem", fontWeight: 800, color: "var(--text-primary)" }}>
+                        {rawScore}<span style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>/{maxPoints}</span>
+                      </div>
+                    </div>
+
+                    <div style={{ width: "1px", height: "32px", background: "var(--border)" }} />
+
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>Percentage</div>
+                      <div style={{ fontSize: "1.65rem", fontWeight: 800, color: "var(--accent-primary)" }}>
+                        {pct}%
+                      </div>
+                    </div>
+
+                    <div style={{ width: "1px", height: "32px", background: "var(--border)" }} />
+
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>Grade</div>
+                      <div
+                        style={{
+                          fontSize: "1.85rem",
+                          fontWeight: 900,
+                          color: grade === "A" ? "var(--success)" : grade === "B" ? "var(--accent-primary)" : grade === "C" ? "var(--warning)" : "var(--error)",
+                        }}
+                      >
+                        {grade}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
 
-              <div style={{ width: "1px", height: "36px", background: "var(--border)" }} />
-
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Percentage</div>
-                <div style={{ fontSize: "1.75rem", fontWeight: 800, color: "var(--accent-primary)" }}>
-                  {pct}%
-                </div>
-              </div>
-
-              <div style={{ width: "1px", height: "36px", background: "var(--border)" }} />
-
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Grade</div>
-                <div
-                  style={{
-                    fontSize: "2rem",
-                    fontWeight: 900,
-                    color: grade === "A" ? "var(--success)" : grade === "B" ? "var(--accent-primary)" : grade === "C" ? "var(--warning)" : "var(--error)",
-                  }}
+              {canRetake && (
+                <button
+                  type="button"
+                  onClick={handleStartExam}
+                  className="btn btn-primary"
+                  style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem", padding: "0.55rem 1.15rem", fontSize: "0.88rem", fontWeight: 700, borderRadius: "var(--radius-md)" }}
                 >
-                  {grade}
-                </div>
-              </div>
+                  <SvgIcon name="refresh" size={15} />
+                  <span>Retake Examination</span>
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Overall Teacher / AI Feedback Banner */}
-          {(result.teacher_feedback || result.ai_feedback_summary) && (
-            <div style={{ marginTop: "1.5rem", background: "rgba(99, 102, 241, 0.08)", padding: "1rem 1.25rem", borderRadius: "var(--radius-sm)", border: "1px solid rgba(99, 102, 241, 0.25)" }}>
-              <strong style={{ fontSize: "0.9rem", color: "var(--accent-primary)", display: "block", marginBottom: "0.25rem" }}>
-                {result.teacher_feedback ? "Teacher Verification & Overall Feedback:" : "AI Evaluation Summary:"}
-              </strong>
+          {/* Pending Teacher Marking Information Banner */}
+          {isPendingTeacherGrading && (
+            <div style={{ marginTop: "1.5rem", background: "rgba(245, 158, 11, 0.08)", padding: "1rem 1.25rem", borderRadius: "var(--radius-md)", border: "1px solid rgba(245, 158, 11, 0.25)" }}>
+              <div style={{ fontSize: "0.88rem", fontWeight: 700, color: "var(--warning)", display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.35rem" }}>
+                <SvgIcon name="info" size={16} />
+                <span>Paper II (Structured &amp; Essay) Submitted for Teacher Evaluation</span>
+              </div>
               <div style={{ fontSize: "0.875rem", color: "var(--text-primary)", lineHeight: 1.6 }}>
-                {normalizeScientificSymbols(result.teacher_feedback || result.ai_feedback_summary)}
+                Your Paper I MCQ score has been evaluated automatically. Your written answers for Paper II (Structured &amp; Essay) are safely recorded below and have been sent to your teacher. Official marking scheme criteria, subpart feedback, and final grade will be released once your teacher completes verification.
+              </div>
+            </div>
+          )}
+
+          {/* Overall Teacher Feedback Banner (when verified) */}
+          {isTeacherVerified && result.teacher_feedback && (
+            <div style={{ marginTop: "1.5rem", background: "rgba(99, 102, 241, 0.06)", padding: "1rem 1.25rem", borderRadius: "var(--radius-md)", border: "1px solid rgba(99, 102, 241, 0.2)" }}>
+              <div style={{ fontSize: "0.88rem", fontWeight: 700, color: "var(--accent-primary)", display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.35rem" }}>
+                <SvgIcon name="file-text" size={15} />
+                <span>Teacher Verification &amp; Overall Feedback</span>
+              </div>
+              <div style={{ fontSize: "0.875rem", color: "var(--text-primary)", lineHeight: 1.6 }}>
+                {normalizeScientificSymbols(result.teacher_feedback)}
               </div>
             </div>
           )}
@@ -642,30 +1000,34 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
         {/* ─── SECTION A: PAPER I (MCQ) QUESTION REVIEW ─── */}
         {mcqAnswers.length > 0 && (
           <div style={{ marginBottom: "2.5rem" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem", flexWrap: "wrap", gap: "0.5rem" }}>
-              <h2 style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
-                Paper I (MCQ) &mdash; Question Breakdown &amp; Explanations
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem", flexWrap: "wrap", gap: "0.75rem" }}>
+              <h2 style={{ fontSize: "1.25rem", fontWeight: 800, color: "var(--text-primary)", margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <SvgIcon name="clipboard" size={20} style={{ color: "var(--accent-primary)" }} />
+                <span>Paper I (MCQ) &mdash; Question Breakdown &amp; Explanations</span>
               </h2>
 
-              <div style={{ display: "flex", gap: "0.5rem" }}>
+              <div style={{ display: "flex", gap: "0.45rem", background: "var(--bg-secondary)", padding: "0.25rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border)" }}>
                 <button
                   type="button"
-                  className={`btn ${resultFilter === "all" ? "btn-primary" : "btn-secondary"} btn-sm`}
+                  className={`btn btn-sm ${resultFilter === "all" ? "btn-primary" : "btn-secondary"}`}
                   onClick={() => setResultFilter("all")}
+                  style={{ borderRadius: "var(--radius-sm)", fontSize: "0.8rem", padding: "0.35rem 0.85rem" }}
                 >
                   All ({mcqAnswers.length})
                 </button>
                 <button
                   type="button"
-                  className={`btn ${resultFilter === "correct" ? "btn-primary" : "btn-secondary"} btn-sm`}
+                  className={`btn btn-sm ${resultFilter === "correct" ? "btn-primary" : "btn-secondary"}`}
                   onClick={() => setResultFilter("correct")}
+                  style={{ borderRadius: "var(--radius-sm)", fontSize: "0.8rem", padding: "0.35rem 0.85rem" }}
                 >
                   Correct ({correctCount})
                 </button>
                 <button
                   type="button"
-                  className={`btn ${resultFilter === "incorrect" ? "btn-primary" : "btn-secondary"} btn-sm`}
+                  className={`btn btn-sm ${resultFilter === "incorrect" ? "btn-primary" : "btn-secondary"}`}
                   onClick={() => setResultFilter("incorrect")}
+                  style={{ borderRadius: "var(--radius-sm)", fontSize: "0.8rem", padding: "0.35rem 0.85rem" }}
                 >
                   Incorrect ({incorrectCount})
                 </button>
@@ -691,33 +1053,74 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
                       className="card"
                       style={{
                         padding: "1.5rem",
-                        borderLeft: `5px solid ${isCorrect ? "var(--success)" : "var(--error)"}`,
                         background: "var(--bg-card)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "var(--radius-lg)",
+                        boxShadow: "var(--shadow-sm)",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "1rem",
                       }}
                     >
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.75rem" }}>
-                        <span style={{ fontWeight: 700, fontSize: "1.05rem", color: "var(--text-primary)" }}>
-                          Question {qNum}
-                        </span>
-                        <span className={`badge ${isCorrect ? "badge-success" : "badge-error"}`}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                          <span style={{ fontWeight: 800, fontSize: "1.05rem", color: "var(--text-primary)" }}>
+                            Question {qNum}
+                          </span>
+                          {question?.cognitive_level && (
+                            <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", padding: "0.15rem 0.45rem", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
+                              {question.cognitive_level}
+                            </span>
+                          )}
+                        </div>
+
+                        <span
+                          className={`badge ${isCorrect ? "badge-success" : "badge-error"}`}
+                          style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", fontWeight: 700, padding: "0.3rem 0.75rem" }}
+                        >
+                          <SvgIcon name={isCorrect ? "check-circle" : "alert-triangle"} size={13} />
                           {isCorrect ? `Correct (+${earnedScore})` : `Incorrect (${earnedScore})`}
                         </span>
                       </div>
 
-                      <p style={{ fontSize: "1rem", color: "var(--text-primary)", marginBottom: "1rem", lineHeight: 1.6 }}>
+                      <div style={{ fontSize: "0.98rem", color: "var(--text-primary)", lineHeight: 1.65, whiteSpace: "pre-wrap" }}>
                         {normalizeScientificSymbols(question?.stem_text)}
-                      </p>
+                      </div>
 
-                      <div style={{ display: "flex", gap: "1.5rem", fontSize: "0.9rem", marginBottom: "1rem", flexWrap: "wrap" }}>
-                        <div>
-                          <span style={{ color: "var(--text-muted)" }}>Your Answer: </span>
-                          <strong style={{ color: isCorrect ? "var(--success)" : "var(--error)" }}>
+                      {/* Dual Comparison Answer Card */}
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "0.75rem" }}>
+                        {/* Student Answer Box */}
+                        <div
+                          style={{
+                            padding: "0.85rem 1rem",
+                            borderRadius: "var(--radius-md)",
+                            background: isCorrect ? "rgba(16, 185, 129, 0.05)" : "rgba(239, 68, 68, 0.05)",
+                            border: `1px solid ${isCorrect ? "rgba(16, 185, 129, 0.2)" : "rgba(239, 68, 68, 0.2)"}`,
+                          }}
+                        >
+                          <div style={{ fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, color: isCorrect ? "var(--success)" : "var(--error)", marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                            <SvgIcon name={isCorrect ? "check-circle" : "alert-triangle"} size={13} />
+                            Your Answer
+                          </div>
+                          <div style={{ fontSize: "0.92rem", fontWeight: 700, color: "var(--text-primary)" }}>
                             {ans.selected_option ? `Option (${ans.selected_option})` : "Not Answered"}
-                          </strong>
+                          </div>
                         </div>
-                        <div>
-                          <span style={{ color: "var(--text-muted)" }}>Correct Answer: </span>
-                          <strong style={{ color: "var(--success)" }}>
+
+                        {/* Correct Answer Box */}
+                        <div
+                          style={{
+                            padding: "0.85rem 1rem",
+                            borderRadius: "var(--radius-md)",
+                            background: "rgba(16, 185, 129, 0.05)",
+                            border: "1px solid rgba(16, 185, 129, 0.2)",
+                          }}
+                        >
+                          <div style={{ fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, color: "var(--success)", marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                            <SvgIcon name="check-circle" size={13} />
+                            Official Correct Answer
+                          </div>
+                          <div style={{ fontSize: "0.92rem", fontWeight: 700, color: "var(--text-primary)" }}>
                             {ans.correct_option
                               ? `Option (${ans.correct_option})`
                               : question?.correct_option
@@ -725,21 +1128,27 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
                               : isCorrect && ans.selected_option
                               ? `Option (${ans.selected_option})`
                               : "Official A/L Marking Scheme"}
-                          </strong>
+                          </div>
                         </div>
                       </div>
 
                       {ans.feedback_notes && (
-                        <div style={{ background: "rgba(99, 102, 241, 0.06)", padding: "0.85rem 1rem", borderRadius: "var(--radius-sm)", fontSize: "0.85rem", color: "var(--text-primary)", border: "1px solid rgba(99, 102, 241, 0.2)", marginBottom: "0.75rem" }}>
-                          <strong style={{ color: "var(--accent-primary)" }}>Teacher Feedback: </strong>
+                        <div style={{ background: "rgba(99, 102, 241, 0.06)", padding: "0.85rem 1rem", borderRadius: "var(--radius-md)", fontSize: "0.85rem", color: "var(--text-primary)", border: "1px solid rgba(99, 102, 241, 0.2)" }}>
+                          <strong style={{ color: "var(--accent-primary)", display: "flex", alignItems: "center", gap: "0.35rem", marginBottom: "0.2rem" }}>
+                            <SvgIcon name="info" size={13} />
+                            Teacher Feedback:
+                          </strong>
                           <span>{normalizeScientificSymbols(ans.feedback_notes)}</span>
                         </div>
                       )}
 
                       {(ans.explanation || question?.explanation) && (
-                        <div style={{ background: "var(--bg-secondary)", padding: "1rem", borderRadius: "var(--radius-sm)", fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
-                          <strong style={{ color: "var(--text-primary)" }}>Marking Explanation: </strong>
-                          {normalizeScientificSymbols(ans.explanation || question?.explanation)}
+                        <div style={{ background: "rgba(99, 102, 241, 0.04)", padding: "1rem 1.15rem", borderRadius: "var(--radius-md)", fontSize: "0.88rem", color: "var(--text-primary)", lineHeight: 1.55, border: "1px solid rgba(99, 102, 241, 0.15)" }}>
+                          <div style={{ fontWeight: 700, color: "var(--accent-primary)", display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.35rem" }}>
+                            <SvgIcon name="file-text" size={14} />
+                            <span>Marking Scheme &amp; Scientific Explanation</span>
+                          </div>
+                          <div>{normalizeScientificSymbols(ans.explanation || question?.explanation)}</div>
                         </div>
                       )}
                     </div>
@@ -752,8 +1161,9 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
         {/* ─── SECTION B: PAPER II-A (STRUCTURED) QUESTION REVIEW ─── */}
         {structuredAnswers.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: "1.75rem", marginBottom: "2.5rem" }}>
-            <h2 style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
-              Paper II-A (Structured) &mdash; Subparts Marks Breakdown
+            <h2 style={{ fontSize: "1.25rem", fontWeight: 800, color: "var(--text-primary)", margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <SvgIcon name="clipboard" size={20} style={{ color: "var(--accent-primary)" }} />
+              <span>Paper II-A (Structured) &mdash; Responses &amp; Subparts Breakdown</span>
             </h2>
 
             {structuredAnswers.map((ans, idx) => {
@@ -761,11 +1171,11 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
               const qNum = question?.question_number || idx + 1;
               const subpartsJson = question?.structured_subparts_json || [];
               const studentAnswersMap = ans.subpart_answers_json || {};
-              const awardedScore = ans.final_score ?? ans.scaled_points_earned ?? ans.teacher_score ?? ans.ai_score ?? 0.0;
+              const awardedScore = ans.teacher_score ?? ans.final_score ?? ans.scaled_points_earned ?? 0.0;
               const maxQPoints = question?.points || 40.0;
 
               return (
-                <div key={ans.id} className="card" style={{ padding: "1.5rem", border: "1px solid var(--border)", background: "var(--bg-card)" }}>
+                <div key={ans.id} className="card" style={{ padding: "1.5rem", border: "1px solid var(--border)", background: "var(--bg-card)", borderRadius: "var(--radius-lg)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1rem", borderBottom: "1px solid var(--border)", paddingBottom: "0.75rem", flexWrap: "wrap", gap: "0.75rem" }}>
                     <div>
                       <span className="badge badge-purple" style={{ fontWeight: 700, marginBottom: "0.35rem" }}>Question {qNum}</span>
@@ -775,10 +1185,17 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
                     </div>
 
                     <div style={{ textAlign: "right" }}>
-                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", textTransform: "uppercase" }}>Marks Awarded</div>
-                      <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "var(--accent-primary)" }}>
-                        {awardedScore} <span style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>/ {maxQPoints}</span>
-                      </div>
+                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>Evaluation</div>
+                      {isTeacherVerified ? (
+                        <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "var(--accent-primary)" }}>
+                          {awardedScore} <span style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>/ {maxQPoints}</span>
+                        </div>
+                      ) : (
+                        <span className="badge badge-warning" style={{ fontSize: "0.75rem", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+                          <SvgIcon name="clock" size={12} />
+                          Max: {maxQPoints} pts (Pending Teacher Marks)
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -789,6 +1206,7 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
                         const partLabel = getAcademicSubpartLabel(partNode, 0, pIdx);
                         const partChildren = partNode.children || partNode.subparts || [];
                         const hasChildren = Array.isArray(partChildren) && partChildren.length > 0;
+                        const resolvedLeafAnswer = resolveCandidateSubpartAnswer(partNode, 0, pIdx, studentAnswersMap);
 
                         return (
                           <div key={partNode.id || pIdx} style={{ padding: "1rem", background: "var(--bg-secondary)", borderRadius: "var(--radius-md)", border: "1px solid var(--border-subtle)" }}>
@@ -808,17 +1226,17 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
                                     Your Submitted Answer:
                                   </div>
                                   <div style={{ fontSize: "0.9rem", color: "var(--text-primary)", whiteSpace: "pre-wrap" }}>
-                                    {renderCandidateSubpartAnswer(studentAnswersMap[partNode.id] ?? studentAnswersMap[partLabel])}
+                                    {renderCandidateSubpartAnswer(resolvedLeafAnswer)}
                                   </div>
                                 </div>
                               </div>
                             )}
 
                             {hasChildren && (
-                              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", paddingLeft: "0.75rem", borderLeft: "2px solid var(--border)" }}>
+                              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", paddingLeft: "0.5rem" }}>
                                 {partChildren.map((childNode: any, cIdx: number) => {
                                   const childLabel = getAcademicSubpartLabel(childNode, 1, cIdx);
-                                  const rawChildAns = studentAnswersMap[childNode.id] ?? studentAnswersMap[childLabel];
+                                  const resolvedChildAnswer = resolveCandidateSubpartAnswer(childNode, 1, cIdx, studentAnswersMap);
 
                                   return (
                                     <div key={childNode.id || cIdx} style={{ padding: "0.85rem", background: "var(--bg-card)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
@@ -831,7 +1249,7 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
                                         </div>
                                       )}
                                       <div style={{ background: "var(--bg-secondary)", padding: "0.6rem 0.85rem", borderRadius: "var(--radius-sm)", fontSize: "0.875rem", color: "var(--text-primary)", whiteSpace: "pre-wrap" }}>
-                                        {renderCandidateSubpartAnswer(rawChildAns)}
+                                        {renderCandidateSubpartAnswer(resolvedChildAnswer)}
                                       </div>
                                     </div>
                                   );
@@ -856,7 +1274,10 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
                   {/* Question-level Teacher Feedback */}
                   {ans.feedback_notes && (
                     <div style={{ background: "rgba(99, 102, 241, 0.06)", padding: "0.85rem 1rem", borderRadius: "var(--radius-sm)", fontSize: "0.85rem", color: "var(--text-primary)", border: "1px solid rgba(99, 102, 241, 0.2)" }}>
-                      <strong style={{ color: "var(--accent-primary)" }}>Teacher Feedback for Question {qNum}: </strong>
+                      <strong style={{ color: "var(--accent-primary)", display: "flex", alignItems: "center", gap: "0.35rem", marginBottom: "0.2rem" }}>
+                        <SvgIcon name="info" size={13} />
+                        Teacher Feedback for Question {qNum}:
+                      </strong>
                       <span>{normalizeScientificSymbols(ans.feedback_notes)}</span>
                     </div>
                   )}
@@ -869,20 +1290,21 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
         {/* ─── SECTION C: PAPER II-B (ESSAY) QUESTION REVIEW ─── */}
         {essayAnswersList.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: "1.75rem", marginBottom: "2.5rem" }}>
-            <h2 style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
-              Paper II-B (Essay) &mdash; Responses &amp; Rubric Evaluation
+            <h2 style={{ fontSize: "1.25rem", fontWeight: 800, color: "var(--text-primary)", margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <SvgIcon name="clipboard" size={20} style={{ color: "var(--accent-primary)" }} />
+              <span>Paper II-B (Essay) &mdash; Responses &amp; Rubric Evaluation</span>
             </h2>
 
             {essayAnswersList.map((ans, idx) => {
               const question = questions.find((q) => q.id === ans.question_id);
               const qNum = question?.question_number || idx + 1;
               const criteriaList = question ? extractEssayCriteriaList(question) : [];
-              const awardedScore = ans.final_score ?? ans.scaled_points_earned ?? ans.teacher_score ?? ans.ai_score ?? 0.0;
+              const awardedScore = ans.teacher_score ?? ans.final_score ?? ans.scaled_points_earned ?? 0.0;
               const maxQPoints = question?.points || 40.0;
-              const checklistResults = ans.teacher_checklist_results_json || ans.ai_checklist_results_json || [];
+              const checklistResults = ans.teacher_checklist_results_json || [];
 
               return (
-                <div key={ans.id} className="card" style={{ padding: "1.5rem", border: "1px solid var(--border)", background: "var(--bg-card)" }}>
+                <div key={ans.id} className="card" style={{ padding: "1.5rem", border: "1px solid var(--border)", background: "var(--bg-card)", borderRadius: "var(--radius-lg)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1rem", borderBottom: "1px solid var(--border)", paddingBottom: "0.75rem", flexWrap: "wrap", gap: "0.75rem" }}>
                     <div>
                       <span className="badge badge-amber" style={{ fontWeight: 700, marginBottom: "0.35rem" }}>Essay Question {qNum}</span>
@@ -892,10 +1314,17 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
                     </div>
 
                     <div style={{ textAlign: "right" }}>
-                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", textTransform: "uppercase" }}>Marks Awarded</div>
-                      <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "var(--accent-primary)" }}>
-                        {awardedScore} <span style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>/ {maxQPoints}</span>
-                      </div>
+                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>Evaluation</div>
+                      {isTeacherVerified ? (
+                        <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "var(--accent-primary)" }}>
+                          {awardedScore} <span style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>/ {maxQPoints}</span>
+                        </div>
+                      ) : (
+                        <span className="badge badge-warning" style={{ fontSize: "0.75rem", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+                          <SvgIcon name="clock" size={12} />
+                          Max: {maxQPoints} pts (Pending Teacher Marks)
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -920,11 +1349,11 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
                     )}
                   </div>
 
-                  {/* Rubric Criteria Attainment Checklist */}
-                  {criteriaList.length > 0 && (
+                  {/* Rubric Criteria Breakdown (Strictly shown only after Teacher Verification) */}
+                  {isTeacherVerified && criteriaList.length > 0 ? (
                     <div style={{ marginBottom: "1.25rem" }}>
                       <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.5rem" }}>
-                        Rubric Criteria Attainment:
+                        Official Verified Rubric Breakdown:
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
                         {criteriaList.map((c, cIdx) => {
@@ -945,8 +1374,8 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
                               }}
                             >
                               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                                <span style={{ color: isAwarded ? "#10B981" : "var(--text-muted)", fontWeight: 700 }}>
-                                  {isAwarded ? "✓" : "○"}
+                                <span style={{ color: isAwarded ? "#10B981" : "var(--text-muted)", display: "flex", alignItems: "center" }}>
+                                  <SvgIcon name={isAwarded ? "check-circle" : "file-text"} size={14} />
                                 </span>
                                 <span style={{ color: "var(--text-primary)" }}>
                                   #{c.item_number} — {c.criterion_text}
@@ -961,12 +1390,22 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
                         })}
                       </div>
                     </div>
-                  )}
+                  ) : !isTeacherVerified ? (
+                    <div style={{ background: "rgba(245, 158, 11, 0.06)", padding: "0.85rem 1.15rem", borderRadius: "var(--radius-md)", border: "1px solid rgba(245, 158, 11, 0.2)", display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1.25rem" }}>
+                      <SvgIcon name="clock" size={15} style={{ color: "var(--warning)", flexShrink: 0 }} />
+                      <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                        Your essay response has been submitted for teacher evaluation. Official marking criteria and awarded marks will be released once your teacher completes verification.
+                      </span>
+                    </div>
+                  ) : null}
 
                   {/* Essay-level Teacher Feedback */}
                   {ans.feedback_notes && (
                     <div style={{ background: "rgba(99, 102, 241, 0.06)", padding: "0.85rem 1rem", borderRadius: "var(--radius-sm)", fontSize: "0.85rem", color: "var(--text-primary)", border: "1px solid rgba(99, 102, 241, 0.2)" }}>
-                      <strong style={{ color: "var(--accent-primary)" }}>Teacher Feedback for Essay {qNum}: </strong>
+                      <strong style={{ color: "var(--accent-primary)", display: "flex", alignItems: "center", gap: "0.35rem", marginBottom: "0.2rem" }}>
+                        <SvgIcon name="info" size={13} />
+                        Teacher Feedback for Essay {qNum}:
+                      </strong>
                       <span>{normalizeScientificSymbols(ans.feedback_notes)}</span>
                     </div>
                   )}
@@ -978,18 +1417,22 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
 
         {/* Action Controls: Return to Course + Retake Exam */}
         <div style={{ marginTop: "2.5rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
-          <Link href={`/dashboard/student/courses/${exam.course_id}`} className="btn btn-secondary" style={{ textDecoration: "none" }}>
-            ← Return to Course
+          <Link href={`/dashboard/student/courses/${exam.course_id}`} className="btn btn-secondary" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+            <SvgIcon name="arrow-left" size={14} />
+            <span>Return to Course</span>
           </Link>
 
-          <button
-            type="button"
-            onClick={handleStartExam}
-            className="btn btn-primary"
-            style={{ padding: "0.65rem 1.75rem", fontSize: "0.95rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "0.5rem" }}
-          >
-            <SvgIcon name="refresh" size={16} /> Retake Examination / Start New Attempt
-          </button>
+          {canRetake && (
+            <button
+              type="button"
+              onClick={handleStartExam}
+              className="btn btn-primary"
+              style={{ padding: "0.65rem 1.75rem", fontSize: "0.95rem", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "0.5rem", borderRadius: "var(--radius-md)" }}
+            >
+              <SvgIcon name="refresh" size={16} />
+              <span>Retake Examination / Start New Attempt</span>
+            </button>
+          )}
         </div>
       </div>
     );
@@ -1331,7 +1774,22 @@ export default function StudentALExamTakePage({ params }: { params: Promise<{ id
             boxShadow: "0 8px 30px rgba(0,0,0,0.06)",
           }}
         >
-          <div style={{ fontSize: "3rem", marginBottom: "1rem" }}>☕</div>
+          <div
+            style={{
+              width: "64px",
+              height: "64px",
+              borderRadius: "50%",
+              background: "rgba(59, 130, 246, 0.12)",
+              color: "var(--accent-primary)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "0 auto 1.25rem",
+              border: "1px solid rgba(59, 130, 246, 0.25)",
+            }}
+          >
+            <SvgIcon name="award" size={32} />
+          </div>
           <h2 style={{ fontSize: "1.6rem", fontWeight: 800, color: "var(--text-primary)", marginBottom: "0.6rem" }}>
             Paper I (MCQ Section) Completed!
           </h2>

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
@@ -566,6 +566,81 @@ def export_questions_endpoint(
     else:
         json_data = export_questions_to_json(db, question_ids)
         return Response(content=json_data, media_type="application/json", headers={"Content-Disposition": "attachment; filename=questions_export.json"})
+
+
+@router.post("/parse-pdf")
+@router.post("/import-pdf")
+async def parse_and_import_pdf_questions(
+    paper_type: str = Form("paper_1_mcq"),
+    year: str = Form("2024"),
+    topic_id: Optional[int] = Form(None),
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_admin_or_teacher),
+    db: Session = Depends(get_db)
+):
+    """
+    Deterministic Past Paper PDF Parser -> Question Bank Ingestion.
+    Extracts MCQ, Structured, or Essay questions directly into Question Bank using PyMuPDF parser.
+    Operates 100% independently from Course Materials.
+    """
+    import os, uuid, shutil
+    from app.services.pdf_parser import parse_pdf_questions
+
+    upload_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads", "past_papers")
+    os.makedirs(upload_dir, exist_ok=True)
+    file_ext = os.path.splitext(file.filename)[1].lower() or ".pdf"
+    unique_name = f"{year}_{uuid.uuid4()}{file_ext}"
+    temp_path = os.path.join(upload_dir, unique_name)
+
+    with open(temp_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    parsed_items = parse_pdf_questions(temp_path, paper_type, year)
+    if not parsed_items:
+        return {"message": "No questions could be parsed from the provided PDF file.", "count": 0, "questions": [], "success": True}
+
+    created_questions = []
+    for item in parsed_items:
+        q = Question(
+            lesson_id=None,
+            topic_id=topic_id,
+            is_banked=True,
+            is_active=True
+        )
+        db.add(q)
+        db.commit()
+        db.refresh(q)
+
+        q_type_str = item.get("type", "MCQ").upper()
+        if q_type_str == "MCQ":
+            q_type = QuestionType.MCQ
+        elif q_type_str == "ESSAY":
+            q_type = QuestionType.ESSAY
+        else:
+            q_type = QuestionType.SHORT_ANSWER
+
+        qv = QuestionVersion(
+            question_id=q.id,
+            question_text=item.get("text", "Extracted Question"),
+            question_type=q_type,
+            options=item.get("options"),
+            correct_answer=item.get("answer", "Refer to official marking scheme."),
+            explanation=item.get("explanation", ""),
+            difficulty=Difficulty.MEDIUM,
+            tags=item.get("tags", ["past_paper", f"year_{year}", paper_type]),
+            source_type="imported",
+            teacher_approval_status=TeacherApprovalStatus.APPROVED,
+        )
+        db.add(qv)
+        created_questions.append({"question_id": q.id, "text": qv.question_text[:80]})
+
+    db.commit()
+    return {
+        "message": f"Successfully parsed and banked {len(created_questions)} questions from {file.filename}",
+        "count": len(created_questions),
+        "questions": created_questions,
+        "success": True
+    }
 
 
 @router.post("/import")

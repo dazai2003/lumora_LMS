@@ -2,6 +2,7 @@
 
 import { useEffect, useState, use, useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import api, { ALExam, ALQuestion, ALStudentSubmission, ALStudentAnswer } from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
 import { SvgIcon } from "@/components/SvgIcon";
@@ -28,56 +29,80 @@ function getAcademicSubpartLabel(node: any, depth: number, index: number): strin
   }
 }
 
-function extractEssayCriteriaList(question: ALQuestion): Array<{ item_number: number; criterion_text: string; max_points: number }> {
+interface EssayCriterionItem {
+  item_number: number;
+  criterion_text: string;
+  max_points: number;
+  accepted_alternatives?: string;
+}
+
+function extractEssayCriteriaList(question: ALQuestion): Array<EssayCriterionItem> {
   const raw = question.essay_checklist_json;
   if (!raw) return [];
-  const list: Array<{ item_number: number; criterion_text: string; max_points: number }> = [];
+  const list: Array<EssayCriterionItem> = [];
+
   if (Array.isArray(raw)) {
     raw.forEach((it: any, idx: number) => {
       if (typeof it === "object") {
         list.push({
           item_number: it.item_number || it.number || idx + 1,
           criterion_text: it.description || it.criterion || it.text || `Criterion ${idx + 1}`,
-          max_points: Number(it.marks || it.points || it.max_points || 4.0),
+          max_points: Number(it.marks || it.points || it.max_points || 5.0),
+          accepted_alternatives: it.accepted_alternatives || it.alternatives || "",
         });
       } else {
-        list.push({ item_number: idx + 1, criterion_text: String(it), max_points: 4.0 });
+        list.push({ item_number: idx + 1, criterion_text: String(it), max_points: 5.0 });
       }
     });
   } else if (typeof raw === "object") {
-    const subparts = raw.subparts || [];
-    if (Array.isArray(subparts) && subparts.length > 0) {
-      let count = 1;
-      subparts.forEach((sp: any) => {
-        const label = sp.label || `Subpart ${count}`;
-        const pts = sp.answer_points || sp.marking_points || sp.criteria || [];
-        if (Array.isArray(pts) && pts.length > 0) {
-          pts.forEach((pt: any) => {
-            const desc = pt.description || pt.criterion || pt.text || `Criterion ${count}`;
-            list.push({
-              item_number: count,
-              criterion_text: desc.startsWith(label) ? desc : `${label} — ${desc}`,
-              max_points: Number(pt.marks || pt.points || pt.max_points || 4.0),
-            });
-            count++;
-          });
-        } else {
-          list.push({
-            item_number: count,
-            criterion_text: `${label} ${sp.prompt || ""}`.trim(),
-            max_points: Number(sp.marks || sp.max_points || 10.0),
-          });
-          count++;
-        }
+    // 1. Check direct answer_points / criteria first (especially for single_complete)
+    const direct = raw.answer_points || raw.criteria || raw.marking_points || [];
+    const fmt = raw.structure_format || raw.structure_type;
+
+    if (Array.isArray(direct) && direct.length > 0 && (fmt === "single_complete" || !raw.subparts || raw.subparts.length === 0)) {
+      direct.forEach((pt: any, idx: number) => {
+        list.push({
+          item_number: pt.item_number || idx + 1,
+          criterion_text: pt.description || pt.criterion || pt.text || `Criterion ${idx + 1}`,
+          max_points: Number(pt.marks || pt.points || pt.max_points || 5.0),
+          accepted_alternatives: pt.accepted_alternatives || pt.alternatives || "",
+        });
       });
     } else {
-      const direct = raw.answer_points || raw.criteria || raw.marking_points || [];
-      if (Array.isArray(direct)) {
+      const subparts = raw.subparts || [];
+      if (Array.isArray(subparts) && subparts.length > 0) {
+        let count = 1;
+        subparts.forEach((sp: any) => {
+          const label = sp.label || `Subpart ${count}`;
+          const pts = sp.answer_points || sp.marking_points || sp.criteria || [];
+          if (Array.isArray(pts) && pts.length > 0) {
+            pts.forEach((pt: any) => {
+              const desc = pt.description || pt.criterion || pt.text || `Criterion ${count}`;
+              list.push({
+                item_number: count,
+                criterion_text: desc.startsWith(label) ? desc : `${label} — ${desc}`,
+                max_points: Number(pt.marks || pt.points || pt.max_points || 4.0),
+                accepted_alternatives: pt.accepted_alternatives || pt.alternatives || "",
+              });
+              count++;
+            });
+          } else {
+            list.push({
+              item_number: count,
+              criterion_text: `${label} ${sp.prompt || ""}`.trim(),
+              max_points: Number(sp.marks || sp.max_points || 10.0),
+              accepted_alternatives: sp.accepted_alternatives || "",
+            });
+            count++;
+          }
+        });
+      } else if (Array.isArray(direct) && direct.length > 0) {
         direct.forEach((pt: any, idx: number) => {
           list.push({
             item_number: pt.item_number || idx + 1,
             criterion_text: pt.description || pt.criterion || pt.text || `Criterion ${idx + 1}`,
-            max_points: Number(pt.marks || pt.points || pt.max_points || 4.0),
+            max_points: Number(pt.marks || pt.points || pt.max_points || 5.0),
+            accepted_alternatives: pt.accepted_alternatives || pt.alternatives || "",
           });
         });
       }
@@ -86,13 +111,235 @@ function extractEssayCriteriaList(question: ALQuestion): Array<{ item_number: nu
   return list;
 }
 
+function resolveCandidateSubpartAnswer(node: any, depth: number, index: number, answersMap: Record<string, any>): any {
+  if (!answersMap || typeof answersMap !== "object") return null;
+  const nodeId = String(node?.id || "").trim();
+  const partLabel = getAcademicSubpartLabel(node, depth, index);
+  const displayLabel = String(node?.display_label || node?.label || node?.part_label || "").trim();
+
+  // 1. Direct key match
+  if (nodeId && answersMap[nodeId] !== undefined && answersMap[nodeId] !== "") return answersMap[nodeId];
+  if (displayLabel && answersMap[displayLabel] !== undefined && answersMap[displayLabel] !== "") return answersMap[displayLabel];
+  if (partLabel && answersMap[partLabel] !== undefined && answersMap[partLabel] !== "") return answersMap[partLabel];
+
+  // 2. Scan for composite keys matching this node
+  const searchPrefixes = [nodeId, displayLabel, partLabel].filter(Boolean);
+  const allKeys = Object.keys(answersMap);
+
+  for (const prefix of searchPrefixes) {
+    const matchingKeys = allKeys.filter((k) => k === prefix || k.startsWith(`${prefix}__`));
+    if (matchingKeys.length === 0) continue;
+
+    // A. Biological drawing
+    const drawingKey = matchingKeys.find((k) => k.endsWith("__drawing"));
+    if (drawingKey && answersMap[drawingKey]) {
+      return { type: "drawing", data: answersMap[drawingKey] };
+    }
+
+    // B. Sequential pathway steps (__seq_0, __seq_1, ...)
+    const seqKeys = matchingKeys.filter((k) => k.includes("__seq_")).sort((a, b) => {
+      const idxA = parseInt(a.split("__seq_")[1] || "0", 10);
+      const idxB = parseInt(b.split("__seq_")[1] || "0", 10);
+      return idxA - idxB;
+    });
+    if (seqKeys.length > 0) {
+      const steps = seqKeys
+        .map((k, idx) => ({
+          step: idx + 1,
+          text: answersMap[k],
+        }))
+        .filter((s) => Boolean(s.text && String(s.text).trim()));
+      if (steps.length > 0) {
+        return { type: "sequence", steps };
+      }
+    }
+
+    // C. Comparison table (__comp_0_v1, __comp_0_v2, ...)
+    const compKeys = matchingKeys.filter((k) => k.includes("__comp_"));
+    if (compKeys.length > 0) {
+      const pairs = node.comparison_pairs || node.comparison_data?.pairs || [];
+      const header1 = node.comparison_header_1 || "Structure / Feature A";
+      const header2 = node.comparison_header_2 || "Structure / Feature B";
+      const rows: Array<{ criterion: string; val1: string; val2: string }> = [];
+
+      pairs.forEach((cp: any, idx: number) => {
+        const k1 = `${prefix}__comp_${idx}_v1`;
+        const k2 = `${prefix}__comp_${idx}_v2`;
+        const v1 = answersMap[k1] || "";
+        const v2 = answersMap[k2] || "";
+        if (v1 || v2) {
+          rows.push({
+            criterion: cp.criterion || `Feature ${idx + 1}`,
+            val1: v1,
+            val2: v2,
+          });
+        }
+      });
+
+      if (rows.length === 0) {
+        compKeys.forEach((k) => {
+          if (answersMap[k]) {
+            rows.push({ criterion: k.replace(`${prefix}__comp_`, "Comparison "), val1: answersMap[k], val2: "" });
+          }
+        });
+      }
+
+      if (rows.length > 0) {
+        return { type: "comparison", header1, header2, rows };
+      }
+    }
+
+    // D. Matrix / Classification Table (__cell_0_1, ...)
+    const cellKeys = matchingKeys.filter((k) => k.includes("__cell_"));
+    if (cellKeys.length > 0) {
+      const matrixRows = node.matrix_data?.rows || node.table_data?.rows || [];
+      const headers = node.matrix_data?.col_headers || node.table_data?.headers || ["Biological Item / Structure", "Function / Classification"];
+      const rows: Array<{ item: string; value: string }> = [];
+
+      matrixRows.forEach((row: any, rIdx: number) => {
+        const isObj = Boolean(row && typeof row === "object" && "item" in row);
+        const itemLabel = isObj ? row.item : Array.isArray(row) ? row[0] : `Row ${rIdx + 1}`;
+        const cKey = `${prefix}__cell_${rIdx}_1`;
+        const cVal = answersMap[cKey] || "";
+        if (cVal) {
+          rows.push({ item: itemLabel, value: cVal });
+        }
+      });
+
+      if (rows.length === 0) {
+        cellKeys.forEach((k, idx) => {
+          if (answersMap[k]) {
+            rows.push({ item: `Entry ${idx + 1}`, value: answersMap[k] });
+          }
+        });
+      }
+
+      if (rows.length > 0) {
+        return { type: "matrix", headers, rows };
+      }
+    }
+
+    // E. General matching keys aggregation
+    const nonBlankEntries = matchingKeys
+      .filter((k) => answersMap[k] && String(answersMap[k]).trim())
+      .map((k) => [k.replace(`${prefix}__`, ""), answersMap[k]]);
+    if (nonBlankEntries.length > 0) {
+      return Object.fromEntries(nonBlankEntries);
+    }
+  }
+
+  return null;
+}
+
 function renderCandidateSubpartAnswer(val: any): React.ReactNode {
   if (val === null || val === undefined || val === "") {
     return <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>— Unanswered —</span>;
   }
+
+  // Biological Drawing
+  if (typeof val === "object" && val.type === "drawing" && val.data) {
+    return (
+      <div style={{ marginTop: "0.4rem" }}>
+        <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--accent-primary)", marginBottom: "0.35rem", display: "flex", alignItems: "center", gap: "0.35rem" }}>
+          <SvgIcon name="image" size={13} />
+          <span>Biological Diagram / Canvas Response:</span>
+        </div>
+        <img
+          src={val.data}
+          alt="Candidate Drawing"
+          style={{ maxWidth: "100%", maxHeight: "260px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)", background: "#ffffff" }}
+        />
+      </div>
+    );
+  }
+
+  // Sequential Pathway
+  if (typeof val === "object" && val.type === "sequence" && Array.isArray(val.steps)) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginTop: "0.25rem" }}>
+        <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--accent-primary)", display: "flex", alignItems: "center", gap: "0.35rem" }}>
+          <SvgIcon name="arrow-right" size={13} />
+          <span>Sequential Pathway Steps:</span>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "stretch", gap: "0.5rem" }}>
+          {val.steps.map((s: any, sIdx: number) => (
+            <div
+              key={sIdx}
+              style={{
+                flex: "1 1 200px",
+                padding: "0.6rem 0.85rem",
+                background: "var(--bg-secondary)",
+                borderRadius: "var(--radius-sm)",
+                border: "1px solid var(--border-subtle)",
+              }}
+            >
+              <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--accent-primary)", marginBottom: "0.2rem" }}>
+                Step {s.step}
+              </div>
+              <div style={{ fontSize: "0.88rem", color: "var(--text-primary)", whiteSpace: "pre-wrap" }}>
+                {String(s.text)}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Comparison Table
+  if (typeof val === "object" && val.type === "comparison" && Array.isArray(val.rows)) {
+    return (
+      <div style={{ overflowX: "auto", marginTop: "0.35rem" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", border: "1px solid var(--border)", fontSize: "0.85rem" }}>
+          <thead>
+            <tr style={{ background: "var(--bg-secondary)" }}>
+              <th style={{ border: "1px solid var(--border)", padding: "0.45rem 0.65rem", textAlign: "left", fontWeight: 700 }}>Feature / Criterion</th>
+              <th style={{ border: "1px solid var(--border)", padding: "0.45rem 0.65rem", textAlign: "left", fontWeight: 700 }}>{val.header1 || "Structure A"}</th>
+              <th style={{ border: "1px solid var(--border)", padding: "0.45rem 0.65rem", textAlign: "left", fontWeight: 700 }}>{val.header2 || "Structure B"}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {val.rows.map((r: any, rIdx: number) => (
+              <tr key={rIdx}>
+                <td style={{ border: "1px solid var(--border)", padding: "0.45rem 0.65rem", fontWeight: 600, background: "var(--bg-secondary)" }}>{r.criterion}</td>
+                <td style={{ border: "1px solid var(--border)", padding: "0.45rem 0.65rem" }}>{String(r.val1)}</td>
+                <td style={{ border: "1px solid var(--border)", padding: "0.45rem 0.65rem" }}>{String(r.val2)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  // Matrix Table
+  if (typeof val === "object" && val.type === "matrix" && Array.isArray(val.rows)) {
+    return (
+      <div style={{ overflowX: "auto", marginTop: "0.35rem" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", border: "1px solid var(--border)", fontSize: "0.85rem" }}>
+          <thead>
+            <tr style={{ background: "var(--bg-secondary)" }}>
+              <th style={{ border: "1px solid var(--border)", padding: "0.45rem 0.65rem", textAlign: "left", fontWeight: 700 }}>{val.headers?.[0] || "Item"}</th>
+              <th style={{ border: "1px solid var(--border)", padding: "0.45rem 0.65rem", textAlign: "left", fontWeight: 700 }}>{val.headers?.[1] || "Response"}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {val.rows.map((r: any, rIdx: number) => (
+              <tr key={rIdx}>
+                <td style={{ border: "1px solid var(--border)", padding: "0.45rem 0.65rem", fontWeight: 600, background: "var(--bg-secondary)" }}>{r.item}</td>
+                <td style={{ border: "1px solid var(--border)", padding: "0.45rem 0.65rem" }}>{String(r.value)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
   if (typeof val === "string" || typeof val === "number" || typeof val === "boolean") {
     return String(val);
   }
+
   if (Array.isArray(val)) {
     if (val.length === 0) {
       return <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>— Unanswered —</span>;
@@ -108,6 +355,7 @@ function renderCandidateSubpartAnswer(val: any): React.ReactNode {
       </div>
     );
   }
+
   if (typeof val === "object") {
     const entries = Object.entries(val);
     if (entries.length === 0) {
@@ -124,6 +372,7 @@ function renderCandidateSubpartAnswer(val: any): React.ReactNode {
       </div>
     );
   }
+
   return String(val);
 }
 
@@ -131,6 +380,7 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
   const resolvedParams = use(params);
   const submissionId = parseInt(resolvedParams.submissionId, 10);
 
+  const router = useRouter();
   const { addToast } = useToast();
   const [submission, setSubmission] = useState<ALStudentSubmission | null>(null);
   const [exam, setExam] = useState<ALExam | null>(null);
@@ -144,12 +394,20 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
   const [essayFontSize, setEssayFontSize] = useState<"normal" | "large">("normal");
 
   // Editable teacher overrides state
-  // answerId -> { overridePoints: number, checklistResults: any[], feedbackNotes: string }
   const [overrides, setOverrides] = useState<Record<number, {
     overridePoints: number;
     checklistResults: any[];
     feedbackNotes: string;
   }>>({});
+  
+  // Per-subpart marks for structured questions: answerId -> { [subpartKey]: number }
+  const [subpartMarks, setSubpartMarks] = useState<Record<number, Record<string, number>>>({});
+
+  // Custom teacher criteria for essay questions: answerId -> Array<{ id: string; text: string; max_points: number; points_earned: number }>
+  const [customCriteria, setCustomCriteria] = useState<Record<number, Array<{ id: string; text: string; max_points: number; points_earned: number }>>>({});
+  const [newCustomPointText, setNewCustomPointText] = useState<Record<number, string>>({});
+  const [newCustomPointMarks, setNewCustomPointMarks] = useState<Record<number, number>>({});
+
   const [teacherFeedback, setTeacherFeedback] = useState("");
 
   useEffect(() => {
@@ -163,19 +421,35 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
         setSubmission(data);
         setTeacherFeedback(data.teacher_feedback || "");
 
-        // Initialize overrides from teacher or AI scores
+        // Initialize overrides from teacher scores or existing submissions
         const initOverrides: Record<number, { overridePoints: number; checklistResults: any[]; feedbackNotes: string }> = {};
+        const initSubpartMarks: Record<number, Record<string, number>> = {};
+        const initCustomCriteria: Record<number, any[]> = {};
+
         (data.answers || []).forEach((ans) => {
-          const checklist = ans.teacher_checklist_results_json || 
-                            ans.ai_checklist_results_json?.checklist_evaluations || 
-                            ans.ai_checklist_results_json || [];
+          const checklist = ans.teacher_checklist_results_json || [];
+          const currentScore = ans.teacher_override_points ?? ans.final_score ?? ans.scaled_points_earned ?? (ans.auto_score || 0.0);
+          
           initOverrides[ans.id] = {
-            overridePoints: ans.teacher_override_points ?? ans.final_score ?? ans.scaled_points_earned ?? (ans.auto_score || 0.0),
+            overridePoints: currentScore,
             checklistResults: Array.isArray(checklist) ? checklist : [],
             feedbackNotes: ans.feedback_notes || "",
           };
+
+          // Extract stored subpart scores if any
+          if (ans.teacher_checklist_results_json && typeof ans.teacher_checklist_results_json === "object" && !Array.isArray(ans.teacher_checklist_results_json)) {
+            if (ans.teacher_checklist_results_json.subpart_scores) {
+              initSubpartMarks[ans.id] = ans.teacher_checklist_results_json.subpart_scores;
+            }
+            if (Array.isArray(ans.teacher_checklist_results_json.custom_criteria)) {
+              initCustomCriteria[ans.id] = ans.teacher_checklist_results_json.custom_criteria;
+            }
+          }
         });
+
         setOverrides(initOverrides);
+        setSubpartMarks(initSubpartMarks);
+        setCustomCriteria(initCustomCriteria);
 
         // Fetch corresponding exam paper details
         if (data.exam_id) {
@@ -219,14 +493,32 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
     return "F";
   }, [livePercentage]);
 
+  // Update question-level points directly
   const handleUpdatePoints = (answerId: number, newPoints: number) => {
     setOverrides((prev) => ({
       ...prev,
       [answerId]: {
         ...(prev[answerId] || { checklistResults: [], feedbackNotes: "" }),
-        overridePoints: Number(newPoints) || 0.0,
+        overridePoints: Math.max(0, Number(newPoints) || 0.0),
       },
     }));
+  };
+
+  // Update structured subpart mark directly & recalculate question total
+  const handleUpdateSubpartMark = (answerId: number, subpartKey: string, mark: number, maxPoints: number) => {
+    const validMark = Math.max(0, Math.min(maxPoints, Number(mark) || 0));
+    setSubpartMarks((prev) => {
+      const qMarks = { ...(prev[answerId] || {}) };
+      qMarks[subpartKey] = validMark;
+      
+      const newTotal = Object.values(qMarks).reduce((sum, val) => sum + val, 0);
+      handleUpdatePoints(answerId, Math.round(newTotal * 100) / 100);
+
+      return {
+        ...prev,
+        [answerId]: qMarks,
+      };
+    });
   };
 
   const handleUpdateFeedback = (answerId: number, notes: string) => {
@@ -239,87 +531,174 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
     }));
   };
 
-  // AI Recommendation Handlers
-  const handleAcceptAIRecommendation = (answerId: number, aiScore: number, aiChecklist?: any[]) => {
-    setOverrides((prev) => {
-      const current = prev[answerId] || { overridePoints: 0.0, checklistResults: [], feedbackNotes: "" };
-      return {
-        ...prev,
-        [answerId]: {
-          ...current,
-          overridePoints: aiScore,
-          checklistResults: Array.isArray(aiChecklist) && aiChecklist.length > 0 ? aiChecklist : current.checklistResults,
-        },
-      };
-    });
-    addToast(`Applied AI recommendation (${aiScore} pts)`, "info");
-  };
-
-  const handleAcceptAllAIRecommendations = () => {
-    if (!submission || !submission.answers) return;
-    const updated: Record<number, any> = { ...overrides };
-    let count = 0;
-    submission.answers.forEach((ans) => {
-      const aiScore = ans.ai_score ?? ans.auto_score;
-      if (aiScore !== undefined && aiScore !== null) {
-        const aiChecklist = ans.ai_checklist_results_json?.checklist_evaluations || ans.ai_checklist_results_json || [];
-        updated[ans.id] = {
-          ...(updated[ans.id] || { feedbackNotes: "" }),
-          overridePoints: aiScore,
-          checklistResults: Array.isArray(aiChecklist) && aiChecklist.length > 0 ? aiChecklist : (updated[ans.id]?.checklistResults || []),
-        };
-        count++;
-      }
-    });
-    setOverrides(updated);
-    addToast(`Adopted AI recommended marks for ${count} questions.`, "success");
-  };
-
-  const handleBulkChecklist = (answerId: number, criteriaList: any[], awardAll: boolean) => {
+  // Bulk check / clear all criteria for essay
+  const handleBulkChecklist = (answerId: number, criteriaList: any[], awardAll: boolean, maxTotal: number) => {
     const updatedList = criteriaList.map((c) => ({
       awarded: awardAll,
-      points: c.max_points,
+      max_points: c.max_points,
       points_earned: awardAll ? c.max_points : 0.0,
+      criterion_text: c.criterion_text,
     }));
-    const totalAwarded = awardAll ? criteriaList.reduce((sum, c) => sum + c.max_points, 0) : 0;
+
+    const criteriaSum = awardAll ? criteriaList.reduce((sum, c) => sum + c.max_points, 0) : 0;
+    const customList = customCriteria[answerId] || [];
+    const customSum = customList.reduce((sum, c) => sum + (Number(c.points_earned) || 0), 0);
+    const calculatedTotal = Math.min(maxTotal, criteriaSum + customSum);
+
     setOverrides((prev) => ({
       ...prev,
       [answerId]: {
         ...(prev[answerId] || { feedbackNotes: "" }),
         checklistResults: updatedList,
-        overridePoints: Math.round(totalAwarded * 100) / 100,
+        overridePoints: Math.round(calculatedTotal * 100) / 100,
       },
     }));
   };
 
-  const handleToggleChecklist = (answerId: number, itemIndex: number, defaultMax: number = 4.0) => {
+  // Toggle criterion full award checkbox
+  const handleToggleCriterionCheckbox = (answerId: number, cIdx: number, criterion: any, maxTotal: number) => {
     setOverrides((prev) => {
       const current = prev[answerId] || { overridePoints: 0.0, checklistResults: [], feedbackNotes: "" };
       const updatedList = Array.isArray(current.checklistResults) ? [...current.checklistResults] : [];
-      
-      // Ensure array is populated up to itemIndex
-      while (updatedList.length <= itemIndex) {
-        updatedList.push({ awarded: false, points: defaultMax, points_earned: 0.0 });
+
+      while (updatedList.length <= cIdx) {
+        updatedList.push({ awarded: false, max_points: criterion.max_points, points_earned: 0.0, criterion_text: criterion.criterion_text });
       }
 
-      const item = { ...(updatedList[itemIndex] || { awarded: false, points: defaultMax, points_earned: 0.0 }) };
+      const item = { ...(updatedList[cIdx] || { awarded: false, max_points: criterion.max_points, points_earned: 0.0, criterion_text: criterion.criterion_text }) };
       item.awarded = !item.awarded;
-      item.points_earned = item.awarded ? (Number(item.points) || defaultMax) : 0.0;
-      updatedList[itemIndex] = item;
+      item.points_earned = item.awarded ? (Number(criterion.max_points) || 4.0) : 0.0;
+      item.max_points = criterion.max_points;
+      item.criterion_text = criterion.criterion_text;
+      updatedList[cIdx] = item;
 
-      // Recalculate awarded sum safely
-      const totalAwarded = updatedList.reduce((sum, it) => {
-        if (!it) return sum;
-        return sum + (it.awarded ? (Number(it.points) || defaultMax) : 0);
-      }, 0);
+      // Recalculate total with custom points
+      const criteriaSum = updatedList.reduce((sum, it) => sum + (Number(it?.points_earned) || 0), 0);
+      const customList = customCriteria[answerId] || [];
+      const customSum = customList.reduce((sum, it) => sum + (Number(it?.points_earned) || 0), 0);
+      const calculatedTotal = Math.min(maxTotal, criteriaSum + customSum);
 
       return {
         ...prev,
         [answerId]: {
           ...current,
           checklistResults: updatedList,
-          overridePoints: Math.round(totalAwarded * 100) / 100,
+          overridePoints: Math.round(calculatedTotal * 100) / 100,
         },
+      };
+    });
+  };
+
+  // Update partial credit on a specific criterion
+  const handleUpdateCriterionPartialMark = (answerId: number, cIdx: number, criterion: any, earnedPoints: number, maxTotal: number) => {
+    const validEarned = Math.max(0, Math.min(criterion.max_points, Number(earnedPoints) || 0));
+    setOverrides((prev) => {
+      const current = prev[answerId] || { overridePoints: 0.0, checklistResults: [], feedbackNotes: "" };
+      const updatedList = Array.isArray(current.checklistResults) ? [...current.checklistResults] : [];
+
+      while (updatedList.length <= cIdx) {
+        updatedList.push({ awarded: false, max_points: criterion.max_points, points_earned: 0.0, criterion_text: criterion.criterion_text });
+      }
+
+      const item = { ...(updatedList[cIdx] || { awarded: false, max_points: criterion.max_points, points_earned: 0.0, criterion_text: criterion.criterion_text }) };
+      item.points_earned = validEarned;
+      item.awarded = validEarned > 0;
+      item.max_points = criterion.max_points;
+      item.criterion_text = criterion.criterion_text;
+      updatedList[cIdx] = item;
+
+      const criteriaSum = updatedList.reduce((sum, it) => sum + (Number(it?.points_earned) || 0), 0);
+      const customList = customCriteria[answerId] || [];
+      const customSum = customList.reduce((sum, it) => sum + (Number(it?.points_earned) || 0), 0);
+      const calculatedTotal = Math.min(maxTotal, criteriaSum + customSum);
+
+      return {
+        ...prev,
+        [answerId]: {
+          ...current,
+          checklistResults: updatedList,
+          overridePoints: Math.round(calculatedTotal * 100) / 100,
+        },
+      };
+    });
+  };
+
+  // Add a custom marking point for essay
+  const handleAddCustomPoint = (answerId: number, maxTotal: number) => {
+    const text = (newCustomPointText[answerId] || "").trim();
+    const marks = Number(newCustomPointMarks[answerId]) || 4.0;
+
+    if (!text) {
+      addToast("Please enter a description for the custom marking point.", "error");
+      return;
+    }
+
+    const newPoint = {
+      id: `custom_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      text,
+      max_points: marks,
+      points_earned: marks,
+    };
+
+    setCustomCriteria((prev) => {
+      const list = [...(prev[answerId] || []), newPoint];
+      
+      // Update overridePoints
+      const ov = overrides[answerId];
+      const criteriaSum = (ov?.checklistResults || []).reduce((sum, it) => sum + (Number(it?.points_earned) || 0), 0);
+      const customSum = list.reduce((sum, it) => sum + (Number(it?.points_earned) || 0), 0);
+      const calculatedTotal = Math.min(maxTotal, criteriaSum + customSum);
+      handleUpdatePoints(answerId, Math.round(calculatedTotal * 100) / 100);
+
+      return {
+        ...prev,
+        [answerId]: list,
+      };
+    });
+
+    setNewCustomPointText((prev) => ({ ...prev, [answerId]: "" }));
+    setNewCustomPointMarks((prev) => ({ ...prev, [answerId]: 4.0 }));
+    addToast("Added custom marking point.", "success");
+  };
+
+  // Update custom point earned marks
+  const handleUpdateCustomPointMark = (answerId: number, pointId: string, earned: number, maxTotal: number) => {
+    setCustomCriteria((prev) => {
+      const list = (prev[answerId] || []).map((pt) => {
+        if (pt.id === pointId) {
+          const valid = Math.max(0, Math.min(pt.max_points, Number(earned) || 0));
+          return { ...pt, points_earned: valid };
+        }
+        return pt;
+      });
+
+      const ov = overrides[answerId];
+      const criteriaSum = (ov?.checklistResults || []).reduce((sum, it) => sum + (Number(it?.points_earned) || 0), 0);
+      const customSum = list.reduce((sum, it) => sum + (Number(it?.points_earned) || 0), 0);
+      const calculatedTotal = Math.min(maxTotal, criteriaSum + customSum);
+      handleUpdatePoints(answerId, Math.round(calculatedTotal * 100) / 100);
+
+      return {
+        ...prev,
+        [answerId]: list,
+      };
+    });
+  };
+
+  // Remove a custom marking point
+  const handleRemoveCustomPoint = (answerId: number, pointId: string, maxTotal: number) => {
+    setCustomCriteria((prev) => {
+      const list = (prev[answerId] || []).filter((pt) => pt.id !== pointId);
+
+      const ov = overrides[answerId];
+      const criteriaSum = (ov?.checklistResults || []).reduce((sum, it) => sum + (Number(it?.points_earned) || 0), 0);
+      const customSum = list.reduce((sum, it) => sum + (Number(it?.points_earned) || 0), 0);
+      const calculatedTotal = Math.min(maxTotal, criteriaSum + customSum);
+      handleUpdatePoints(answerId, Math.round(calculatedTotal * 100) / 100);
+
+      return {
+        ...prev,
+        [answerId]: list,
       };
     });
   };
@@ -328,12 +707,23 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
     if (!submission) return;
     setSaving(true);
     try {
-      const formattedAnswers = Object.entries(overrides).map(([ansIdStr, data]) => ({
-        answer_id: parseInt(ansIdStr, 10),
-        teacher_override_points: data.overridePoints,
-        teacher_checklist_results_json: data.checklistResults,
-        feedback_notes: data.feedbackNotes,
-      }));
+      const formattedAnswers = Object.entries(overrides).map(([ansIdStr, data]) => {
+        const ansId = parseInt(ansIdStr, 10);
+        
+        // Bundle subpart scores and custom criteria into checklist results for full fidelity
+        const payloadChecklist: any = {
+          evaluations: data.checklistResults,
+          subpart_scores: subpartMarks[ansId] || {},
+          custom_criteria: customCriteria[ansId] || [],
+        };
+
+        return {
+          answer_id: ansId,
+          teacher_override_points: data.overridePoints,
+          teacher_checklist_results_json: payloadChecklist,
+          feedback_notes: data.feedbackNotes,
+        };
+      });
 
       const updated = await api.verifyTeacherSubmission(submission.id, {
         answers: formattedAnswers,
@@ -341,7 +731,10 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
       });
 
       setSubmission(updated);
-      addToast("Final grade successfully approved & verified!", "success");
+      addToast("Final grade successfully approved & verified! Redirecting to Marking Studio...", "success");
+      setTimeout(() => {
+        router.push("/dashboard/teacher/al-exams/marking");
+      }, 700);
     } catch (err: any) {
       console.error(err);
       addToast(err?.message || "Failed to publish grade verification.", "error");
@@ -396,7 +789,6 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
         </div>
 
         <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" }}>
-          {/* Layout Toggle: Wide Studio vs Standard */}
           <button
             type="button"
             onClick={() => setReadingLayout((prev) => (prev === "wide_focus" ? "standard" : "wide_focus"))}
@@ -408,110 +800,67 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
             {readingLayout === "wide_focus" ? "Standard View" : "Wide Focus Mode"}
           </button>
 
-          {/* Quick Accept All AI Recommendations Button */}
-          {submission.status !== "teacher_verified" && (
-            <button
-              type="button"
-              onClick={handleAcceptAllAIRecommendations}
-              className="btn btn-secondary btn-sm"
-              style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", fontSize: "0.8rem", color: "var(--accent-primary)", borderColor: "var(--accent-primary)" }}
-              title="Quickly adopt all AI pre-graded marks and rubric checks"
-            >
-              <SvgIcon name="zap" size={14} />
-              Accept All AI Recommendations
-            </button>
-          )}
-
           <Link href="/dashboard/teacher/al-exams/grading" className="btn btn-secondary btn-sm" style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
-            <SvgIcon name="arrow-left" size={14} /> Back to Studio
+            <SvgIcon name="arrow-left" size={14} /> Back to Marking Hub
           </Link>
-
-          <button
-            type="button"
-            onClick={handlePublishGrade}
-            disabled={saving}
-            className="btn btn-primary"
-            style={{ padding: "0.55rem 1.4rem", display: "inline-flex", alignItems: "center", gap: "0.5rem", fontWeight: 700 }}
-          >
-            <SvgIcon name="check-circle" size={16} />
-            {saving ? "Publishing Grade..." : submission.status === "teacher_verified" ? "Save Grade Revision" : "Approve & Publish Final Grade"}
-          </button>
         </div>
       </div>
 
-      {/* ──────────────── HERO METADATA & SCORES KPI CARD ──────────────── */}
-      <div className="card" style={{ padding: "1.5rem", marginBottom: "1.75rem", background: "var(--bg-card)", border: "1px solid var(--border-subtle)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "1.5rem", flexWrap: "wrap" }}>
+      {/* ──────────────── SUBMISSION METADATA & LIVE SCORE STRIP ──────────────── */}
+      <div className="card" style={{ padding: "1.5rem 1.75rem", marginBottom: "1.75rem", background: "var(--bg-card)", border: "1px solid var(--border-subtle)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1.25rem" }}>
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.4rem", flexWrap: "wrap" }}>
-              <span className={`badge ${submission.status === "teacher_verified" ? "badge-success" : submission.status === "ai_graded" ? "badge-purple" : "badge-warning"}`} style={{ fontWeight: 700, fontSize: "0.75rem" }}>
-                {submission.status === "teacher_verified" ? "✓ TEACHER VERIFIED" : submission.status === "ai_graded" ? "AI PRE-GRADED (PENDING REVIEW)" : "SUBMITTED"}
+            <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", marginBottom: "0.35rem", flexWrap: "wrap" }}>
+              <span className={`badge ${submission.status === "teacher_verified" ? "badge-success" : "badge-warning"}`} style={{ fontWeight: 800 }}>
+                {submission.status === "teacher_verified" ? "TEACHER VERIFIED" : "MANUAL TEACHER EVALUATION"}
               </span>
-              <span className={`badge ${isMcq ? "badge-blue" : isStructured ? "badge-purple" : "badge-amber"}`} style={{ fontWeight: 700, fontSize: "0.75rem" }}>
-                {isMcq ? "Paper I — MCQ" : isStructured ? "Paper II-A — Structured" : "Paper II-B — Essay"}
-              </span>
-              <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                Submission #{submission.id}
+              <span className="badge badge-secondary" style={{ textTransform: "uppercase" }}>
+                {paperType.replace(/_/g, " ")}
               </span>
             </div>
-
-            <h1 style={{ fontSize: "1.45rem", fontWeight: 800, margin: 0, color: "var(--text-primary)" }}>
-              {exam?.title || `Examination #${submission.exam_id}`}
+            <h1 style={{ fontSize: "1.35rem", fontWeight: 800, margin: 0, color: "var(--text-primary)" }}>
+              {exam?.title || submission.exam_title || `Exam Paper #${submission.exam_id}`}
             </h1>
-
-            {/* Candidate Details Row */}
-            <div style={{ display: "flex", gap: "1.25rem", marginTop: "0.5rem", fontSize: "0.825rem", color: "var(--text-secondary)", flexWrap: "wrap" }}>
-              <div>Candidate: <strong style={{ color: "var(--text-primary)" }}>{submission.student_name || `Student #${submission.student_id}`}</strong></div>
-              <div>Email: <strong style={{ color: "var(--text-primary)" }}>{submission.student_email || `ID: ${submission.student_id}`}</strong></div>
-              <div>Submitted: <strong style={{ color: "var(--text-primary)" }}>{submission.submitted_at ? new Date(submission.submitted_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "In Progress"}</strong></div>
+            <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginTop: "4px", display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap" }}>
+              <span>Student: <strong style={{ color: "var(--text-primary)" }}>{submission.student_name || `Student #${submission.student_id}`}</strong> ({submission.student_email || "N/A"})</span>
+              {submission.submitted_at && (
+                <span>&bull; Submitted: <strong>{new Date(submission.submitted_at).toLocaleString()}</strong></span>
+              )}
             </div>
           </div>
 
-          {/* Current Score Summary Pill */}
-          <div style={{ display: "flex", gap: "1.25rem", background: "var(--bg-secondary)", padding: "0.85rem 1.25rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border-subtle)" }}>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: "0.675rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Final Score</div>
-              <div style={{ fontSize: "1.45rem", fontWeight: 800, color: "var(--accent-primary)" }}>
-                {liveTotalScore} <span style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>/ {maxPossibleScore}</span>
+          {/* Live Score Tally Card */}
+          <div style={{ display: "flex", alignItems: "center", gap: "1.25rem", background: "var(--bg-secondary)", padding: "0.85rem 1.35rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border-subtle)" }}>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>
+                Calculated Score
+              </div>
+              <div style={{ fontSize: "1.45rem", fontWeight: 900, color: "var(--text-primary)" }}>
+                {liveTotalScore}
+                <span style={{ fontSize: "0.9rem", color: "var(--text-muted)", fontWeight: 500 }}>
+                  {" "}/ {maxPossibleScore} pts
+                </span>
               </div>
             </div>
-            <div style={{ width: "1px", background: "var(--border)" }} />
+
+            <div style={{ height: "36px", width: "1px", background: "var(--border)" }} />
+
             <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: "0.675rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Percentage</div>
-              <div style={{ fontSize: "1.45rem", fontWeight: 800, color: "var(--text-primary)" }}>
-                {livePercentage}%
+              <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>
+                Final Grade
               </div>
-            </div>
-            <div style={{ width: "1px", background: "var(--border)" }} />
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: "0.675rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Grade</div>
-              <div style={{ fontSize: "1.45rem", fontWeight: 900, color: liveGrade === "A" ? "#10B981" : liveGrade === "B" ? "#2563EB" : liveGrade === "C" ? "#8B5CF6" : liveGrade === "S" ? "#F59E0B" : "#EF4444" }}>
-                {liveGrade}
+              <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "2px" }}>
+                <span className="badge badge-primary" style={{ fontSize: "1.1rem", fontWeight: 900, padding: "2px 10px" }}>
+                  {liveGrade}
+                </span>
+                <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text-secondary)" }}>
+                  {livePercentage}%
+                </span>
               </div>
             </div>
           </div>
         </div>
-
-        {/* AI Preliminary Feedback Banner if available */}
-        {submission.ai_feedback_summary && (
-          <div style={{ marginTop: "1rem", background: "rgba(99, 102, 241, 0.07)", padding: "0.85rem 1.1rem", borderRadius: "var(--radius-sm)", border: "1px solid rgba(99, 102, 241, 0.2)", fontSize: "0.85rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
-            <div>
-              <strong style={{ color: "var(--accent-primary)" }}>Gemini AI Preliminary Evaluation: </strong>
-              <span style={{ color: "var(--text-secondary)" }}>{submission.ai_feedback_summary}</span>
-            </div>
-            <button
-              type="button"
-              onClick={handleAcceptAllAIRecommendations}
-              className="btn btn-secondary btn-sm"
-              style={{ fontSize: "0.75rem", padding: "0.25rem 0.6rem" }}
-            >
-              Apply Recommendations
-            </button>
-          </div>
-        )}
       </div>
-
-      {/* ──────────────── REVIEW & MARKING WORKSPACE BY PAPER TYPE ──────────────── */}
 
       {/* ═══════════════════════════════════════════════════════════════
           CASE A: PAPER I (MCQ) SUBMISSION REVIEW (50 QUESTIONS)
@@ -519,80 +868,71 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
       {isMcq && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <h2 style={{ fontSize: "1.1rem", fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
-              Paper I — MCQ Item Submissions ({submission.answers?.length || questionList.length} Items)
+            <h2 style={{ fontSize: "1.15rem", fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
+              Paper I — MCQ Submissions &amp; Deterministic Answer Analysis
             </h2>
-            <span className="badge badge-info">Zero Cross-Assessment Contamination</span>
+            <span className="badge badge-info">{questionList.length || 50} Items • Deterministic Auto-Graded</span>
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            {(questionList.length > 0 ? questionList : submission.answers || []).map((qOrAns: any, idx: number) => {
+            {(questionList.length > 0 ? questionList : submission.answers || []).map((qOrAns: any, qIdx: number) => {
               const qId = qOrAns.question_id || qOrAns.id;
-              const qNum = qOrAns.question_number || idx + 1;
-              const ans = answersByQuestionId[qId] || (qOrAns.selected_option !== undefined ? qOrAns : null);
+              const qNum = qOrAns.question_number || qIdx + 1;
+              const ans = answersByQuestionId[qId];
               const ov = ans ? overrides[ans.id] : null;
 
-              const stemText = qOrAns.stem_text || `Question ${qNum}`;
-              const options = qOrAns.options_json || qOrAns.options || [];
-              const correctKey = qOrAns.correct_option || ans?.correct_option || "";
-              const selectedOpt = ans?.selected_option || "";
-              const isCorrect = ans ? ans.is_correct : (selectedOpt && correctKey && selectedOpt.toUpperCase() === correctKey.toUpperCase());
+              const selectedOpt = ans?.selected_option;
+              const correctOpt = qOrAns.correct_option || ans?.correct_option;
+              const isCorrect = selectedOpt && correctOpt && selectedOpt.toUpperCase() === correctOpt.toUpperCase();
               const autoScore = ans?.auto_score ?? (isCorrect ? 1.0 : 0.0);
-              const teacherScore = ov?.overridePoints ?? autoScore;
+              const teacherScore = ov?.overridePoints ?? (ans?.final_score ?? ans?.scaled_points_earned ?? autoScore);
 
               return (
-                <div key={qId || idx} className="card" style={{ padding: "1.25rem", border: "1px solid var(--border-subtle)", background: "var(--bg-card)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                      <span className="badge badge-blue" style={{ fontWeight: 700 }}>Q{qNum}</span>
-                      <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Format: {qOrAns.template_type || "mcq"}</span>
+                <div key={qId || qIdx} className="card" style={{ padding: "1.25rem", border: "1px solid var(--border-subtle)", background: "var(--bg-card)" }}>
+                  {/* Stem & Options */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem", gap: "1rem" }}>
+                    <div style={{ display: "flex", gap: "0.75rem", alignItems: "flex-start" }}>
+                      <span className="badge badge-secondary" style={{ fontWeight: 700, fontSize: "0.85rem" }}>
+                        Q{qNum}
+                      </span>
+                      <div style={{ fontSize: "0.95rem", color: "var(--text-primary)", lineHeight: 1.5, fontWeight: 500 }}>
+                        {qOrAns.stem_text || `Question ${qNum}`}
+                      </div>
                     </div>
 
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                      <span className={`badge ${selectedOpt ? (isCorrect ? "badge-success" : "badge-error") : "badge-secondary"}`} style={{ fontSize: "0.75rem", fontWeight: 700 }}>
-                        {selectedOpt ? (isCorrect ? "✓ Correct (+1.0)" : "✗ Incorrect (0.0)") : "⚪ Unanswered (0.0)"}
+                    <div style={{ flexShrink: 0 }}>
+                      <span className={`badge ${isCorrect ? "badge-success" : selectedOpt ? "badge-error" : "badge-secondary"}`}>
+                        {selectedOpt ? (isCorrect ? "Correct (+1.0)" : "Incorrect (0.0)") : "Unanswered (0.0)"}
                       </span>
                     </div>
                   </div>
 
-                  {/* Question Stem */}
-                  <div style={{ fontSize: "0.95rem", fontWeight: 600, color: "var(--text-primary)", lineHeight: 1.55, marginBottom: "0.85rem" }}>
-                    {stemText}
-                  </div>
-
-                  {/* 5 MCQ Options List */}
-                  {Array.isArray(options) && options.length > 0 && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", marginBottom: "1rem" }}>
-                      {options.map((opt: any, optIdx: number) => {
-                        const optKey = typeof opt === "string" ? String.fromCharCode(65 + optIdx) : (opt.option_key || String.fromCharCode(65 + optIdx));
-                        const optText = typeof opt === "string" ? opt : (opt.option_text || opt.text || "");
-                        const isChosen = selectedOpt.toUpperCase() === optKey.toUpperCase();
-                        const isKey = correctKey.toUpperCase() === optKey.toUpperCase();
+                  {/* Options List */}
+                  {Array.isArray(qOrAns.options) && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", margin: "0.75rem 0", paddingLeft: "2rem" }}>
+                      {qOrAns.options.map((optStr: string, optIdx: number) => {
+                        const optLetter = String.fromCharCode(65 + optIdx);
+                        const isChosen = selectedOpt === optLetter;
+                        const isKey = correctOpt === optLetter;
 
                         return (
                           <div
-                            key={optKey}
+                            key={optIdx}
                             style={{
+                              padding: "0.45rem 0.75rem",
+                              borderRadius: "var(--radius-sm)",
+                              background: isChosen ? (isKey ? "rgba(16, 185, 129, 0.12)" : "rgba(239, 68, 68, 0.12)") : isKey ? "rgba(16, 185, 129, 0.06)" : "var(--bg-secondary)",
+                              border: isChosen ? (isKey ? "1.5px solid #10B981" : "1.5px solid #EF4444") : isKey ? "1px dashed #10B981" : "1px solid var(--border-subtle)",
                               display: "flex",
                               justifyContent: "space-between",
                               alignItems: "center",
-                              padding: "0.55rem 0.85rem",
-                              borderRadius: "var(--radius-sm)",
-                              background: isChosen ? (isCorrect ? "rgba(16, 185, 129, 0.08)" : "rgba(239, 68, 68, 0.08)") : isKey ? "rgba(16, 185, 129, 0.04)" : "var(--bg-secondary)",
-                              border: isChosen ? `1.5px solid ${isCorrect ? "#10B981" : "#EF4444"}` : isKey ? "1px solid #10B98150" : "1px solid var(--border-subtle)",
                               fontSize: "0.85rem",
                             }}
                           >
-                            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                              <strong style={{ color: isKey ? "#10B981" : isChosen ? "#EF4444" : "var(--text-primary)" }}>
-                                ({optKey})
-                              </strong>
-                              <span style={{ color: "var(--text-primary)" }}>{optText}</span>
-                            </div>
-
-                            <div style={{ display: "flex", gap: "0.4rem" }}>
+                            <span><strong>{optLetter}.</strong> {optStr}</span>
+                            <div style={{ display: "flex", gap: "0.35rem" }}>
                               {isChosen && (
-                                <span className={`badge ${isCorrect ? "badge-success" : "badge-error"}`} style={{ fontSize: "0.65rem", padding: "1px 6px" }}>
+                                <span className={`badge ${isKey ? "badge-success" : "badge-error"}`} style={{ fontSize: "0.65rem", padding: "1px 6px" }}>
                                   Candidate Choice
                                 </span>
                               )}
@@ -611,19 +951,8 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
                   {/* Marking Row & Override Controls */}
                   {ans && (
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem", paddingTop: "0.75rem", borderTop: "1px solid var(--border-subtle)" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "1rem", fontSize: "0.825rem" }}>
-                        <div>AI Auto Mark: <strong>{autoScore} pt</strong></div>
-                        <div>Teacher Final Mark: <strong style={{ color: "var(--accent-primary)" }}>{teacherScore} pt</strong></div>
-                        {teacherScore !== autoScore && (
-                          <button
-                            type="button"
-                            onClick={() => handleAcceptAIRecommendation(ans.id, autoScore)}
-                            className="btn btn-secondary btn-sm"
-                            style={{ fontSize: "0.72rem", padding: "0.15rem 0.5rem" }}
-                          >
-                            Reset to AI Mark
-                          </button>
-                        )}
+                      <div style={{ fontSize: "0.825rem", color: "var(--text-secondary)" }}>
+                        Auto Mark: <strong>{autoScore} pt</strong>
                       </div>
 
                       <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
@@ -671,8 +1000,8 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
               const subpartsJson = qOrAns.structured_subparts_json || [];
               const studentAnswersMap = ans?.subpart_answers_json || {};
               const totalQPoints = Number(qOrAns.points) || 40.0;
-              const aiScore = ans?.ai_score ?? 0.0;
-              const teacherScore = ov?.overridePoints ?? (ans?.final_score ?? ans?.scaled_points_earned ?? aiScore);
+              const teacherScore = ov?.overridePoints ?? (ans?.final_score ?? ans?.scaled_points_earned ?? 0.0);
+              const currentSubpartScores = (ans && subpartMarks[ans.id]) || {};
 
               return (
                 <div key={qId || qIdx} className="card" style={{ padding: "1.75rem", border: "1px solid var(--border-subtle)", background: "var(--bg-card)" }}>
@@ -685,18 +1014,6 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
                       </div>
                       <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "4px", display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
                         <span>Maximum Marks: <strong>{totalQPoints} pts</strong></span>
-                        <span>&bull;</span>
-                        <span>AI Recommended: <strong style={{ color: "var(--accent-primary)" }}>{aiScore} pts</strong></span>
-                        {ans && (
-                          <button
-                            type="button"
-                            onClick={() => handleAcceptAIRecommendation(ans.id, aiScore)}
-                            className="btn btn-secondary btn-sm"
-                            style={{ fontSize: "0.72rem", padding: "0.15rem 0.5rem", color: "var(--accent-primary)" }}
-                          >
-                            Accept AI Score ({aiScore} pts)
-                          </button>
-                        )}
                         <button
                           type="button"
                           onClick={() => setZenModalQuestion({ question: qOrAns, ans, qNum, type: "structured" })}
@@ -709,7 +1026,7 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
                     </div>
 
                     <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", background: "var(--bg-secondary)", padding: "0.5rem 0.85rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border-subtle)" }}>
-                      <span style={{ fontSize: "0.825rem", fontWeight: 700, color: "var(--text-muted)" }}>Teacher Score:</span>
+                      <span style={{ fontSize: "0.825rem", fontWeight: 700, color: "var(--text-muted)" }}>Total Question Mark:</span>
                       <input
                         type="number"
                         step="0.5"
@@ -724,56 +1041,132 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
                     </div>
                   </div>
 
-                  {/* Subparts Tree Rendering with Generous Reading Space */}
-                  <div style={{ display: "flex", flexDirection: "column", gap: "1.1rem", marginBottom: "1.5rem" }}>
+                  {/* Subparts Tree Rendering with Per-Subpart Mark Inputs & Model Answer Reference */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem", marginBottom: "1.5rem" }}>
                     {Array.isArray(subpartsJson) && subpartsJson.length > 0 ? (
                       subpartsJson.map((partNode: any, pIdx: number) => {
                         const partLabel = getAcademicSubpartLabel(partNode, 0, pIdx);
                         const partChildren = partNode.children || partNode.subparts || [];
                         const hasChildren = Array.isArray(partChildren) && partChildren.length > 0;
+                        const partKey = partNode.id || `part_${pIdx}`;
+                        const partMaxPoints = Number(partNode.points || partNode.max_points || 4);
+                        const awardedPartScore = currentSubpartScores[partKey] ?? "";
 
                         return (
                           <div key={partNode.id || pIdx} style={{ padding: "1.25rem", background: "var(--bg-secondary)", borderRadius: "var(--radius-md)", border: "1px solid var(--border-subtle)" }}>
-                            <div style={{ fontWeight: 800, fontSize: "0.95rem", color: "var(--text-primary)", marginBottom: hasChildren ? "0.85rem" : "0.5rem" }}>
-                              {partLabel}
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: hasChildren ? "0.85rem" : "0.5rem", flexWrap: "wrap", gap: "0.5rem" }}>
+                              <div style={{ fontWeight: 800, fontSize: "0.95rem", color: "var(--text-primary)" }}>
+                                {partLabel}
+                              </div>
+
+                              {/* Per-Subpart Mark Input for Leaf Nodes */}
+                              {!hasChildren && ans && (
+                                <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", background: "var(--bg-card)", padding: "0.3rem 0.65rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
+                                  <label style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-muted)" }}>Award Marks:</label>
+                                  <input
+                                    type="number"
+                                    step="0.5"
+                                    min="0"
+                                    max={partMaxPoints}
+                                    value={awardedPartScore}
+                                    placeholder="0"
+                                    onChange={(e) => handleUpdateSubpartMark(ans.id, partKey, parseFloat(e.target.value), partMaxPoints)}
+                                    className="form-input"
+                                    style={{ width: "65px", padding: "0.2rem 0.35rem", fontSize: "0.9rem", fontWeight: 800, textAlign: "center", color: "var(--accent-primary)" }}
+                                  />
+                                  <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-muted)" }}>/ {partMaxPoints} pts</span>
+                                </div>
+                              )}
                             </div>
 
-                            {/* Leaf Node Answer */}
+                            {/* Leaf Node Answer & Model Reference */}
                             {!hasChildren && (
-                              <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                              <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
                                 {partNode.prompt && (
                                   <div style={{ fontSize: "0.875rem", color: "var(--text-secondary)", fontStyle: "italic", lineHeight: 1.5 }}>
                                     Prompt: {partNode.prompt}
                                   </div>
                                 )}
+
+                                {/* Candidate Answer Box */}
                                 <div style={{ background: "var(--bg-card)", padding: "1rem 1.15rem", borderRadius: "var(--radius-sm)", border: "1.5px solid var(--border-subtle)" }}>
                                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
                                     <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>
                                       Candidate Written Answer:
                                     </span>
                                     <span style={{ fontSize: "0.72rem", color: "var(--accent-primary)", fontWeight: 600 }}>
-                                      Max Points: {partNode.points || partNode.max_points || 4} pts
+                                      Max Points: {partMaxPoints} pts
                                     </span>
                                   </div>
                                   <div style={{ fontSize: "0.925rem", color: "var(--text-primary)", whiteSpace: "pre-wrap", lineHeight: 1.7, fontFamily: "var(--font-sans, inherit)" }}>
-                                    {renderCandidateSubpartAnswer(studentAnswersMap[partNode.id] ?? studentAnswersMap[partLabel])}
+                                    {renderCandidateSubpartAnswer(resolveCandidateSubpartAnswer(partNode, 0, pIdx, studentAnswersMap))}
                                   </div>
                                 </div>
+
+                                {/* Official Marking Scheme & Model Answer Card */}
+                                {(partNode.marking_scheme || partNode.model_answer || partNode.expected_keywords || partNode.expected_answer) && (
+                                  <div style={{ padding: "0.85rem 1rem", background: "rgba(99, 102, 241, 0.04)", borderRadius: "var(--radius-sm)", border: "1px dashed rgba(99, 102, 241, 0.3)" }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "4px" }}>
+                                      <SvgIcon name="book-open" size={13} />
+                                      <span style={{ fontSize: "0.74rem", fontWeight: 800, color: "var(--accent-primary)", textTransform: "uppercase", letterSpacing: "0.03em" }}>
+                                        Official Marking Scheme &amp; Expected Criteria
+                                      </span>
+                                    </div>
+                                    {partNode.model_answer && (
+                                      <div style={{ fontSize: "0.825rem", color: "var(--text-primary)", marginBottom: "4px" }}>
+                                        <strong>Expected Answer:</strong> {partNode.model_answer}
+                                      </div>
+                                    )}
+                                    {partNode.marking_scheme && (
+                                      <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", lineHeight: 1.45 }}>
+                                        <strong>Criteria Breakdown:</strong> {partNode.marking_scheme}
+                                      </div>
+                                    )}
+                                    {Array.isArray(partNode.expected_keywords) && partNode.expected_keywords.length > 0 && (
+                                      <div style={{ marginTop: "4px", display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap" }}>
+                                        <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", fontWeight: 600 }}>Keywords:</span>
+                                        {partNode.expected_keywords.map((kw: string, kwIdx: number) => (
+                                          <span key={kwIdx} className="badge badge-secondary" style={{ fontSize: "0.68rem" }}>{kw}</span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             )}
 
                             {/* Nested Subpart Children (e.g. (i), (ii)) */}
                             {hasChildren && (
-                              <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem", paddingLeft: "1rem", borderLeft: "2px solid var(--accent-primary)" }}>
+                              <div style={{ display: "flex", flexDirection: "column", gap: "1rem", paddingLeft: "1rem", borderLeft: "2px solid var(--accent-primary)" }}>
                                 {partChildren.map((childNode: any, cIdx: number) => {
                                   const childLabel = getAcademicSubpartLabel(childNode, 1, cIdx);
-                                  const rawChildAns = studentAnswersMap[childNode.id] ?? studentAnswersMap[childLabel];
+                                  const resolvedChildAns = resolveCandidateSubpartAnswer(childNode, 1, cIdx, studentAnswersMap);
+                                  const childKey = childNode.id || `${partKey}_child_${cIdx}`;
+                                  const childMaxPoints = Number(childNode.points || childNode.max_points || 4);
+                                  const awardedChildScore = currentSubpartScores[childKey] ?? "";
 
                                   return (
                                     <div key={childNode.id || cIdx} style={{ padding: "0.95rem 1.1rem", background: "var(--bg-card)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
-                                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px", flexWrap: "wrap", gap: "0.4rem" }}>
                                         <span style={{ fontWeight: 800, fontSize: "0.88rem", color: "var(--text-primary)" }}>{childLabel}</span>
-                                        <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Max: {childNode.points || childNode.max_points || 4} pts</span>
+                                        
+                                        {ans && (
+                                          <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                                            <label style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--text-muted)" }}>Marks:</label>
+                                            <input
+                                              type="number"
+                                              step="0.5"
+                                              min="0"
+                                              max={childMaxPoints}
+                                              value={awardedChildScore}
+                                              placeholder="0"
+                                              onChange={(e) => handleUpdateSubpartMark(ans.id, childKey, parseFloat(e.target.value), childMaxPoints)}
+                                              className="form-input"
+                                              style={{ width: "60px", padding: "0.18rem 0.35rem", fontSize: "0.85rem", fontWeight: 800, textAlign: "center", color: "var(--accent-primary)" }}
+                                            />
+                                            <span style={{ fontSize: "0.74rem", fontWeight: 600, color: "var(--text-muted)" }}>/ {childMaxPoints} pts</span>
+                                          </div>
+                                        )}
                                       </div>
 
                                       {childNode.prompt && (
@@ -782,9 +1175,17 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
                                         </div>
                                       )}
 
-                                      <div style={{ background: "var(--bg-secondary)", padding: "0.75rem 0.95rem", borderRadius: "var(--radius-sm)", fontSize: "0.9rem", color: "var(--text-primary)", whiteSpace: "pre-wrap", lineHeight: 1.65 }}>
-                                        {renderCandidateSubpartAnswer(rawChildAns)}
+                                      <div style={{ background: "var(--bg-secondary)", padding: "0.75rem 0.95rem", borderRadius: "var(--radius-sm)", fontSize: "0.9rem", color: "var(--text-primary)", whiteSpace: "pre-wrap", lineHeight: 1.65, marginBottom: "0.65rem" }}>
+                                        {renderCandidateSubpartAnswer(resolvedChildAns)}
                                       </div>
+
+                                      {/* Child Marking Scheme / Model Answer Reference */}
+                                      {(childNode.marking_scheme || childNode.model_answer || childNode.expected_keywords) && (
+                                        <div style={{ padding: "0.65rem 0.85rem", background: "rgba(99, 102, 241, 0.04)", borderRadius: "var(--radius-sm)", border: "1px dashed rgba(99, 102, 241, 0.25)", fontSize: "0.78rem" }}>
+                                          {childNode.model_answer && <div><strong>Expected Answer:</strong> {childNode.model_answer}</div>}
+                                          {childNode.marking_scheme && <div><strong>Scheme:</strong> {childNode.marking_scheme}</div>}
+                                        </div>
+                                      )}
                                     </div>
                                   );
                                 })}
@@ -836,7 +1237,7 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
         <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <h2 style={{ fontSize: "1.15rem", fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
-              Paper II-B — Essay Responses &amp; Rubric Criteria Evaluation
+              Paper II-B — Essay Responses &amp; Flexible Rubric Evaluation
             </h2>
             <span className="badge badge-amber">3 Essay Questions • 120 Maximum Marks</span>
           </div>
@@ -851,11 +1252,10 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
               const stemText = qOrAns.stem_text || `Essay Question ${qNum}`;
               const criteriaList = extractEssayCriteriaList(qOrAns);
               const totalQPoints = Number(qOrAns.points) || 40.0;
-              const aiScore = ans?.ai_score ?? 0.0;
-              const teacherScore = ov?.overridePoints ?? (ans?.final_score ?? ans?.scaled_points_earned ?? aiScore);
+              const teacherScore = ov?.overridePoints ?? (ans?.final_score ?? ans?.scaled_points_earned ?? 0.0);
               const checklistResults = ov?.checklistResults || [];
+              const customList = (ans && customCriteria[ans.id]) || [];
               const wordCount = (ans?.essay_text_answer || "").split(/\s+/).filter(Boolean).length;
-              const aiChecklist = ans?.ai_checklist_results_json?.checklist_evaluations || ans?.ai_checklist_results_json || [];
 
               return (
                 <div key={qId || qIdx} className="card" style={{ padding: "1.75rem", border: "1px solid var(--border-subtle)", background: "var(--bg-card)" }}>
@@ -869,19 +1269,7 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
                       <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "4px", display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
                         <span>Max Marks: <strong>{totalQPoints} pts</strong></span>
                         <span>&bull;</span>
-                        <span>AI Suggested: <strong style={{ color: "var(--accent-primary)" }}>{aiScore} pts</strong></span>
-                        <span>&bull;</span>
                         <span>Criteria: <strong>{criteriaList.length} rubric items</strong></span>
-                        {ans && (
-                          <button
-                            type="button"
-                            onClick={() => handleAcceptAIRecommendation(ans.id, aiScore, aiChecklist)}
-                            className="btn btn-secondary btn-sm"
-                            style={{ fontSize: "0.72rem", padding: "0.15rem 0.5rem", color: "var(--accent-primary)" }}
-                          >
-                            Accept AI Score ({aiScore} pts)
-                          </button>
-                        )}
                         <button
                           type="button"
                           onClick={() => setZenModalQuestion({ question: qOrAns, ans, qNum, type: "essay" })}
@@ -894,7 +1282,7 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
                     </div>
 
                     <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", background: "var(--bg-secondary)", padding: "0.5rem 0.85rem", borderRadius: "var(--radius-md)", border: "1px solid var(--border-subtle)" }}>
-                      <span style={{ fontSize: "0.825rem", fontWeight: 700, color: "var(--text-muted)" }}>Teacher Score:</span>
+                      <span style={{ fontSize: "0.825rem", fontWeight: 700, color: "var(--text-muted)" }}>Total Essay Score:</span>
                       <input
                         type="number"
                         step="0.5"
@@ -909,8 +1297,8 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
                     </div>
                   </div>
 
-                  {/* Main Grid: Student Text (Left 58%) vs Rubric Criteria (Right 42%) */}
-                  <div style={{ display: "grid", gridTemplateColumns: readingLayout === "wide_focus" ? "58% 42%" : "repeat(auto-fit, minmax(min(100%, 380px), 1fr))", gap: "1.5rem", marginBottom: "1.5rem" }}>
+                  {/* Main Grid: Student Text (Left 55%) vs Rubric Criteria (Right 45%) */}
+                  <div style={{ display: "grid", gridTemplateColumns: readingLayout === "wide_focus" ? "55% 45%" : "repeat(auto-fit, minmax(min(100%, 380px), 1fr))", gap: "1.5rem", marginBottom: "1.5rem" }}>
                     {/* Left Column: Student Essay Text Script & Diagram */}
                     <div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem" }}>
@@ -945,7 +1333,7 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
                         </div>
                       </div>
 
-                      <div style={{ background: "var(--bg-secondary)", padding: "1.25rem 1.4rem", borderRadius: "var(--radius-md)", border: "1.5px solid var(--border-subtle)", fontSize: essayFontSize === "large" ? "1.05rem" : "0.935rem", lineHeight: 1.8, maxHeight: "480px", overflowY: "auto", whiteSpace: "pre-wrap", color: "var(--text-primary)", fontFeatureSettings: "'calt', 'liga'" }}>
+                      <div style={{ background: "var(--bg-secondary)", padding: "1.25rem 1.4rem", borderRadius: "var(--radius-md)", border: "1.5px solid var(--border-subtle)", fontSize: essayFontSize === "large" ? "1.05rem" : "0.935rem", lineHeight: 1.8, maxHeight: "520px", overflowY: "auto", whiteSpace: "pre-wrap", color: "var(--text-primary)", fontFeatureSettings: "'calt', 'liga'" }}>
                         {ans?.essay_text_answer || "— No written essay answer recorded —"}
                       </div>
 
@@ -973,11 +1361,11 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
                       )}
                     </div>
 
-                    {/* Right Column: Marking Scheme Rubric Checklist */}
+                    {/* Right Column: Marking Scheme Rubric Checklist with Partial Marks & Custom Points */}
                     <div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem", flexWrap: "wrap", gap: "0.4rem" }}>
                         <h4 style={{ fontSize: "0.9rem", fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
-                          Rubric Criteria &amp; Teacher Attainment Checks
+                          Marking Scheme Criteria &amp; Partial Marks
                         </h4>
 
                         <div style={{ display: "flex", gap: "0.3rem" }}>
@@ -985,7 +1373,7 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
                             <>
                               <button
                                 type="button"
-                                onClick={() => handleBulkChecklist(ans.id, criteriaList, true)}
+                                onClick={() => handleBulkChecklist(ans.id, criteriaList, true, totalQPoints)}
                                 className="btn btn-secondary btn-sm"
                                 style={{ fontSize: "0.7rem", padding: "0.15rem 0.45rem" }}
                               >
@@ -993,33 +1381,31 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
                               </button>
                               <button
                                 type="button"
-                                onClick={() => handleBulkChecklist(ans.id, criteriaList, false)}
+                                onClick={() => handleBulkChecklist(ans.id, criteriaList, false, totalQPoints)}
                                 className="btn btn-secondary btn-sm"
                                 style={{ fontSize: "0.7rem", padding: "0.15rem 0.45rem" }}
                               >
-                                Clear
+                                Clear All
                               </button>
                             </>
                           )}
                         </div>
                       </div>
 
-                      <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem", maxHeight: "480px", overflowY: "auto", paddingRight: "4px" }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem", maxHeight: "520px", overflowY: "auto", paddingRight: "4px" }}>
                         {criteriaList.length > 0 ? (
                           criteriaList.map((c, cIdx) => {
                             const isChecked = checklistResults[cIdx]?.awarded ?? false;
-                            const aiIdentified = Array.isArray(aiChecklist) && (aiChecklist[cIdx]?.awarded ?? false);
+                            const pointsEarned = checklistResults[cIdx]?.points_earned ?? (isChecked ? c.max_points : 0.0);
 
                             return (
                               <div
                                 key={c.item_number || cIdx}
-                                onClick={() => ans && handleToggleChecklist(ans.id, cIdx, c.max_points)}
                                 style={{
                                   padding: "0.75rem 0.95rem",
                                   borderRadius: "var(--radius-sm)",
-                                  background: isChecked ? "rgba(16, 185, 129, 0.09)" : "var(--bg-secondary)",
+                                  background: isChecked ? "rgba(16, 185, 129, 0.08)" : "var(--bg-secondary)",
                                   border: isChecked ? "1.5px solid #10B98160" : "1px solid var(--border-subtle)",
-                                  cursor: "pointer",
                                   display: "flex",
                                   alignItems: "flex-start",
                                   gap: "0.75rem",
@@ -1029,35 +1415,131 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
                                 <input
                                   type="checkbox"
                                   checked={isChecked}
-                                  onChange={() => {}} // handled by parent onClick
-                                  style={{ marginTop: "3px", cursor: "pointer", width: "16px", height: "16px" }}
+                                  onChange={() => ans && handleToggleCriterionCheckbox(ans.id, cIdx, c, totalQPoints)}
+                                  style={{ marginTop: "4px", cursor: "pointer", width: "17px", height: "17px" }}
                                 />
+
                                 <div style={{ flex: 1 }}>
-                                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                                      <span style={{ fontWeight: 800, fontSize: "0.82rem", color: isChecked ? "#10B981" : "var(--text-primary)" }}>
-                                        Criterion #{c.item_number}
-                                      </span>
-                                      {aiIdentified && (
-                                        <span className="badge badge-purple" style={{ fontSize: "0.62rem", padding: "1px 5px" }}>
-                                          AI: ✓ Detected
-                                        </span>
-                                      )}
-                                    </div>
-                                    <span style={{ fontSize: "0.78rem", fontWeight: 700, color: isChecked ? "#10B981" : "var(--text-muted)" }}>
-                                      +{c.max_points} pts
+                                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                                    <span style={{ fontWeight: 800, fontSize: "0.82rem", color: isChecked ? "#10B981" : "var(--text-primary)" }}>
+                                      Criterion #{c.item_number}
                                     </span>
+
+                                    {/* Partial Mark Input */}
+                                    {ans && (
+                                      <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                                        <input
+                                          type="number"
+                                          step="0.5"
+                                          min="0"
+                                          max={c.max_points}
+                                          value={pointsEarned}
+                                          onChange={(e) => handleUpdateCriterionPartialMark(ans.id, cIdx, c, parseFloat(e.target.value), totalQPoints)}
+                                          className="form-input"
+                                          style={{ width: "55px", padding: "0.15rem 0.3rem", fontSize: "0.825rem", textAlign: "center", fontWeight: 700 }}
+                                        />
+                                        <span style={{ fontSize: "0.74rem", fontWeight: 600, color: "var(--text-muted)" }}>/ {c.max_points} pts</span>
+                                      </div>
+                                    )}
                                   </div>
+
                                   <div style={{ fontSize: "0.825rem", color: "var(--text-secondary)", marginTop: "3px", lineHeight: 1.45 }}>
                                     {c.criterion_text}
+                                    {c.accepted_alternatives && (
+                                      <div style={{ fontSize: "0.74rem", color: "var(--text-muted)", marginTop: "3px" }}>
+                                        <em>Acceptable alternatives:</em> {c.accepted_alternatives}
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                               </div>
                             );
                           })
                         ) : (
-                          <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)", fontSize: "0.88rem", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)" }}>
-                            Standard holistic grading applied. Set score override directly in the top-right field.
+                          <div style={{ padding: "1.5rem", textAlign: "center", color: "var(--text-muted)", fontSize: "0.88rem", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)" }}>
+                            Holistic grading applied. Set score override directly in the top-right field.
+                          </div>
+                        )}
+
+                        {/* Custom Teacher Marking Points List */}
+                        {customList.length > 0 && (
+                          <div style={{ marginTop: "0.5rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                            <div style={{ fontSize: "0.75rem", fontWeight: 800, color: "var(--accent-primary)", textTransform: "uppercase" }}>
+                              Custom Teacher Allocated Points ({customList.length})
+                            </div>
+                            {customList.map((pt) => (
+                              <div key={pt.id} style={{ padding: "0.65rem 0.85rem", background: "rgba(99, 102, 241, 0.07)", borderRadius: "var(--radius-sm)", border: "1px solid rgba(99, 102, 241, 0.25)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" }}>
+                                <div style={{ flex: 1, fontSize: "0.825rem", color: "var(--text-primary)" }}>
+                                  <strong>Custom Point:</strong> {pt.text}
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                                  {ans && (
+                                    <input
+                                      type="number"
+                                      step="0.5"
+                                      min="0"
+                                      max={pt.max_points}
+                                      value={pt.points_earned}
+                                      onChange={(e) => handleUpdateCustomPointMark(ans.id, pt.id, parseFloat(e.target.value), totalQPoints)}
+                                      className="form-input"
+                                      style={{ width: "55px", padding: "0.15rem 0.3rem", fontSize: "0.825rem", textAlign: "center", fontWeight: 700 }}
+                                    />
+                                  )}
+                                  <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>/ {pt.max_points} pts</span>
+                                  {ans && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveCustomPoint(ans.id, pt.id, totalQPoints)}
+                                      className="btn btn-ghost btn-sm"
+                                      style={{ padding: "0.15rem 0.35rem", color: "#EF4444" }}
+                                      title="Remove Custom Point"
+                                    >
+                                      <SvgIcon name="trash" size={13} />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Add Custom Point Input Form */}
+                        {ans && (
+                          <div style={{ marginTop: "0.75rem", padding: "0.85rem", background: "var(--bg-card)", borderRadius: "var(--radius-sm)", border: "1px dashed var(--border)" }}>
+                            <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-muted)", marginBottom: "6px" }}>
+                              + Add Custom Student Marking Point:
+                            </div>
+                            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+                              <input
+                                type="text"
+                                placeholder="E.g. Student mentioned valid plastocyanin electron carrier step..."
+                                value={newCustomPointText[ans.id] || ""}
+                                onChange={(e) => setNewCustomPointText((prev) => ({ ...prev, [ans.id]: e.target.value }))}
+                                className="form-input"
+                                style={{ flex: 1, fontSize: "0.8rem", minWidth: "160px" }}
+                              />
+                              <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                                <input
+                                  type="number"
+                                  step="0.5"
+                                  min="0.5"
+                                  max={totalQPoints}
+                                  value={newCustomPointMarks[ans.id] ?? 4.0}
+                                  onChange={(e) => setNewCustomPointMarks((prev) => ({ ...prev, [ans.id]: parseFloat(e.target.value) || 1.0 }))}
+                                  className="form-input"
+                                  style={{ width: "55px", fontSize: "0.8rem", textAlign: "center" }}
+                                />
+                                <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>pts</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleAddCustomPoint(ans.id, totalQPoints)}
+                                className="btn btn-secondary btn-sm"
+                                style={{ fontSize: "0.75rem", padding: "0.3rem 0.75rem" }}
+                              >
+                                Add Point
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>

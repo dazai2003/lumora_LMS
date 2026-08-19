@@ -507,7 +507,11 @@ export default function WYSIWYGEditor({
           </div>
           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
             {autosaveStatus === "saving" && <span>Saving...</span>}
-            {autosaveStatus === "saved" && <span style={{ color: "var(--color-success)" }}>✓ Saved</span>}
+            {autosaveStatus === "saved" && (
+              <span style={{ color: "var(--color-success)", display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                <SvgIcon name="check" size={13} /> Saved
+              </span>
+            )}
             <span>Zoom: {zoom}%</span>
           </div>
         </div>

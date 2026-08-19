@@ -312,7 +312,7 @@ def validate_mcq_candidate(cand: Dict[str, Any], slot: Dict[str, Any]) -> Tuple[
     validated["stem_text"] = normalize_scientific_notation(stem)
 
     # 2. Template type alignment
-    target_fmt = slot.get("template_type") or "generic_mcq"
+    target_fmt = slot.get("template_type") or slot.get("target_format") or slot.get("format") or cand.get("template_type") or "generic_mcq"
     validated["template_type"] = target_fmt
     validated["question_number"] = slot.get("question_number", 1)
     validated["unit_number"] = slot.get("unit_number", 1)
@@ -372,13 +372,34 @@ def validate_mcq_candidate(cand: Dict[str, Any], slot: Dict[str, Any]) -> Tuple[
         validated["correct_option"] = corr
 
     elif target_fmt == "combination_grid":
-        stmts = cand.get("statements_json") or [
-            {"code": "A", "text": "Premise A"},
-            {"code": "B", "text": "Premise B"},
-            {"code": "C", "text": "Premise C"},
-            {"code": "D", "text": "Premise D"},
-        ]
-        validated["statements_json"] = normalize_scientific_notation(stmts[:4])
+        raw_stmts = cand.get("statements_json")
+        extracted_stmts = []
+        if isinstance(raw_stmts, list) and len(raw_stmts) >= 2:
+            is_placeholder = all(
+                re.match(r"^(?:premise|statement)\s*[a-e](?:\s*regarding\s*.*)?$", str(s.get("text") if isinstance(s, dict) else s).strip(), re.I)
+                for s in raw_stmts
+            )
+            if not is_placeholder:
+                extracted_stmts = raw_stmts
+
+        if not extracted_stmts:
+            # Try extracting (A) ... (B) ... (C) ... (D) ... statements directly from stem_text
+            stem = cand.get("stem_text") or ""
+            for line in stem.split("\n"):
+                m = re.match(r"^(?:\(([A-Ea-e])\)|([A-Ea-e])[\.\:\-])\s+(.+)$", line.strip())
+                if m:
+                    code = (m.group(1) or m.group(2)).upper()
+                    extracted_stmts.append({"code": code, "text": m.group(3).strip()})
+
+        if not extracted_stmts:
+            extracted_stmts = [
+                {"code": "A", "text": "Statement A"},
+                {"code": "B", "text": "Statement B"},
+                {"code": "C", "text": "Statement C"},
+                {"code": "D", "text": "Statement D"},
+            ]
+
+        validated["statements_json"] = normalize_scientific_notation(extracted_stmts[:4])
 
         opts = cand.get("options")
         if not isinstance(opts, list) or len(opts) < 5:

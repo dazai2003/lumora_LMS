@@ -155,120 +155,6 @@ async def create_note(
     return material
 
 
-@router.post("/course-upload", response_model=MaterialResponse, status_code=status.HTTP_201_CREATED)
-async def upload_course_material(
-    course_id: int = Form(...),
-    title: str = Form(...),
-    category: Optional[str] = Form("general"),
-    material_type: Optional[str] = Form("pdf"),
-    description: Optional[str] = Form(None),
-    paper_type: Optional[str] = Form(None),
-    year: Optional[str] = Form(None),
-    file: UploadFile = File(...),
-    current_user: User = Depends(require_admin_or_teacher),
-    db: Session = Depends(get_db),
-):
-    """Upload course-level reference material (PDFs, Word docs, past papers, marking schemes)."""
-    course = db.query(Course).filter(Course.id == course_id).first()
-    if not course:
-        raise HTTPException(status_code=404, detail="Course not found")
-
-    if current_user.role == UserRole.TEACHER and course.teacher_id != current_user.id:
-        raise HTTPException(status_code=403, detail="You can only upload materials to your own courses")
-
-    file_ext = os.path.splitext(file.filename)[1].lower()
-    unique_filename = f"{uuid.uuid4()}{file_ext}"
-    course_dir = os.path.join(UPLOAD_DIR, "course_materials", f"course_{course_id}")
-    os.makedirs(course_dir, exist_ok=True)
-    file_path = os.path.join(course_dir, unique_filename)
-
-    with open(file_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
-
-    relative_file_path = f"uploads/course_materials/course_{course_id}/{unique_filename}"
-
-    # Parse material_type string safely to MaterialType Enum
-    m_type = MaterialType.PDF
-    if material_type:
-        try:
-            m_type = MaterialType(material_type.lower())
-        except ValueError:
-            m_type = MaterialType.PDF
-
-    full_description = description or ""
-    if paper_type or year:
-        details = []
-        if paper_type:
-            details.append(f"Format: {paper_type.replace('_', ' ').title()}")
-        if year:
-            details.append(f"Year/Session: {year}")
-        info_str = " | ".join(details)
-        full_description = f"{full_description}\n[{info_str}]".strip()
-
-    material = Material(
-        title=title,
-        description=full_description,
-        material_type=m_type,
-        category=category or "general",
-        file_path=relative_file_path,
-        processing_status=ProcessingStatus.COMPLETED,
-        course_id=course_id,
-        lesson_id=None,
-    )
-    db.add(material)
-    db.commit()
-    db.refresh(material)
-
-    # Question Bank Ingestion for Past Papers & Model Papers
-    if category in ["past_paper", "model_paper"]:
-        try:
-            from app.models import Question, QuestionVersion, QuestionType, Difficulty
-            from app.services.pdf_parser import parse_pdf_questions
-
-            parsed_questions = parse_pdf_questions(file_path, paper_type, year)
-            for item in parsed_questions:
-                q = Question(lesson_id=None, is_banked=True, is_active=True)
-                db.add(q)
-                db.commit()
-                db.refresh(q)
-
-                q_type = QuestionType.MCQ if item.get("type") == "MCQ" else QuestionType.SHORT_ANSWER
-
-                qv = QuestionVersion(
-                    question_id=q.id,
-                    question_text=item["text"],
-                    question_type=q_type,
-                    options=item.get("options"),
-                    correct_answer=item.get("answer", "Refer to marking scheme."),
-                    explanation=item.get("explanation", ""),
-                    difficulty=Difficulty.MEDIUM,
-                    tags=item.get("tags", ["past_paper", f"year_{year}", paper_type]),
-                )
-                db.add(qv)
-            db.commit()
-        except Exception as err:
-            logger.warning(f"Failed to auto-populate question bank entry: {err}")
-
-    return material
-
-
-@router.get("/course/{course_id}", response_model=List[MaterialResponse])
-async def list_course_materials(
-    course_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """List all course-level reference materials (past papers, marking schemes, resource books)."""
-    check_course_access(course_id, current_user, db)
-    materials = (
-        db.query(Material)
-        .filter(Material.course_id == course_id)
-        .order_by(Material.created_at.desc())
-        .all()
-    )
-    return materials
-
-
 @router.get("/lesson/{lesson_id}", response_model=List[MaterialResponse])
 async def list_materials(
     lesson_id: int,
@@ -396,18 +282,18 @@ def update_material_transcript(
     material.extracted_text = data.extracted_text
     db.commit()
 
-    # Re-index in vector database for RAG Q&A
-    if material.extracted_text and len(material.extracted_text) > 20:
+    # Re-index in vector database for RAG Q&A (Lesson Materials Only)
+    if material.extracted_text and len(material.extracted_text) > 20 and material.lesson_id:
         lesson = db.query(Lesson).filter(Lesson.id == material.lesson_id).first()
-        course_id = lesson.course_id if lesson else 0
-        from app.services.vector import store_material_embeddings
-        store_material_embeddings(
-            material_id=material.id,
-            lesson_id=material.lesson_id,
-            course_id=course_id,
-            text=material.extracted_text,
-            title=material.title,
-        )
+        if lesson:
+            from app.services.vector import store_material_embeddings
+            store_material_embeddings(
+                material_id=material.id,
+                lesson_id=material.lesson_id,
+                course_id=lesson.course_id,
+                text=material.extracted_text,
+                title=material.title,
+            )
 
     db.refresh(material)
     return material
@@ -419,18 +305,54 @@ async def delete_material(
     current_user: User = Depends(require_admin_or_teacher),
     db: Session = Depends(get_db),
 ):
-    """Delete a material and its associated file."""
+    """Delete a material, its progress records, flags, notes, ChromaDB vectors, and associated file cleanly."""
     material = db.query(Material).filter(Material.id == material_id).first()
     if not material:
         raise HTTPException(status_code=404, detail="Material not found")
 
-    # Delete file from disk if it exists
-    if material.file_path and os.path.exists(material.file_path):
-        os.remove(material.file_path)
+    if material.lesson_id:
+        lesson = db.query(Lesson).filter(Lesson.id == material.lesson_id).first()
+        if lesson:
+            course = db.query(Course).filter(Course.id == lesson.course_id).first()
+            if course and current_user.role == UserRole.TEACHER and course.teacher_id != current_user.id:
+                raise HTTPException(status_code=403, detail="You can only delete materials in your own courses")
 
+    material_title = material.title
+    file_path = material.file_path
+
+    # 1. Clean up student progress, flags, and notes
+    db.query(StudentMaterialProgress).filter(StudentMaterialProgress.material_id == material_id).delete(synchronize_session=False)
+    db.query(MaterialFlag).filter(MaterialFlag.material_id == material_id).delete(synchronize_session=False)
+    db.query(MaterialNote).filter(MaterialNote.material_id == material_id).delete(synchronize_session=False)
+    db.query(Notification).filter(Notification.related_entity_id == material_id).delete(synchronize_session=False)
+
+    # 2. Clean up ChromaDB vectors for this material
+    try:
+        from app.services.vector import _get_collection
+        collection = _get_collection()
+        existing = collection.get(where={"material_id": material_id})
+        if existing and existing["ids"]:
+            collection.delete(ids=existing["ids"])
+            logger.info(f"Removed {len(existing['ids'])} vectors for deleted material {material_id}")
+    except Exception as vec_err:
+        logger.warning(f"ChromaDB cleanup on material deletion: {vec_err}")
+
+    # 3. Delete physical file from disk
+    if file_path:
+        abs_file_path = file_path if os.path.isabs(file_path) else os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))), file_path
+        )
+        if os.path.exists(abs_file_path):
+            try:
+                os.remove(abs_file_path)
+            except Exception as file_err:
+                logger.warning(f"Could not remove physical file {abs_file_path}: {file_err}")
+
+    # 4. Delete material record
     db.delete(material)
     db.commit()
-    return {"message": f"Material '{material.title}' has been deleted", "success": True}
+
+    return {"message": f"Material '{material_title}' has been deleted", "success": True}
 
 
 # ──────────────────────────────────────────────
@@ -640,19 +562,20 @@ def summarize_material(
                 db.commit()
                 logger.info(f"On-the-fly extracted {len(text)} chars for material {material.id}")
                 
-                # Store vector embeddings for RAG search
-                try:
-                    lesson = db.query(Lesson).filter(Lesson.id == material.lesson_id).first() if material.lesson_id else None
-                    course_id = lesson.course_id if lesson else (material.course_id or 0)
-                    store_material_embeddings(
-                        material_id=material.id,
-                        lesson_id=material.lesson_id or 0,
-                        course_id=course_id,
-                        text=text,
-                        title=material.title,
-                    )
-                except Exception as emb_err:
-                    logger.warning(f"Embedding storage during on-the-fly extraction failed: {emb_err}")
+                # Store vector embeddings for RAG search (Lesson Materials Only)
+                if material.lesson_id:
+                    try:
+                        lesson = db.query(Lesson).filter(Lesson.id == material.lesson_id).first()
+                        if lesson:
+                            store_material_embeddings(
+                                material_id=material.id,
+                                lesson_id=material.lesson_id,
+                                course_id=lesson.course_id,
+                                text=text,
+                                title=material.title,
+                            )
+                    except Exception as emb_err:
+                        logger.warning(f"Embedding storage during on-the-fly extraction failed: {emb_err}")
 
     if not text or len(text.strip()) < 50:
         raise HTTPException(status_code=400, detail="The material does not contain enough extractable text to generate a summary.")

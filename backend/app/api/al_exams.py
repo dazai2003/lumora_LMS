@@ -935,13 +935,21 @@ def start_al_exam_attempt(
             "points": q.points,
         })
 
+    # Calculate authoritative remaining seconds
+    remaining_seconds = None
+    if exam.time_limit_minutes > 0 and submission.started_at:
+        elapsed = int((datetime.utcnow() - submission.started_at).total_seconds())
+        remaining_seconds = max(0, (exam.time_limit_minutes * 60) - elapsed)
+
     return {
         "submission_id": submission.id,
         "exam_id": exam.id,
         "title": exam.title,
         "exam_type": exam.exam_type.value,
         "time_limit_minutes": exam.time_limit_minutes,
-        "started_at": submission.started_at.isoformat(),
+        "time_remaining_seconds": remaining_seconds,
+        "is_resumed": bool(existing_in_progress),
+        "started_at": submission.started_at.isoformat() if submission.started_at else None,
         "saved_answers": saved_answers,
         "questions": sanitized_questions,
     }
@@ -1291,8 +1299,16 @@ def submit_al_exam(
     )
 
     if has_paper_2:
-        # Enqueue heavy LLM pre-grading in background to avoid any 35s HTTP client timeout
-        background_tasks.add_task(_background_grade_paper_2, submission.id, exam.id)
+        # Paper II requires teacher evaluation. Retain status as 'submitted' (pending teacher review)
+        submission.status = "submitted"
+        submission.grade = None
+        submission.percentage = None
+        db.commit()
+    else:
+        # Pure MCQ paper is fully graded
+        if submission.status == "submitted":
+            submission.status = "graded"
+            db.commit()
 
     db.refresh(submission)
     return submission

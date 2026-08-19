@@ -504,17 +504,22 @@ def batch_accept_candidate_questions_endpoint(
         # Synthesize essay_checklist_json if missing on Essay candidates
         essay_payload = cand.get("essay_checklist_json")
         if not essay_payload and enum_type == ALQuestionTemplate.ESSAY_RUBRIC:
+            fmt = cand.get("structure_format", "single_complete")
             essay_payload = {
-                "structure_format": cand.get("structure_format", "single_complete"),
-                "structure_type": cand.get("structure_format", "single_complete"),
+                "structure_format": fmt,
+                "structure_type": fmt,
                 "stem_text": stem,
                 "instruction": cand.get("instruction", "Write short notes on the following:"),
                 "marking_scheme": cand.get("marking_scheme", ""),
                 "examiner_notes": cand.get("examiner_notes", ""),
-                "answer_points": cand.get("answer_points") or [],
-                "criteria": cand.get("answer_points") or [],
-                "subparts": cand.get("subparts") or [],
+                "answer_points": cand.get("answer_points") or cand.get("criteria") or [],
+                "criteria": cand.get("answer_points") or cand.get("criteria") or [],
+                "subparts": [] if fmt == "single_complete" else (cand.get("subparts") or []),
             }
+        elif essay_payload and isinstance(essay_payload, dict):
+            fmt = essay_payload.get("structure_format") or cand.get("structure_format", "single_complete")
+            if fmt == "single_complete":
+                essay_payload["subparts"] = []
 
         q = ALQuestion(
             exam_id=data.exam_id,

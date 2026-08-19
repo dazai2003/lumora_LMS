@@ -53,7 +53,11 @@ class ScopeSlicerService:
             lesson = db.query(Lesson).filter(Lesson.id == target_id).first()
             if lesson:
                 scope_title = f"{lesson.title} (Lesson Scope Exam)"
-                mats = db.query(Material).filter(Material.lesson_id == target_id, Material.is_private_rag_vault == False).all()
+                mats = db.query(Material).filter(
+                    Material.lesson_id == target_id,
+                    Material.lesson_id.isnot(None),
+                    Material.is_private_rag_vault == False
+                ).all()
                 for m in mats:
                     if m.extracted_text or m.content:
                         lesson_text_context += f"\n--- Material: {m.title} ---\n{m.extracted_text or m.content}\n"
@@ -62,26 +66,34 @@ class ScopeSlicerService:
             if unit:
                 scope_title = f"{unit.title} (Unit Scope Exam)"
                 lessons = db.query(Lesson).filter(Lesson.unit_id == target_id).all()
-                for l in lessons:
-                    mats = db.query(Material).filter(Material.lesson_id == l.id, Material.is_private_rag_vault == False).all()
+                lesson_ids = [l.id for l in lessons]
+                if lesson_ids:
+                    mats = db.query(Material).filter(
+                        Material.lesson_id.in_(lesson_ids),
+                        Material.lesson_id.isnot(None),
+                        Material.is_private_rag_vault == False
+                    ).all()
                     for m in mats:
                         if m.extracted_text or m.content:
-                            lesson_text_context += f"\n--- Lesson: {l.title} | Material: {m.title} ---\n{m.extracted_text or m.content}\n"
-
-        # Fetch Private Teacher RAG Vault Context (Past Papers, Resource Books, Marking Schemes)
-        rag_mats = db.query(Material).filter(
-            Material.course_id == course_id,
-            Material.is_private_rag_vault == True
-        ).all()
-
-        rag_context = ""
-        for rm in rag_mats:
-            if rm.extracted_text or rm.content:
-                rag_context += f"\n[RAG Vault Standards - {rm.category.upper()}]: {rm.extracted_text or rm.content}\n"
+                            l_title = next((l.title for l in lessons if l.id == m.lesson_id), "Lesson")
+                            lesson_text_context += f"\n--- Lesson: {l_title} | Material: {m.title} ---\n{m.extracted_text or m.content}\n"
+        elif scope == "subject":
+            lessons = db.query(Lesson).filter(Lesson.course_id == course_id).all()
+            lesson_ids = [l.id for l in lessons]
+            if lesson_ids:
+                mats = db.query(Material).filter(
+                    Material.lesson_id.in_(lesson_ids),
+                    Material.lesson_id.isnot(None),
+                    Material.is_private_rag_vault == False
+                ).all()
+                for m in mats:
+                    if m.extracted_text or m.content:
+                        l_title = next((l.title for l in lessons if l.id == m.lesson_id), "Lesson")
+                        lesson_text_context += f"\n--- Lesson: {l_title} | Material: {m.title} ---\n{m.extracted_text or m.content}\n"
 
         system_instruction = """You are a senior G.C.E. Advanced Level Biology Chief Examiner in Sri Lanka.
-Generate high-quality G.C.E. A/L Biology questions based strictly on the provided lesson text context.
-Align all terminology and marking guidelines with the provided RAG Vault marking schemes and resource books.
+Generate high-quality G.C.E. A/L Biology questions based strictly on the provided lesson learning materials context.
+Ensure questions align with national curriculum standards and Bloom's taxonomy.
 
 Return ONLY valid JSON matching this exact structure:
 {
@@ -107,10 +119,7 @@ Target Title: {scope_title}
 Paper Type: {paper_type}
 
 Lesson Learning Materials Context:
-{lesson_text_context[:6000] if lesson_text_context else 'General G.C.E. A/L Biology Syllabus Content'}
-
-Private RAG Vault Marking Scheme Context:
-{rag_context[:3000] if rag_context else 'Official G.C.E. A/L Biology Marking Standards'}
+{lesson_text_context[:8000] if lesson_text_context else 'General G.C.E. A/L Biology Syllabus Content'}
 
 Please generate a complete set of questions for this assessment."""
 

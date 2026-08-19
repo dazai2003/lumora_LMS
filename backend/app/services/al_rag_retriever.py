@@ -204,33 +204,27 @@ class LearningMaterialRetriever:
                 resolved_lesson_ids.append(l.id)
                 lesson_meta_map[l.id] = {"title": l.title, "unit_id": l.unit_id, "course_id": l.course_id}
 
-        # 2. Query Primary Lesson Materials
-        primary_query = db.query(Material)
+        # 2. Query Lesson Materials (Exclusive Source)
+        primary_query = db.query(Material).filter(
+            Material.lesson_id.isnot(None),
+            Material.is_private_rag_vault == False
+        )
         if material_ids:
             primary_query = primary_query.filter(Material.id.in_(material_ids))
         elif resolved_lesson_ids:
             primary_query = primary_query.filter(Material.lesson_id.in_(resolved_lesson_ids))
-        elif course_id:
-            primary_query = primary_query.filter(Material.course_id == course_id)
+        else:
+            primary_query = primary_query.filter(Material.id == -1)
 
         all_primary_materials = primary_query.all()
 
-        # 3. Query Supplementary Course-Level Materials (Past papers, resource books, marking schemes)
-        supp_materials: List[Material] = []
-        if course_id:
-            supp_materials = db.query(Material).filter(
-                Material.course_id == course_id,
-                Material.lesson_id == None
-            ).all()
-
-        # 4. Extract, Chunk, and Score Chunks
+        # 3. Extract, Chunk, and Score Chunks (Lesson Materials Exclusively)
         scored_chunks: List[Dict[str, Any]] = []
-        materials_found_count = len(all_primary_materials) + len(supp_materials)
+        materials_found_count = len(all_primary_materials)
         materials_indexed_count = 0
         used_material_ids: Set[int] = set()
         used_lesson_ids: Set[int] = set()
 
-        # Process Primary Materials (Priority Tier 1)
         for mat in all_primary_materials:
             raw_text = (mat.extracted_text or mat.content or mat.description or "").strip()
             if len(raw_text) < 20:
@@ -255,14 +249,11 @@ class LearningMaterialRetriever:
             for ch in chunks:
                 ch_text = ch["text"]
                 score = calculate_chunk_lexical_score(ch_text, query_token_set, u_title, l_title)
-                
-                # Priority Tier 1 bonus for selected lesson materials
-                priority_score = score + 0.30
 
-                if priority_score >= relevance_threshold:
+                if score >= relevance_threshold:
                     scored_chunks.append({
                         "tier": 1,
-                        "score": priority_score,
+                        "score": score,
                         "raw_score": score,
                         "text": ch_text,
                         "material_id": mat.id,
@@ -275,49 +266,10 @@ class LearningMaterialRetriever:
                         "chunk_id": f"mat_{mat.id}_c{ch['chunk_idx']}"
                     })
 
-        # Process Supplementary Course Resources (Priority Tier 2)
-        # When specific unit_ids or lesson_ids are targeted, supplementary materials require a stronger query match
-        tier2_min_threshold = 0.35 if (unit_ids or lesson_ids) else relevance_threshold
+        # 4. Sort Chunks by Relevance Score Descending
+        scored_chunks.sort(key=lambda c: -c["score"])
 
-        for mat in supp_materials:
-            raw_text = (mat.extracted_text or mat.content or mat.description or "").strip()
-            if len(raw_text) < 20:
-                continue
-
-            materials_indexed_count += 1
-            content_hash = hashlib.md5(raw_text[:2000].encode("utf-8", errors="ignore")).hexdigest()
-            cache_key = f"{mat.id}_{content_hash}"
-            
-            if cache_key in _CHUNK_CACHE:
-                chunks = _CHUNK_CACHE[cache_key]
-            else:
-                raw_chunks = semantic_chunk_text(raw_text)
-                chunks = [{"text": c, "chunk_idx": i} for i, c in enumerate(raw_chunks)]
-                _CHUNK_CACHE[cache_key] = chunks
-
-            for ch in chunks:
-                ch_text = ch["text"]
-                score = calculate_chunk_lexical_score(ch_text, query_token_set)
-                if score >= tier2_min_threshold:
-                    scored_chunks.append({
-                        "tier": 2,
-                        "score": score,
-                        "raw_score": score,
-                        "text": ch_text,
-                        "material_id": mat.id,
-                        "material_title": mat.title,
-                        "material_type": str(mat.material_type.value if hasattr(mat.material_type, "value") else mat.material_type),
-                        "lesson_id": None,
-                        "lesson_title": "Course Resource Vault",
-                        "unit_id": None,
-                        "unit_title": "General A/L Biology",
-                        "chunk_id": f"supp_{mat.id}_c{ch['chunk_idx']}"
-                    })
-
-        # 5. Sort Chunks by Tier and Relevance Score
-        scored_chunks.sort(key=lambda c: (c["tier"], -c["score"]))
-
-        # 6. Select Top Chunks within Character Budget
+        # 5. Select Top Chunks within Character Budget
         selected_chunks: List[Dict[str, Any]] = []
         current_chars = 0
 
@@ -334,7 +286,7 @@ class LearningMaterialRetriever:
             if sc["lesson_id"]:
                 used_lesson_ids.add(sc["lesson_id"])
 
-        # 7. Construct Final Compact Context String
+        # 6. Construct Final Compact Context String
         has_rag = len(selected_chunks) > 0
         fallback_used = not has_rag
 
@@ -355,7 +307,7 @@ class LearningMaterialRetriever:
                 "Molecular Biology & Recombinant DNA, Environmental Biology, Microbiology, and Applied Biology)."
             )
 
-        # 8. Build Traceability Metadata
+        # 7. Build Traceability Metadata
         traceability = {
             "has_rag_context": has_rag,
             "fallback_used": fallback_used,
@@ -402,7 +354,7 @@ class LearningMaterialRetriever:
     ) -> Dict[str, Any]:
         """
         Fast aggregation helper for frontend UI reporting.
-        Returns accurate counts of units, lessons, materials, processing statuses, and file types.
+        Returns accurate counts of units, lessons, materials, processing statuses, and file types from Lesson Materials.
         """
         unit_query = db.query(Unit)
         if unit_ids:
@@ -416,33 +368,29 @@ class LearningMaterialRetriever:
         lessons = db.query(Lesson).filter(Lesson.unit_id.in_(target_unit_ids)).order_by(Lesson.order).all() if target_unit_ids else []
         lesson_ids = [l.id for l in lessons]
 
-        materials = db.query(Material).filter(Material.lesson_id.in_(lesson_ids)).all() if lesson_ids else []
-
-        # Course-level materials (included when viewing whole course without unit_ids filter)
-        course_mats = []
-        if course_id and not unit_ids:
-            course_mats = db.query(Material).filter(
-                Material.course_id == course_id,
-                Material.lesson_id == None
-            ).all()
+        materials = db.query(Material).filter(
+            Material.lesson_id.in_(lesson_ids),
+            Material.lesson_id.isnot(None),
+            Material.is_private_rag_vault == False
+        ).all() if lesson_ids else []
 
         total_units = len(target_units)
         total_lessons = len(lessons)
-        total_materials = len(materials) + len(course_mats)
+        total_materials = len(materials)
 
         # Count lessons that have at least 1 material
         lessons_with_materials = set(m.lesson_id for m in materials if m.lesson_id)
         lessons_with_mats_count = len(lessons_with_materials)
 
         # Status breakdowns
-        completed_count = sum(1 for m in (materials + course_mats) if (m.extracted_text or m.content) and len(m.extracted_text or m.content or "") > 20)
-        processing_count = sum(1 for m in (materials + course_mats) if m.processing_status in (ProcessingStatus.PENDING, ProcessingStatus.PROCESSING))
-        failed_count = sum(1 for m in (materials + course_mats) if m.processing_status == ProcessingStatus.FAILED)
+        completed_count = sum(1 for m in materials if (m.extracted_text or m.content) and len(m.extracted_text or m.content or "") > 20)
+        processing_count = sum(1 for m in materials if m.processing_status in (ProcessingStatus.PENDING, ProcessingStatus.PROCESSING))
+        failed_count = sum(1 for m in materials if m.processing_status == ProcessingStatus.FAILED)
 
         # Material types breakdown
-        pdf_count = sum(1 for m in (materials + course_mats) if str(m.material_type).lower() in ("pdf", "materialtype.pdf"))
-        notes_count = sum(1 for m in (materials + course_mats) if str(m.material_type).lower() in ("notes", "text", "materialtype.notes"))
-        transcript_count = sum(1 for m in (materials + course_mats) if str(m.material_type).lower() in ("video", "audio", "materialtype.video", "materialtype.audio") or "transcript" in (m.title or "").lower())
+        pdf_count = sum(1 for m in materials if str(m.material_type).lower() in ("pdf", "materialtype.pdf"))
+        notes_count = sum(1 for m in materials if str(m.material_type).lower() in ("notes", "text", "materialtype.notes"))
+        transcript_count = sum(1 for m in materials if str(m.material_type).lower() in ("video", "audio", "materialtype.video", "materialtype.audio") or "transcript" in (m.title or "").lower())
 
         is_fully_available = (lessons_with_mats_count == total_lessons) and (total_lessons > 0)
         is_partially_available = (lessons_with_mats_count > 0) and (lessons_with_mats_count < total_lessons)

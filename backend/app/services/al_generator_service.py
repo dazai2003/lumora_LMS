@@ -269,11 +269,9 @@ def _retrieve_rag_context(
     material_ids: Optional[List[int]],
 ) -> str:
     """
-    Retrieves extracted text context prioritized into:
-    1. Primary Learning Context (Lesson PDFs, Lesson Transcripts, Teacher Notes)
-    2. Supplementary Course Context (Resource Books, Past Papers, Marking Schemes)
+    Retrieves extracted text context from Lesson Materials (Lesson PDFs, Lesson Transcripts, Teacher Notes).
     If empty, returns explicit syllabus fallback context.
-    Delegates to unified LearningMaterialRetriever (Phase 9).
+    Delegates to unified LearningMaterialRetriever.
     """
     from app.services.al_rag_retriever import LearningMaterialRetriever
     context_str, _ = LearningMaterialRetriever.retrieve_learning_material_context(

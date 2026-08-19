@@ -1900,6 +1900,404 @@ function TeacherAnalyticsContent() {
               TAB 6: STUDENT ROSTER (ACADEMIC MONITORING & INTERVENTION)
              ═══════════════════════════════════════════════════════════════ */}
           {activeTab === "roster" && (
+            selectedStudentForProfile ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+                {/* Top Action & Navigation Bar */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => {
+                      setSelectedStudentForProfile(null);
+                      setStudentProfileData(null);
+                    }}
+                    style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", fontWeight: 700 }}
+                  >
+                    <SvgIcon name="arrow-left" size={14} />
+                    Back to Student Roster
+                  </button>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => window.print()}
+                      style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
+                    >
+                      <SvgIcon name="file-text" size={14} />
+                      Print Dossier
+                    </button>
+                    {studentProfileData && (
+                      <button
+                        className="btn btn-primary btn-sm"
+                        onClick={() => handleSendIndividualNudge(studentProfileData.student_id, studentProfileData.student_name)}
+                        disabled={sendingStudentNudge === studentProfileData.student_id}
+                        style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
+                      >
+                        <SvgIcon name="bell" size={14} />
+                        {sendingStudentNudge === studentProfileData.student_id ? "Sending Reminder..." : "Send Study Reminder"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {loadingStudentProfile || !studentProfileData ? (
+                  <div className="card" style={{ padding: "4rem 2rem", textAlign: "center", border: "1px solid var(--border-subtle)" }}>
+                    <div className="spinner" />
+                    <p style={{ marginTop: "1rem", color: "var(--text-muted)", fontSize: "0.9rem" }}>
+                      Loading comprehensive student profile and learning diagnostics...
+                    </p>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+                    {/* 1. Student Header & Diagnostic Status Banner */}
+                    <div className="card" style={{ padding: "1.5rem 1.75rem", background: "var(--bg-card)", border: "1px solid var(--border-subtle)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1.25rem" }}>
+                        <div>
+                          <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", flexWrap: "wrap", marginBottom: "0.4rem" }}>
+                            {(() => {
+                              const diag = studentProfileData.status_diagnostic;
+                              const badgeClass = diag?.badgeClass || (studentProfileData.engagement_pattern.includes("High Performance") ? "badge-success" : studentProfileData.engagement_pattern.includes("At-Risk") ? "badge-error" : "badge-info");
+                              return (
+                                <span className={`badge ${badgeClass}`} style={{ fontSize: "0.8rem", fontWeight: 800 }}>
+                                  {diag?.label || studentProfileData.engagement_pattern}
+                                </span>
+                              );
+                            })()}
+                            <span className="badge badge-secondary" style={{ fontSize: "0.75rem" }}>
+                              Student #{studentProfileData.student_id}
+                            </span>
+                          </div>
+
+                          <h2 style={{ fontSize: "1.5rem", fontWeight: 800, margin: 0, color: "var(--text-primary)" }}>
+                            {studentProfileData.student_name}
+                          </h2>
+                          <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginTop: "4px", display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap" }}>
+                            <span>Email: <strong style={{ color: "var(--text-primary)" }}>{studentProfileData.student_email}</strong></span>
+                            <span>•</span>
+                            <span>Course: <strong style={{ color: "var(--text-primary)" }}>{fullAnalytics?.course_title || "G.C.E. A/L Biology"}</strong></span>
+                            {studentProfileData.last_activity_at && (
+                              <>
+                                <span>•</span>
+                                <span>Last Activity: <strong>{new Date(studentProfileData.last_activity_at).toLocaleDateString()}</strong></span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        <div style={{ padding: "0.75rem 1rem", background: "var(--bg-secondary)", borderRadius: "var(--radius-md)", border: "1px solid var(--border-subtle)", maxWidth: "340px" }}>
+                          <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>
+                            Diagnostic Evaluation
+                          </div>
+                          <div style={{ fontSize: "0.825rem", color: "var(--text-primary)", marginTop: "3px", lineHeight: 1.45 }}>
+                            {studentProfileData.status_diagnostic?.reason || studentProfileData.engagement_pattern}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 2. 4-Card KPI Strip */}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "1rem" }}>
+                      <div className="card" style={{ padding: "1.25rem", border: "1px solid var(--border-subtle)", background: "var(--bg-card)", textAlign: "center" }}>
+                        <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>Average Assessment Score</div>
+                        <div style={{ fontSize: "1.75rem", fontWeight: 900, color: studentProfileData.assessment_average_percentage != null ? (studentProfileData.assessment_average_percentage < 50 ? "#EF4444" : "#10B981") : "var(--text-muted)", marginTop: "4px" }}>
+                          {studentProfileData.assessment_average_percentage != null ? `${studentProfileData.assessment_average_percentage}%` : "No data"}
+                        </div>
+                      </div>
+
+                      <div className="card" style={{ padding: "1.25rem", border: "1px solid var(--border-subtle)", background: "var(--bg-card)", textAlign: "center" }}>
+                        <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>Material Completion</div>
+                        <div style={{ fontSize: "1.75rem", fontWeight: 900, color: "var(--accent-primary)", marginTop: "4px" }}>
+                          {studentProfileData.material_completion_percentage != null ? `${studentProfileData.material_completion_percentage}%` : "0%"}
+                        </div>
+                        <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "2px" }}>
+                          {studentProfileData.materials_completed} of {studentProfileData.materials_total} materials completed
+                        </div>
+                      </div>
+
+                      <div className="card" style={{ padding: "1.25rem", border: "1px solid var(--border-subtle)", background: "var(--bg-card)", textAlign: "center" }}>
+                        <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>Difficulty Flags</div>
+                        <div style={{ fontSize: "1.75rem", fontWeight: 900, color: studentProfileData.flags_unresolved_count > 0 ? "#EF4444" : "#10B981", marginTop: "4px" }}>
+                          {studentProfileData.flags_unresolved_count} <span style={{ fontSize: "0.85rem", fontWeight: 500, color: "var(--text-secondary)" }}>open</span>
+                        </div>
+                        <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "2px" }}>
+                          {studentProfileData.flags_submitted_count} submitted in total
+                        </div>
+                      </div>
+
+                      <div className="card" style={{ padding: "1.25rem", border: "1px solid var(--border-subtle)", background: "var(--bg-card)", textAlign: "center" }}>
+                        <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>Ask AI Tutor Queries</div>
+                        <div style={{ fontSize: "1.75rem", fontWeight: 900, color: "var(--accent-primary)", marginTop: "4px" }}>
+                          {studentProfileData.ask_ai_questions_count}
+                        </div>
+                        <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "2px" }}>
+                          inquiries & concepts explored
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 3. Paper-Type Breakdown & Submissions History */}
+                    <div className="card" style={{ padding: "1.5rem", border: "1px solid var(--border-subtle)", background: "var(--bg-card)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                          <SvgIcon name="award" size={18} />
+                          <h3 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 800, color: "var(--text-primary)" }}>
+                            Assessment Performance & Paper Breakdown
+                          </h3>
+                        </div>
+                      </div>
+
+                      {/* Paper Type Strip */}
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "0.75rem", marginBottom: "1.25rem" }}>
+                        <div style={{ padding: "0.85rem 1rem", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
+                          <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase" }}>Paper I (MCQ)</div>
+                          <div style={{ fontSize: "1.35rem", fontWeight: 900, color: studentProfileData.mcq_average_percentage != null ? "#10B981" : "var(--text-muted)", marginTop: "2px" }}>
+                            {studentProfileData.mcq_average_percentage != null ? `${studentProfileData.mcq_average_percentage}%` : "No data"}
+                          </div>
+                        </div>
+
+                        <div style={{ padding: "0.85rem 1rem", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
+                          <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase" }}>Paper II-A (Structured)</div>
+                          <div style={{ fontSize: "1.35rem", fontWeight: 900, color: studentProfileData.structured_average_percentage != null ? "#10B981" : "var(--text-muted)", marginTop: "2px" }}>
+                            {studentProfileData.structured_average_percentage != null ? `${studentProfileData.structured_average_percentage}%` : "No data"}
+                          </div>
+                        </div>
+
+                        <div style={{ padding: "0.85rem 1rem", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
+                          <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase" }}>Paper II-B (Essay)</div>
+                          <div style={{ fontSize: "1.35rem", fontWeight: 900, color: studentProfileData.essay_average_percentage != null ? "#10B981" : "var(--text-muted)", marginTop: "2px" }}>
+                            {studentProfileData.essay_average_percentage != null ? `${studentProfileData.essay_average_percentage}%` : "No data"}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Submissions History Table */}
+                      <h4 style={{ fontSize: "0.88rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.5rem" }}>
+                        Examination Attempt History ({studentProfileData.assessment_history.length})
+                      </h4>
+                      {studentProfileData.assessment_history.length === 0 ? (
+                        <p style={{ fontSize: "0.825rem", color: "var(--text-muted)", fontStyle: "italic", margin: 0 }}>
+                          No assessment submissions recorded for this student yet.
+                        </p>
+                      ) : (
+                        <div style={{ overflowX: "auto" }}>
+                          <table className="data-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.825rem" }}>
+                            <thead>
+                              <tr style={{ background: "var(--bg-secondary)", borderBottom: "1px solid var(--border)", textAlign: "left" }}>
+                                <th style={{ padding: "0.6rem 0.8rem" }}>Exam Title</th>
+                                <th style={{ padding: "0.6rem 0.8rem" }}>Paper Type</th>
+                                <th style={{ padding: "0.6rem 0.8rem", textAlign: "center" }}>Score</th>
+                                <th style={{ padding: "0.6rem 0.8rem", textAlign: "center" }}>Grade</th>
+                                <th style={{ padding: "0.6rem 0.8rem", textAlign: "right" }}>Submitted Date</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {studentProfileData.assessment_history.map((sub, idx) => (
+                                <tr key={idx} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                                  <td style={{ padding: "0.6rem 0.8rem", fontWeight: 600, color: "var(--text-primary)" }}>{sub.exam_title}</td>
+                                  <td style={{ padding: "0.6rem 0.8rem", textTransform: "capitalize", color: "var(--text-secondary)" }}>
+                                    {sub.exam_type.replace(/_/g, " ")}
+                                  </td>
+                                  <td style={{ padding: "0.6rem 0.8rem", textAlign: "center", fontWeight: 800, color: (sub.percentage ?? 0) < 50 ? "#EF4444" : "#10B981" }}>
+                                    {sub.percentage != null ? `${sub.percentage}%` : "—"}
+                                  </td>
+                                  <td style={{ padding: "0.6rem 0.8rem", textAlign: "center" }}>
+                                    <span className="badge badge-secondary" style={{ fontSize: "0.75rem", fontWeight: 700 }}>{sub.grade || "—"}</span>
+                                  </td>
+                                  <td style={{ padding: "0.6rem 0.8rem", textAlign: "right", color: "var(--text-muted)" }}>
+                                    {sub.submitted_at ? new Date(sub.submitted_at).toLocaleDateString() : "In progress"}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 4. Syllabus Unit Attainment Breakdown */}
+                    <div className="card" style={{ padding: "1.5rem", border: "1px solid var(--border-subtle)", background: "var(--bg-card)" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}>
+                        <SvgIcon name="layers" size={18} />
+                        <h3 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 800, color: "var(--text-primary)" }}>
+                          Syllabus Unit Mastery & Progress Breakdown
+                        </h3>
+                      </div>
+
+                      {studentProfileData.unit_mastery_breakdown.length === 0 ? (
+                        <p style={{ fontSize: "0.825rem", color: "var(--text-muted)", fontStyle: "italic", margin: 0 }}>
+                          No unit mastery data recorded yet.
+                        </p>
+                      ) : (
+                        <div style={{ overflowX: "auto" }}>
+                          <table className="data-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.825rem" }}>
+                            <thead>
+                              <tr style={{ background: "var(--bg-secondary)", borderBottom: "1px solid var(--border)", textAlign: "left" }}>
+                                <th style={{ padding: "0.6rem 0.8rem" }}>Syllabus Unit</th>
+                                <th style={{ padding: "0.6rem 0.8rem", textAlign: "center" }}>Material Completion</th>
+                                <th style={{ padding: "0.6rem 0.8rem", textAlign: "center" }}>Assessment Score</th>
+                                <th style={{ padding: "0.6rem 0.8rem", textAlign: "center" }}>Flags</th>
+                                <th style={{ padding: "0.6rem 0.8rem", textAlign: "center" }}>Mastery Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {studentProfileData.unit_mastery_breakdown.map((u, idx) => (
+                                <tr key={idx} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                                  <td style={{ padding: "0.6rem 0.8rem", fontWeight: 600, color: "var(--text-primary)" }}>{u.unit_title}</td>
+                                  <td style={{ padding: "0.6rem 0.8rem", textAlign: "center" }}>
+                                    {u.material_completion_pct != null ? `${u.material_completion_pct}%` : "0%"}
+                                  </td>
+                                  <td style={{ padding: "0.6rem 0.8rem", textAlign: "center", fontWeight: 800 }}>
+                                    {u.assessment_score_pct != null ? `${u.assessment_score_pct}%` : "No data"}
+                                  </td>
+                                  <td style={{ padding: "0.6rem 0.8rem", textAlign: "center" }}>
+                                    {u.flags_count > 0 ? (
+                                      <span className="badge badge-warning" style={{ fontSize: "0.72rem" }}>{u.flags_count} flags</span>
+                                    ) : (
+                                      "0"
+                                    )}
+                                  </td>
+                                  <td style={{ padding: "0.6rem 0.8rem", textAlign: "center" }}>
+                                    <span
+                                      className={`badge ${
+                                        u.mastery_status === "On Track"
+                                          ? "badge-success"
+                                          : u.mastery_status === "Needs Attention"
+                                          ? "badge-error"
+                                          : u.mastery_status === "Developing"
+                                          ? "badge-info"
+                                          : "badge-secondary"
+                                      }`}
+                                      style={{ fontSize: "0.72rem", fontWeight: 700 }}
+                                    >
+                                      {u.mastery_status}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 5. Difficulty Flags & AI Inquiries Grid */}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "1.5rem" }}>
+                      {/* Difficulty Flags */}
+                      <div className="card" style={{ padding: "1.25rem", border: "1px solid var(--border-subtle)", background: "var(--bg-card)" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.85rem" }}>
+                          <SvgIcon name="flag" size={16} />
+                          <h4 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                            Difficulty Flags Submitted ({studentProfileData.flags_submitted_count})
+                          </h4>
+                        </div>
+
+                        {studentProfileData.recent_flags.length === 0 ? (
+                          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontStyle: "italic", margin: 0 }}>
+                            No difficulty flags submitted by this student.
+                          </p>
+                        ) : (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                            {studentProfileData.recent_flags.map((fl: any) => (
+                              <div key={fl.flag_id} style={{ padding: "0.75rem 0.95rem", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", borderLeft: `3px solid ${fl.is_resolved ? "#10B981" : "#EF4444"}` }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.25rem" }}>
+                                  <span style={{ fontSize: "0.825rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                                    {fl.material_title} <span style={{ fontSize: "0.72rem", color: "var(--accent-primary)", fontWeight: 500 }}>({fl.context_value})</span>
+                                  </span>
+                                  <span className={`badge ${fl.is_resolved ? "badge-success" : "badge-error"}`} style={{ fontSize: "0.675rem" }}>
+                                    {fl.is_resolved ? "Resolved" : "Open Flag"}
+                                  </span>
+                                </div>
+                                <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>{fl.comment}</div>
+                                {fl.teacher_reply && (
+                                  <div style={{ marginTop: "0.35rem", fontSize: "0.74rem", color: "var(--text-muted)", fontStyle: "italic" }}>
+                                    Teacher Reply: {fl.teacher_reply}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Ask AI Inquiries */}
+                      <div className="card" style={{ padding: "1.25rem", border: "1px solid var(--border-subtle)", background: "var(--bg-card)" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.85rem" }}>
+                          <SvgIcon name="cpu" size={16} />
+                          <h4 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                            Ask AI Inquiries ({studentProfileData.ask_ai_questions_count})
+                          </h4>
+                        </div>
+
+                        {studentProfileData.recent_ai_questions.length === 0 ? (
+                          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontStyle: "italic", margin: 0 }}>
+                            No Ask AI tutor inquiries recorded for this student.
+                          </p>
+                        ) : (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
+                            {studentProfileData.recent_ai_questions.map((q: any) => (
+                              <div key={q.question_id} style={{ padding: "0.65rem 0.85rem", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)" }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.25rem" }}>
+                                  <span className="badge badge-purple" style={{ fontSize: "0.68rem" }}>{q.topic_category}</span>
+                                  <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>
+                                    {q.asked_at ? new Date(q.asked_at).toLocaleDateString() : ""}
+                                  </span>
+                                </div>
+                                <div style={{ fontSize: "0.825rem", color: "var(--text-primary)", fontWeight: 600 }}>{q.question_text}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 6. Actionable Teacher Interventions */}
+                    <div style={{ padding: "1.25rem", background: "rgba(99, 102, 241, 0.04)", border: "1px solid rgba(99, 102, 241, 0.2)", borderRadius: "var(--radius-md)" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.75rem" }}>
+                        <SvgIcon name="zap" size={18} />
+                        <h4 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 800, color: "var(--accent-primary)" }}>
+                          Actionable Teacher Interventions & Recommendations
+                        </h4>
+                      </div>
+
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "1rem" }}>
+                        {studentProfileData.recommended_interventions && studentProfileData.recommended_interventions.length > 0 ? (
+                          studentProfileData.recommended_interventions.map((rec, idx) => (
+                            <div key={idx} style={{ padding: "0.65rem 0.85rem", background: "var(--bg-card)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
+                              <div style={{ fontSize: "0.825rem", fontWeight: 700, color: "var(--text-primary)" }}>{rec.title}</div>
+                              <div style={{ fontSize: "0.76rem", color: "var(--text-secondary)", marginTop: "2px" }}>{rec.reason}</div>
+                            </div>
+                          ))
+                        ) : (
+                          <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontStyle: "italic" }}>
+                            No urgent interventions indicated. Student is progressing normally.
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
+                        <button
+                          className="btn btn-primary btn-sm"
+                          style={{ fontSize: "0.8rem" }}
+                          onClick={() => handleSendIndividualNudge(studentProfileData.student_id, studentProfileData.student_name)}
+                          disabled={sendingStudentNudge === studentProfileData.student_id}
+                        >
+                          {sendingStudentNudge === studentProfileData.student_id ? "Sending Reminder..." : "Send Study Reminder / Nudge"}
+                        </button>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          style={{ fontSize: "0.8rem" }}
+                          onClick={() => {
+                            setSelectedStudentForProfile(null);
+                            setStudentProfileData(null);
+                          }}
+                        >
+                          Back to Roster
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
               {/* 1. Roster Context KPI Strip (Phase T7 Section 3) */}
               {(() => {
@@ -2137,6 +2535,7 @@ function TeacherAnalyticsContent() {
                 </table>
               </div>
             </div>
+            )
           )}
 
           {/* ═══════════════════════════════════════════════════════════════
@@ -4443,7 +4842,7 @@ function TeacherAnalyticsContent() {
                     No sample inquiry snippets available.
                   </div>
                 ) : (
-                  selectedConceptModal.sample_questions.map((samp, idx) => (
+                  selectedConceptModal.sample_questions.map((samp: string, idx: number) => (
                     <div key={idx} style={{ padding: "0.6rem 0.8rem", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", fontSize: "0.8rem", color: "var(--text-primary)", fontWeight: 500 }}>
                       &ldquo;{samp}&rdquo;
                     </div>
@@ -4482,422 +4881,6 @@ function TeacherAnalyticsContent() {
               </div>
             </div>
           </div>
-        </Modal>
-      )}
-
-      {/* ──────────────── STUDENT LEARNING PROFILE MODAL (PHASE T7) ──────────────── */}
-      {selectedStudentForProfile && (
-        <Modal
-          onClose={() => {
-            setSelectedStudentForProfile(null);
-            setStudentProfileData(null);
-          }}
-          title={studentProfileData ? `Student Learning Profile — ${studentProfileData.student_name}` : "Student Learning Profile"}
-        >
-          {loadingStudentProfile || !studentProfileData ? (
-            <div style={{ padding: "3rem", textAlign: "center" }}>
-              <div className="spinner" />
-              <p style={{ marginTop: "0.75rem", color: "var(--text-muted)", fontSize: "0.85rem" }}>
-                Loading comprehensive learning profile and support signals...
-              </p>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem", padding: "0.5rem 0" }}>
-              {/* 1. Student Header & Diagnostic Status Banner (Phase T7 Section 10, 11, 12) */}
-              <div style={{ padding: "1rem 1.15rem", background: "var(--bg-secondary)", borderRadius: "var(--radius-md)", border: "1px solid var(--border-subtle)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.75rem" }}>
-                  <div>
-                    <h3 style={{ fontSize: "1.15rem", fontWeight: 800, margin: 0, color: "var(--text-primary)" }}>
-                      {studentProfileData.student_name}
-                    </h3>
-                    <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "2px" }}>
-                      {studentProfileData.student_email} • {fullAnalytics?.course_title || "Course Learner"}
-                    </div>
-                  </div>
-
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "3px" }}>
-                    {(() => {
-                      const diag = studentProfileData.status_diagnostic;
-                      const badgeClass = diag?.badgeClass || (studentProfileData.engagement_pattern.includes("High Performance") ? "badge-success" : studentProfileData.engagement_pattern.includes("At-Risk") ? "badge-error" : "badge-info");
-                      return (
-                        <span className={`badge ${badgeClass}`} style={{ fontSize: "0.75rem", fontWeight: 700 }}>
-                          {diag?.label || studentProfileData.engagement_pattern}
-                        </span>
-                      );
-                    })()}
-                    {studentProfileData.last_activity_at && (
-                      <span style={{ fontSize: "0.675rem", color: "var(--text-muted)" }}>
-                        Last Activity: {new Date(studentProfileData.last_activity_at).toLocaleDateString()}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Status Diagnostic Explanation */}
-                <div style={{ padding: "0.6rem 0.85rem", background: "var(--bg-card)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)", fontSize: "0.78rem", color: "var(--text-secondary)" }}>
-                  <strong>Diagnostic Status:</strong> {studentProfileData.status_diagnostic?.reason || studentProfileData.engagement_pattern}
-                </div>
-              </div>
-
-              {/* 2. 4-Card Summary Strip (Phase T7 Section 11) */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0.65rem" }}>
-                <div style={{ padding: "0.75rem", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)", textAlign: "center" }}>
-                  <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>Assessment Avg</div>
-                  <div style={{ fontSize: "1.2rem", fontWeight: 800, color: studentProfileData.assessment_average_percentage != null ? (studentProfileData.assessment_average_percentage < 50 ? "#EF4444" : "#10B981") : "var(--text-muted)", marginTop: "2px" }}>
-                    {studentProfileData.assessment_average_percentage != null ? `${studentProfileData.assessment_average_percentage}%` : "No data"}
-                  </div>
-                </div>
-
-                <div style={{ padding: "0.75rem", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)", textAlign: "center" }}>
-                  <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>Material Progress</div>
-                  <div style={{ fontSize: "1.2rem", fontWeight: 800, color: "#2563EB", marginTop: "2px" }}>
-                    {studentProfileData.material_completion_percentage != null ? `${studentProfileData.material_completion_percentage}%` : "No data"}
-                  </div>
-                  <div style={{ fontSize: "0.675rem", color: "var(--text-muted)" }}>
-                    {studentProfileData.materials_completed}/{studentProfileData.materials_total} completed
-                  </div>
-                </div>
-
-                <div style={{ padding: "0.75rem", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)", textAlign: "center" }}>
-                  <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>Difficulty Flags</div>
-                  <div style={{ fontSize: "1.2rem", fontWeight: 800, color: studentProfileData.flags_unresolved_count > 0 ? "#EF4444" : "#10B981", marginTop: "2px" }}>
-                    {studentProfileData.flags_unresolved_count} <span style={{ fontSize: "0.75rem", fontWeight: 500, color: "var(--text-secondary)" }}>open</span>
-                  </div>
-                  <div style={{ fontSize: "0.675rem", color: "var(--text-muted)" }}>
-                    {studentProfileData.flags_submitted_count} submitted
-                  </div>
-                </div>
-
-                <div style={{ padding: "0.75rem", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)", textAlign: "center" }}>
-                  <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>Ask AI Queries</div>
-                  <div style={{ fontSize: "1.2rem", fontWeight: 800, color: "var(--accent-primary)", marginTop: "2px" }}>
-                    {studentProfileData.ask_ai_questions_count}
-                  </div>
-                  <div style={{ fontSize: "0.675rem", color: "var(--text-muted)" }}>questions asked</div>
-                </div>
-              </div>
-
-              {/* 3. Assessment Performance Breakdown & Submissions History (Phase T7 Section 14, 15, 16, 17) */}
-              <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-md)", padding: "1rem" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                    <SvgIcon name="award" size={16} />
-                    <h4 style={{ margin: 0, fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>
-                      Assessment Performance &amp; Paper Breakdown
-                    </h4>
-                  </div>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    style={{ fontSize: "0.72rem", padding: "0.2rem 0.55rem" }}
-                    onClick={() => {
-                      setSelectedStudentForProfile(null);
-                      setActiveTab("assessments");
-                    }}
-                  >
-                    View Assessment Analytics &rarr;
-                  </button>
-                </div>
-
-                {/* 3-Pill Paper Type Strip */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "0.5rem", marginBottom: "0.85rem" }}>
-                  <div style={{ padding: "0.5rem 0.65rem", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
-                    <div style={{ fontSize: "0.675rem", color: "var(--text-muted)", fontWeight: 600 }}>Paper I (MCQ)</div>
-                    <div style={{ fontSize: "0.95rem", fontWeight: 800, color: studentProfileData.mcq_average_percentage != null ? "#10B981" : "var(--text-muted)" }}>
-                      {studentProfileData.mcq_average_percentage != null ? `${studentProfileData.mcq_average_percentage}%` : "Insufficient data"}
-                    </div>
-                  </div>
-
-                  <div style={{ padding: "0.5rem 0.65rem", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
-                    <div style={{ fontSize: "0.675rem", color: "var(--text-muted)", fontWeight: 600 }}>Paper II (Structured)</div>
-                    <div style={{ fontSize: "0.95rem", fontWeight: 800, color: studentProfileData.structured_average_percentage != null ? "#10B981" : "var(--text-muted)" }}>
-                      {studentProfileData.structured_average_percentage != null ? `${studentProfileData.structured_average_percentage}%` : "Insufficient data"}
-                    </div>
-                  </div>
-
-                  <div style={{ padding: "0.5rem 0.65rem", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
-                    <div style={{ fontSize: "0.675rem", color: "var(--text-muted)", fontWeight: 600 }}>Paper II (Essay)</div>
-                    <div style={{ fontSize: "0.95rem", fontWeight: 800, color: studentProfileData.essay_average_percentage != null ? "#10B981" : "var(--text-muted)" }}>
-                      {studentProfileData.essay_average_percentage != null ? `${studentProfileData.essay_average_percentage}%` : "Insufficient data"}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Submissions History Table */}
-                {studentProfileData.assessment_history.length === 0 ? (
-                  <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontStyle: "italic", margin: 0 }}>
-                    No assessment submissions recorded for this student yet.
-                  </p>
-                ) : (
-                  <div style={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.75rem" }}>
-                      <thead>
-                        <tr style={{ background: "var(--bg-secondary)", borderBottom: "1px solid var(--border)", textAlign: "left" }}>
-                          <th style={{ padding: "0.4rem 0.6rem" }}>Exam Title</th>
-                          <th style={{ padding: "0.4rem 0.6rem" }}>Paper Type</th>
-                          <th style={{ padding: "0.4rem 0.6rem", textAlign: "center" }}>Score</th>
-                          <th style={{ padding: "0.4rem 0.6rem", textAlign: "center" }}>Grade</th>
-                          <th style={{ padding: "0.4rem 0.6rem", textAlign: "right" }}>Submitted</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {studentProfileData.assessment_history.map((sub, idx) => (
-                          <tr key={idx} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                            <td style={{ padding: "0.4rem 0.6rem", fontWeight: 600, color: "var(--text-primary)" }}>{sub.exam_title}</td>
-                            <td style={{ padding: "0.4rem 0.6rem", textTransform: "capitalize", color: "var(--text-secondary)" }}>
-                              {sub.exam_type.replace(/_/g, " ")}
-                            </td>
-                            <td style={{ padding: "0.4rem 0.6rem", textAlign: "center", fontWeight: 700, color: (sub.percentage ?? 0) < 50 ? "#EF4444" : "#10B981" }}>
-                              {sub.percentage != null ? `${sub.percentage}%` : "—"}
-                            </td>
-                            <td style={{ padding: "0.4rem 0.6rem", textAlign: "center" }}>
-                              <span className="badge badge-secondary" style={{ fontSize: "0.675rem" }}>{sub.grade || "—"}</span>
-                            </td>
-                            <td style={{ padding: "0.4rem 0.6rem", textAlign: "right", color: "var(--text-muted)" }}>
-                              {sub.submitted_at ? new Date(sub.submitted_at).toLocaleDateString() : "In progress"}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-
-              {/* 4. Syllabus Unit Mastery Summary (Phase T7 Section 13) */}
-              {studentProfileData.unit_mastery_breakdown && studentProfileData.unit_mastery_breakdown.length > 0 && (
-                <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-md)", padding: "1rem" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                      <SvgIcon name="layers" size={16} />
-                      <h4 style={{ margin: 0, fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>
-                        Syllabus Unit Mastery Breakdown
-                      </h4>
-                    </div>
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      style={{ fontSize: "0.72rem", padding: "0.2rem 0.55rem" }}
-                      onClick={() => {
-                        setSelectedStudentForProfile(null);
-                        setActiveTab("intelligence");
-                      }}
-                    >
-                      View Syllabus Intelligence &rarr;
-                    </button>
-                  </div>
-
-                  <div style={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.75rem" }}>
-                      <thead>
-                        <tr style={{ background: "var(--bg-secondary)", borderBottom: "1px solid var(--border)", textAlign: "left" }}>
-                          <th style={{ padding: "0.4rem 0.6rem" }}>Unit</th>
-                          <th style={{ padding: "0.4rem 0.6rem", textAlign: "center" }}>Material Progress</th>
-                          <th style={{ padding: "0.4rem 0.6rem", textAlign: "center" }}>Assessment Score</th>
-                          <th style={{ padding: "0.4rem 0.6rem", textAlign: "center" }}>Flags</th>
-                          <th style={{ padding: "0.4rem 0.6rem", textAlign: "center" }}>Mastery Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {studentProfileData.unit_mastery_breakdown.map((u, idx) => (
-                          <tr key={idx} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                            <td style={{ padding: "0.4rem 0.6rem", fontWeight: 600, color: "var(--text-primary)" }}>{u.unit_title}</td>
-                            <td style={{ padding: "0.4rem 0.6rem", textAlign: "center" }}>
-                              {u.material_completion_pct != null ? `${u.material_completion_pct}%` : "0%"}
-                            </td>
-                            <td style={{ padding: "0.4rem 0.6rem", textAlign: "center", fontWeight: 700 }}>
-                              {u.assessment_score_pct != null ? `${u.assessment_score_pct}%` : "No data"}
-                            </td>
-                            <td style={{ padding: "0.4rem 0.6rem", textAlign: "center" }}>
-                              {u.flags_count > 0 ? (
-                                <span className="badge badge-warning" style={{ fontSize: "0.675rem" }}>{u.flags_count} flags</span>
-                              ) : (
-                                "0"
-                              )}
-                            </td>
-                            <td style={{ padding: "0.4rem 0.6rem", textAlign: "center" }}>
-                              <span
-                                className={`badge ${
-                                  u.mastery_status === "On Track"
-                                    ? "badge-success"
-                                    : u.mastery_status === "Needs Attention"
-                                    ? "badge-error"
-                                    : u.mastery_status === "Developing"
-                                    ? "badge-info"
-                                    : "badge-secondary"
-                                }`}
-                                style={{ fontSize: "0.675rem", fontWeight: 700 }}
-                              >
-                                {u.mastery_status}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* 5. Difficulty Flags Submitted by Student (Phase T7 Section 19) */}
-              <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-md)", padding: "1rem" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                    <SvgIcon name="flag" size={16} />
-                    <h4 style={{ margin: 0, fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>
-                      Difficulty Flags Submitted ({studentProfileData.flags_submitted_count})
-                    </h4>
-                  </div>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    style={{ fontSize: "0.72rem", padding: "0.2rem 0.55rem" }}
-                    onClick={() => {
-                      setSelectedStudentForProfile(null);
-                      router.push("/dashboard/teacher/insights");
-                    }}
-                  >
-                    View Material Stats &rarr;
-                  </button>
-                </div>
-
-                {studentProfileData.recent_flags.length === 0 ? (
-                  <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontStyle: "italic", margin: 0 }}>
-                    No difficulty flags submitted by this student.
-                  </p>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                    {studentProfileData.recent_flags.map((fl: any) => (
-                      <div key={fl.flag_id} style={{ padding: "0.65rem 0.85rem", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", borderLeft: `3px solid ${fl.is_resolved ? "#10B981" : "#EF4444"}` }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.25rem" }}>
-                          <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-primary)" }}>
-                            {fl.material_title} <span style={{ fontSize: "0.7rem", color: "var(--accent-primary)", fontWeight: 500 }}>({fl.context_value})</span>
-                          </span>
-                          <span className={`badge ${fl.is_resolved ? "badge-success" : "badge-error"}`} style={{ fontSize: "0.675rem" }}>
-                            {fl.is_resolved ? "Resolved" : "Open Flag"}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>{fl.comment}</div>
-                        {fl.teacher_reply && (
-                          <div style={{ marginTop: "0.3rem", fontSize: "0.72rem", color: "var(--text-muted)", fontStyle: "italic" }}>
-                            Teacher Reply: {fl.teacher_reply}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* 6. Ask AI Learning Queries (Phase T7 Section 20) */}
-              <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-md)", padding: "1rem" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                    <SvgIcon name="cpu" size={16} />
-                    <h4 style={{ margin: 0, fontSize: "0.875rem", fontWeight: 700, color: "var(--text-primary)" }}>
-                      Ask AI Inquiries &amp; Concept Areas ({studentProfileData.ask_ai_questions_count})
-                    </h4>
-                  </div>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    style={{ fontSize: "0.72rem", padding: "0.2rem 0.55rem" }}
-                    onClick={() => {
-                      setSelectedStudentForProfile(null);
-                      setActiveTab("ai_insights");
-                    }}
-                  >
-                    Inspect Ask AI Center &rarr;
-                  </button>
-                </div>
-
-                {studentProfileData.recent_ai_questions.length === 0 ? (
-                  <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontStyle: "italic", margin: 0 }}>
-                    No Ask AI tutor inquiries recorded for this student.
-                  </p>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
-                    {studentProfileData.recent_ai_questions.map((q: any) => (
-                      <div key={q.question_id} style={{ padding: "0.6rem 0.8rem", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.2rem" }}>
-                          <span className="badge badge-purple" style={{ fontSize: "0.675rem" }}>{q.topic_category}</span>
-                          <span style={{ fontSize: "0.675rem", color: "var(--text-muted)" }}>
-                            {q.asked_at ? new Date(q.asked_at).toLocaleDateString() : ""}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: "0.78rem", color: "var(--text-primary)", fontWeight: 600 }}>{q.question_text}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* 7. Actionable Teacher Interventions (Phase T7 Section 23, 24, 25) */}
-              <div style={{ padding: "1rem", background: "rgba(99, 102, 241, 0.04)", border: "1px solid rgba(99, 102, 241, 0.2)", borderRadius: "var(--radius-md)" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.6rem" }}>
-                  <SvgIcon name="zap" size={16} />
-                  <h4 style={{ margin: 0, fontSize: "0.875rem", fontWeight: 700, color: "var(--accent-primary)" }}>
-                    Actionable Teacher Interventions
-                  </h4>
-                </div>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", marginBottom: "0.85rem" }}>
-                  {studentProfileData.recommended_interventions && studentProfileData.recommended_interventions.length > 0 ? (
-                    studentProfileData.recommended_interventions.map((rec, idx) => (
-                      <div key={idx} style={{ padding: "0.5rem 0.75rem", background: "var(--bg-card)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
-                        <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-primary)" }}>{rec.title}</div>
-                        <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)" }}>{rec.reason}</div>
-                      </div>
-                    ))
-                  ) : (
-                    <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontStyle: "italic" }}>
-                      No urgent interventions indicated. Student is progressing normally.
-                    </div>
-                  )}
-                </div>
-
-                <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    style={{ fontSize: "0.75rem" }}
-                    onClick={() => handleSendIndividualNudge(studentProfileData.student_id, studentProfileData.student_name)}
-                    disabled={sendingStudentNudge === studentProfileData.student_id}
-                  >
-                    {sendingStudentNudge === studentProfileData.student_id ? "Sending Reminder..." : "Send Study Reminder / Nudge"}
-                  </button>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    style={{ fontSize: "0.75rem" }}
-                    onClick={() => {
-                      setSelectedStudentForProfile(null);
-                      router.push("/dashboard/teacher/insights");
-                    }}
-                  >
-                    Review Material Stats &amp; Flags &rarr;
-                  </button>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    style={{ fontSize: "0.75rem" }}
-                    onClick={() => {
-                      setSelectedStudentForProfile(null);
-                      setActiveTab("assessments");
-                    }}
-                  >
-                    Inspect Assessments &rarr;
-                  </button>
-                </div>
-              </div>
-
-              {/* Close Button */}
-              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "0.25rem" }}>
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => {
-                    setSelectedStudentForProfile(null);
-                    setStudentProfileData(null);
-                  }}
-                >
-                  Close Profile
-                </button>
-              </div>
-            </div>
-          )}
         </Modal>
       )}
 

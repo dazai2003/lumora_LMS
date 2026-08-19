@@ -585,14 +585,14 @@ export const QuestionPromptRenderer: React.FC<QuestionPromptRendererProps> = ({ 
             <div style={{ padding: "0.95rem", borderTop: "1px solid rgba(234, 179, 8, 0.2)", fontSize: "0.86rem", color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: "0.45rem" }}>
               <div style={{ fontWeight: 600, color: "var(--text-primary)" }}>Binary 4-Mark Checklist Items (37 Points + 2 Bonus Safety Buffer = 150 Marks):</div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(290px, 1fr))", gap: "0.4rem" }}>
-                <div>✓ 1. Correct biological definition of system (4 pts)</div>
-                <div>✓ 2. Structural cellular & membrane organization (4 pts)</div>
-                <div>✓ 3. Key enzymatic/catalytic step initiation (4 pts)</div>
-                <div>✓ 4. Intermediate substrate transformation sequence (4 pts)</div>
-                <div>✓ 5. Physiological regulation & feedback signal (4 pts)</div>
-                <div>✓ 6. Comparative adaptions & environmental response (4 pts)</div>
-                <div>✓ 7. Labeled structural diagram execution (5 pts)</div>
-                <div>✓ 8. Termination condition & metabolic outcome (4 pts)</div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}><SvgIcon name="check-circle" size={13} style={{ color: "#10B981" }} /> 1. Correct biological definition of system (4 pts)</div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}><SvgIcon name="check-circle" size={13} style={{ color: "#10B981" }} /> 2. Structural cellular & membrane organization (4 pts)</div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}><SvgIcon name="check-circle" size={13} style={{ color: "#10B981" }} /> 3. Key enzymatic/catalytic step initiation (4 pts)</div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}><SvgIcon name="check-circle" size={13} style={{ color: "#10B981" }} /> 4. Intermediate substrate transformation sequence (4 pts)</div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}><SvgIcon name="check-circle" size={13} style={{ color: "#10B981" }} /> 5. Physiological regulation & feedback signal (4 pts)</div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}><SvgIcon name="check-circle" size={13} style={{ color: "#10B981" }} /> 6. Comparative adaptions & environmental response (4 pts)</div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}><SvgIcon name="check-circle" size={13} style={{ color: "#10B981" }} /> 7. Labeled structural diagram execution (5 pts)</div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}><SvgIcon name="check-circle" size={13} style={{ color: "#10B981" }} /> 8. Termination condition & metabolic outcome (4 pts)</div>
               </div>
             </div>
           )}

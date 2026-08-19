@@ -70,19 +70,18 @@ def process_material(material_id: int, db_session_factory) -> None:
             db.commit()
             logger.info(f"Material {material_id}: no text extracted (this may be expected)")
 
-        # ── Step 3: Vectorize for RAG Q&A ──
-        if extracted_text and len(extracted_text) > 20:
+        # ── Step 3: Vectorize for RAG Q&A (Lesson Materials Only) ──
+        if extracted_text and len(extracted_text) > 20 and material.lesson_id:
             lesson = db.query(Lesson).filter(Lesson.id == material.lesson_id).first()
-            course_id = lesson.course_id if lesson else 0
-
-            chunks_stored = store_material_embeddings(
-                material_id=material.id,
-                lesson_id=material.lesson_id,
-                course_id=course_id,
-                text=extracted_text,
-                title=material.title,
-            )
-            logger.info(f"Material {material_id}: stored {chunks_stored} vector chunks")
+            if lesson:
+                chunks_stored = store_material_embeddings(
+                    material_id=material.id,
+                    lesson_id=material.lesson_id,
+                    course_id=lesson.course_id,
+                    text=extracted_text,
+                    title=material.title,
+                )
+                logger.info(f"Material {material_id}: stored {chunks_stored} vector chunks")
 
             # Notify teacher if video transcript is ready
             if material.material_type == MaterialType.VIDEO and lesson:

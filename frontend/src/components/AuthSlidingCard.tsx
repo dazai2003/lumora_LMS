@@ -56,34 +56,11 @@ export default function AuthSlidingCard({ initialMode = "login" }: AuthSlidingCa
     }
   };
 
-  // ---------------- FORGOT PASSWORD ----------------
-  const [isForgotOpen, setIsForgotOpen] = useState(false);
-  const [forgotEmail, setForgotEmail] = useState("");
-  const [forgotReason, setForgotReason] = useState("");
-  const [forgotLoading, setForgotLoading] = useState(false);
-  const [forgotMessage, setForgotMessage] = useState("");
-
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [showRegPassword, setShowRegPassword] = useState(false);
   const [showRegConfirmPassword, setShowRegConfirmPassword] = useState(false);
 
   const { addToast } = useToast();
-
-  const handleForgotSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setForgotLoading(true);
-    try {
-      const res = await api.requestPasswordReset(forgotEmail, forgotReason);
-      addToast(res.message, "success");
-      setForgotEmail("");
-      setForgotReason("");
-      setIsForgotOpen(false);
-    } catch (err: any) {
-      addToast(err.message || "Failed to submit request.", "error");
-    } finally {
-      setForgotLoading(false);
-    }
-  };
 
   // ---------------- REGISTER: state & submit logic (unchanged from original) ----------------
   const [fullName, setFullName] = useState("");
@@ -197,7 +174,7 @@ export default function AuthSlidingCard({ initialMode = "login" }: AuthSlidingCa
                       <SvgIcon name={showLoginPassword ? "eye-off" : "eye"} size={18} />
                     </button>
                   </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.4rem" }}>
+                  <div style={{ display: "flex", justifyContent: "flex-start", alignItems: "center", marginTop: "0.4rem" }}>
                     <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.8rem", color: "var(--text-secondary)", cursor: "pointer" }}>
                       <input
                         type="checkbox"
@@ -207,24 +184,6 @@ export default function AuthSlidingCard({ initialMode = "login" }: AuthSlidingCa
                       />
                       Keep me signed in
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setForgotMessage("");
-                        setIsForgotOpen(true);
-                      }}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        color: "var(--accent-primary)",
-                        fontSize: "0.8rem",
-                        cursor: "pointer",
-                        fontWeight: 500,
-                        padding: 0
-                      }}
-                    >
-                      Forgot password?
-                    </button>
                   </div>
                 </div>
 
@@ -384,9 +343,15 @@ export default function AuthSlidingCard({ initialMode = "login" }: AuthSlidingCa
                             <div style={{ flex: 1, background: score >= 3 ? color : "transparent", transition: "all 0.3s" }} />
                           </div>
                           <div style={{ display: "flex", gap: "0.6rem", fontSize: "0.68rem", marginTop: "0.25rem", color: "var(--text-muted)" }}>
-                            <span style={{ color: length ? "#10b981" : "inherit" }}>{length ? "✓" : "○"} 6+ chars</span>
-                            <span style={{ color: number ? "#10b981" : "inherit" }}>{number ? "✓" : "○"} Number</span>
-                            <span style={{ color: upper ? "#10b981" : "inherit" }}>{upper ? "✓" : "○"} Capital/Symbol</span>
+                            <span style={{ color: length ? "#10b981" : "inherit", display: "inline-flex", alignItems: "center", gap: "2px" }}>
+                              <SvgIcon name={length ? "check" : "x"} size={11} /> 6+ chars
+                            </span>
+                            <span style={{ color: number ? "#10b981" : "inherit", display: "inline-flex", alignItems: "center", gap: "2px" }}>
+                              <SvgIcon name={number ? "check" : "x"} size={11} /> Number
+                            </span>
+                            <span style={{ color: upper ? "#10b981" : "inherit", display: "inline-flex", alignItems: "center", gap: "2px" }}>
+                              <SvgIcon name={upper ? "check" : "x"} size={11} /> Capital/Symbol
+                            </span>
                           </div>
                         </div>
                       );
@@ -454,43 +419,6 @@ export default function AuthSlidingCard({ initialMode = "login" }: AuthSlidingCa
           <BrandPanel mode="register" />
         </div>
       </div>
-
-      <Modal isOpen={isForgotOpen} onClose={() => !forgotLoading && setIsForgotOpen(false)} title="Reset Password">
-        <div style={{ marginBottom: "1rem", color: "var(--text-secondary)", fontSize: "0.9rem" }}>
-          Enter your registered email address and an optional note. If your account exists, a reset request will be sent to the administrator.
-        </div>
-        <form onSubmit={handleForgotSubmit} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          <div>
-            <label style={{ display: "block", marginBottom: "0.5rem", fontSize: "0.9rem", fontWeight: 500, color: "var(--text-secondary)" }}>Email Address</label>
-            <input 
-              type="email" 
-              className="field-input" 
-              value={forgotEmail} 
-              onChange={e => setForgotEmail(e.target.value)} 
-              required 
-              disabled={forgotLoading}
-            />
-          </div>
-          <div>
-            <label style={{ display: "block", marginBottom: "0.5rem", fontSize: "0.9rem", fontWeight: 500, color: "var(--text-secondary)" }}>Reason / Note (Optional)</label>
-            <textarea 
-              className="field-input" 
-              rows={2} 
-              value={forgotReason} 
-              onChange={e => setForgotReason(e.target.value)}
-              placeholder="e.g. Lost access to my old device"
-              disabled={forgotLoading}
-              style={{ minHeight: "80px", resize: "none", padding: "0.75rem" }}
-            />
-          </div>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", marginTop: "1rem" }}>
-            <button type="button" className="btn-secondary" style={{ padding: "0.5rem 1rem" }} onClick={() => setIsForgotOpen(false)} disabled={forgotLoading}>Close</button>
-            <button type="submit" className="primary-btn" style={{ padding: "0.5rem 1rem", width: "auto" }} disabled={forgotLoading}>
-              {forgotLoading ? "Sending..." : "Submit Request"}
-            </button>
-          </div>
-        </form>
-      </Modal>
 
       <style jsx>{`
         .auth-outer {

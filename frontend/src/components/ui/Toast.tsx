@@ -2,6 +2,9 @@
 
 import React, { createContext, useContext, useState, useCallback, ReactNode } from "react";
 
+import { SvgIcon } from "@/components/SvgIcon";
+import type { IconName } from "@/components/SvgIcon";
+
 // ─── Types ────────────────────────────────────
 type ToastVariant = "success" | "error" | "warning" | "info";
 
@@ -26,11 +29,11 @@ export function useToast() {
 }
 
 // ─── Variant Styles ───────────────────────────
-const variantConfig: Record<ToastVariant, { icon: string; bg: string; border: string; color: string }> = {
-  success: { icon: "✓", bg: "#F0FDF4", border: "rgba(16, 185, 129, 0.3)", color: "#10B981" },
-  error:   { icon: "✕", bg: "#FEF2F2", border: "rgba(239, 68, 68, 0.3)", color: "#EF4444" },
-  warning: { icon: "⚠", bg: "#FFFBEB", border: "rgba(245, 158, 11, 0.3)", color: "#F59E0B" },
-  info:    { icon: "ℹ", bg: "#EFF6FF", border: "rgba(37, 99, 235, 0.3)", color: "#2563EB" },
+const variantConfig: Record<ToastVariant, { icon: IconName; bg: string; border: string; color: string }> = {
+  success: { icon: "check-circle", bg: "#F0FDF4", border: "rgba(16, 185, 129, 0.3)", color: "#10B981" },
+  error:   { icon: "x", bg: "#FEF2F2", border: "rgba(239, 68, 68, 0.3)", color: "#EF4444" },
+  warning: { icon: "alert-triangle", bg: "#FFFBEB", border: "rgba(245, 158, 11, 0.3)", color: "#F59E0B" },
+  info:    { icon: "info", bg: "#EFF6FF", border: "rgba(37, 99, 235, 0.3)", color: "#2563EB" },
 };
 
 // ─── Provider ─────────────────────────────────
@@ -116,7 +119,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                   flexShrink: 0,
                 }}
               >
-                {cfg.icon}
+                <SvgIcon name={cfg.icon} size={15} />
               </span>
 
               {/* Message */}
@@ -136,11 +139,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                   lineHeight: 1,
                   flexShrink: 0,
                   transition: "color 0.15s",
+                  display: "inline-flex",
+                  alignItems: "center",
                 }}
                 onMouseOver={(e) => (e.currentTarget.style.color = "var(--text-primary, #f0f0f5)")}
                 onMouseOut={(e) => (e.currentTarget.style.color = "var(--text-muted, #5e5e76)")}
               >
-                ×
+                <SvgIcon name="x" size={14} />
               </button>
             </div>
           );

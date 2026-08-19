@@ -7,7 +7,7 @@ Uses all-MiniLM-L6-v2 (~80MB) — extremely lightweight and fast, perfect for lo
 import os
 import logging
 import hashlib
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +82,14 @@ def store_material_embeddings(
     text: str,
     title: str = "",
 ) -> int:
-    """Chunk text, embed it, and store in ChromaDB. Returns number of chunks stored."""
+    """
+    Chunk text, embed it, and store in ChromaDB. Returns number of chunks stored.
+    Lesson Materials policy: lesson_id is mandatory. Non-lesson materials cannot be embedded.
+    """
+    if not lesson_id or lesson_id <= 0:
+        logger.warning(f"Skipping vector embedding for material {material_id}: lesson_id is required (Lesson-only AI policy)")
+        return 0
+
     try:
         collection = _get_collection()
         model = _get_embedding_model()
@@ -127,12 +134,58 @@ def store_material_embeddings(
             metadatas=metadatas,
         )
 
-        logger.info(f"Stored {len(chunks)} embeddings for material {material_id} ('{title}')")
+        logger.info(f"Stored {len(chunks)} embeddings for lesson material {material_id} ('{title}')")
         return len(chunks)
 
     except Exception as e:
         logger.error(f"Failed to store embeddings for material {material_id}: {e}")
         return 0
+
+
+def reconcile_chromadb_lesson_vectors(db) -> Dict[str, Any]:
+    """
+    Purges stale vectors from ChromaDB that are not attached to valid Lesson Materials.
+    Ensures ChromaDB contains strictly valid Lesson Material knowledge.
+    """
+    from app.models import Material
+    try:
+        collection = _get_collection()
+        all_data = collection.get()
+        if not all_data or not all_data["ids"]:
+            return {"total_checked": 0, "stale_purged": 0, "valid_remaining": 0}
+
+        stale_ids = []
+        valid_count = 0
+
+        # Pre-fetch all valid lesson material IDs from DB
+        valid_materials = db.query(Material.id).filter(
+            Material.lesson_id.isnot(None),
+            Material.is_private_rag_vault == False
+        ).all()
+        valid_material_ids = set(m[0] for m in valid_materials)
+
+        for i, doc_id in enumerate(all_data["ids"]):
+            meta = all_data["metadatas"][i] if all_data["metadatas"] else {}
+            mat_id = meta.get("material_id")
+            lesson_id = meta.get("lesson_id")
+
+            if not lesson_id or lesson_id <= 0 or mat_id not in valid_material_ids:
+                stale_ids.append(doc_id)
+            else:
+                valid_count += 1
+
+        if stale_ids:
+            collection.delete(ids=stale_ids)
+            logger.info(f"Reconciled ChromaDB: Purged {len(stale_ids)} stale non-lesson vectors. {valid_count} valid vectors remaining.")
+
+        return {
+            "total_checked": len(all_data["ids"]),
+            "stale_purged": len(stale_ids),
+            "valid_remaining": valid_count
+        }
+    except Exception as e:
+        logger.error(f"Failed to reconcile ChromaDB vectors: {e}")
+        return {"error": str(e), "stale_purged": 0}
 
 
 def search_similar(

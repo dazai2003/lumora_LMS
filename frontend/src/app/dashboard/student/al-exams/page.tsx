@@ -324,41 +324,86 @@ function StudentExamStudioContent() {
                     {prevSub && (
                       <div style={{
                         padding: "0.6rem 0.8rem",
-                        background: "var(--bg-secondary)",
+                        background: prevSub.status === "in_progress" ? "rgba(245, 158, 11, 0.08)" : "var(--bg-secondary)",
                         borderRadius: "var(--radius-sm)",
-                        border: "1px solid var(--border)",
+                        border: prevSub.status === "in_progress" ? "1px solid rgba(245, 158, 11, 0.3)" : "1px solid var(--border)",
                         marginBottom: "1rem",
                         display: "flex",
                         justifyContent: "space-between",
                         alignItems: "center"
                       }}>
-                        <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Last Attempt:</span>
+                        <span style={{ fontSize: "0.75rem", color: prevSub.status === "in_progress" ? "#F59E0B" : "var(--text-muted)", fontWeight: prevSub.status === "in_progress" ? 700 : 500 }}>
+                          {prevSub.status === "in_progress" ? "Active Session:" : "Last Attempt:"}
+                        </span>
                         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                          <span style={{ fontSize: "0.8rem", fontWeight: 700, color: getGradeColor(prevSub.grade) }}>
-                            {prevSub.percentage ? `${prevSub.percentage.toFixed(1)}%` : "Submitted"}
-                          </span>
-                          {prevSub.grade && (
-                            <span className="badge badge-purple" style={{ fontSize: "0.68rem", fontWeight: 800 }}>
-                              Grade: {prevSub.grade}
+                          {prevSub.status === "in_progress" ? (
+                            <span className="badge badge-warning" style={{ fontSize: "0.7rem", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                              <SvgIcon name="clock" size={11} /> In Progress
                             </span>
+                          ) : (
+                            <>
+                              <span style={{ fontSize: "0.8rem", fontWeight: 700, color: getGradeColor(prevSub.grade) }}>
+                                {prevSub.percentage ? `${prevSub.percentage.toFixed(1)}%` : "Submitted"}
+                              </span>
+                              {prevSub.grade && (
+                                <span className="badge badge-purple" style={{ fontSize: "0.68rem", fontWeight: 800 }}>
+                                  Grade: {prevSub.grade}
+                                </span>
+                              )}
+                            </>
                           )}
                         </div>
                       </div>
                     )}
 
-                    <div style={{ paddingTop: "1rem", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ paddingTop: "1rem", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
                       <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontWeight: 500 }}>
                         {exam.total_questions || 0} Questions
                       </div>
 
-                      <Link
-                        href={`/dashboard/student/al-exams/${exam.id}`}
-                        className="btn btn-primary"
-                        style={{ fontSize: "0.85rem", padding: "0.45rem 1.15rem", textDecoration: "none", display: "flex", alignItems: "center", gap: "0.4rem" }}
-                      >
-                        <span>{prevSub ? "Retake / Review Paper" : "Attempt Paper"}</span>
-                        <SvgIcon name="arrow-right" size={14} />
-                      </Link>
+                      <div style={{ display: "flex", gap: "0.45rem", alignItems: "center" }}>
+                        {prevSub?.status === "in_progress" ? (
+                          <Link
+                            href={`/dashboard/student/al-exams/${exam.id}`}
+                            className="btn btn-primary"
+                            style={{ fontSize: "0.85rem", padding: "0.45rem 1.15rem", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem", background: "linear-gradient(135deg, #F59E0B, #D97706)", borderColor: "#D97706", color: "#FFFFFF" }}
+                          >
+                            <SvgIcon name="edit" size={14} />
+                            <span>Continue Paper</span>
+                          </Link>
+                        ) : prevSub ? (
+                          <>
+                            <Link
+                              href={`/dashboard/student/al-exams/${exam.id}`}
+                              className="btn btn-secondary btn-sm"
+                              style={{ fontSize: "0.8rem", padding: "0.4rem 0.85rem", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
+                            >
+                              <SvgIcon name="file-text" size={13} />
+                              <span>Results</span>
+                            </Link>
+
+                            {(!exam.max_attempts || exam.max_attempts === 0 || exam.max_attempts > 1) && (
+                              <Link
+                                href={`/dashboard/student/al-exams/${exam.id}`}
+                                className="btn btn-primary btn-sm"
+                                style={{ fontSize: "0.8rem", padding: "0.4rem 0.85rem", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
+                              >
+                                <SvgIcon name="refresh" size={13} />
+                                <span>Retake</span>
+                              </Link>
+                            )}
+                          </>
+                        ) : (
+                          <Link
+                            href={`/dashboard/student/al-exams/${exam.id}`}
+                            className="btn btn-primary"
+                            style={{ fontSize: "0.85rem", padding: "0.45rem 1.15rem", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
+                          >
+                            <span>Attempt Paper</span>
+                            <SvgIcon name="arrow-right" size={14} />
+                          </Link>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>

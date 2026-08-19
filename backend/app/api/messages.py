@@ -101,37 +101,26 @@ def get_conversations(
                             "unread_count": 0
                         })
 
-    # FOR TEACHERS: Also add empty conversation entries for system Admins
+    # FOR TEACHERS: Also list enrolled students for teacher's courses if no message yet
     if current_user.role == UserRole.TEACHER:
-        admins = db.query(User).filter(User.role == UserRole.ADMIN, User.is_active == True).all()
-        for admin in admins:
-            key = (0, admin.id)
-            if key not in conversations_map:
-                results.append({
-                    "course_id": 0,
-                    "course_title": "System Admin Support",
-                    "other_user_id": admin.id,
-                    "other_user_name": admin.full_name,
-                    "last_message": "Click to message System Admin",
-                    "last_message_at": datetime.utcnow(),
-                    "unread_count": 0
-                })
-
-    # FOR ADMINS: Also add empty conversation entries for all active Teachers
-    if current_user.role == UserRole.ADMIN:
-        teachers = db.query(User).filter(User.role == UserRole.TEACHER, User.is_active == True).all()
-        for teacher in teachers:
-            key = (0, teacher.id)
-            if key not in conversations_map:
-                results.append({
-                    "course_id": 0,
-                    "course_title": "Teacher Direct Chat",
-                    "other_user_id": teacher.id,
-                    "other_user_name": teacher.full_name,
-                    "last_message": "No messages yet. Click to message teacher.",
-                    "last_message_at": datetime.utcnow(),
-                    "unread_count": 0
-                })
+        from app.models import Enrollment
+        teacher_courses = db.query(Course).filter(Course.teacher_id == current_user.id).all()
+        for c in teacher_courses:
+            enrollments = db.query(Enrollment).filter(Enrollment.course_id == c.id).all()
+            for enr in enrollments:
+                key = (c.id, enr.student_id)
+                if key not in conversations_map:
+                    student = db.query(User).filter(User.id == enr.student_id).first()
+                    if student:
+                        results.append({
+                            "course_id": c.id,
+                            "course_title": c.title,
+                            "other_user_id": student.id,
+                            "other_user_name": student.full_name,
+                            "last_message": "No messages yet. Start a discussion!",
+                            "last_message_at": datetime(2020, 1, 1),
+                            "unread_count": 0
+                        })
     
     # Resort
     results.sort(key=lambda x: x["last_message_at"], reverse=True)

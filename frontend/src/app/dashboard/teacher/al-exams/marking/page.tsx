@@ -6,7 +6,7 @@ import api, { ALStudentSubmission, ALExam } from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
 import { SvgIcon } from "@/components/SvgIcon";
 
-type StatusFilterType = "all" | "pending" | "ai_graded" | "teacher_verified";
+type StatusFilterType = "all" | "pending" | "teacher_verified";
 type PaperTypeFilter = "all" | "paper_1_mcq" | "paper_2_structured" | "paper_2_essay" | "full_paper";
 type ScoreRangeFilter = "all" | "distinction" | "merit" | "credit" | "ordinary" | "needs_support";
 type SortOrderType = "newest" | "oldest" | "score_desc" | "score_asc" | "student_asc" | "student_desc";
@@ -30,12 +30,24 @@ function getSubmissionGrade(sub: ALStudentSubmission): { grade: string; badgeCla
   return { grade: "Grade F", badgeClass: "badge-error", color: "#EF4444", percentage: pct };
 }
 
+function parseUtcDate(dateStr?: string | null): Date | null {
+  if (!dateStr) return null;
+  let s = String(dateStr).trim();
+  if (!s) return null;
+  if (!s.endsWith("Z") && !/[+-]\d{2}:\d{2}$/.test(s) && !/[+-]\d{4}$/.test(s)) {
+    s = s.replace(" ", "T") + "Z";
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? new Date(dateStr) : d;
+}
+
 function formatRelativeTime(dateStr?: string): string {
   if (!dateStr) return "";
   try {
-    const d = new Date(dateStr);
+    const d = parseUtcDate(dateStr);
+    if (!d) return "";
     const now = new Date();
-    const diffMs = now.getTime() - d.getTime();
+    const diffMs = Math.max(0, now.getTime() - d.getTime());
     const diffMins = Math.floor(diffMs / 60000);
     if (diffMins < 1) return "Just now";
     if (diffMins < 60) return `${diffMins}m ago`;
@@ -44,7 +56,7 @@ function formatRelativeTime(dateStr?: string): string {
     const diffDays = Math.floor(diffHours / 24);
     if (diffDays === 1) return "Yesterday";
     if (diffDays < 7) return `${diffDays}d ago`;
-    return d.toLocaleDateString();
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   } catch {
     return dateStr;
   }
@@ -101,7 +113,6 @@ export default function TeacherMarkingStudioPage() {
   // Metric calculation counts
   const counts = useMemo(() => {
     let pending = 0;
-    let aiGraded = 0;
     let verified = 0;
     let mcq = 0;
     let structured = 0;
@@ -111,9 +122,6 @@ export default function TeacherMarkingStudioPage() {
     submissions.forEach(s => {
       if (s.status === "teacher_verified") {
         verified++;
-      } else if (s.status === "ai_graded") {
-        aiGraded++;
-        pending++;
       } else {
         pending++;
       }
@@ -128,7 +136,6 @@ export default function TeacherMarkingStudioPage() {
     return {
       total: submissions.length,
       pending,
-      aiGraded,
       verified,
       mcq,
       structured,
@@ -143,8 +150,6 @@ export default function TeacherMarkingStudioPage() {
       // 1. Status Filter
       if (statusFilter === "pending") {
         if (sub.status === "teacher_verified") return false;
-      } else if (statusFilter === "ai_graded") {
-        if (sub.status !== "ai_graded") return false;
       } else if (statusFilter === "teacher_verified") {
         if (sub.status !== "teacher_verified") return false;
       }
@@ -241,7 +246,7 @@ export default function TeacherMarkingStudioPage() {
             <SvgIcon name="check-circle" size={24} style={{ color: "var(--accent-primary)" }} /> Marking Studio &amp; Verification Hub
           </h1>
           <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem", margin: "4px 0 0 0" }}>
-            Review AI-assisted marking, override rubric checkpoints for structured &amp; essay papers, and publish verified student results.
+            Review candidate answer scripts, evaluate subparts and itemized essay points, and publish verified academic results.
           </p>
         </div>
 
@@ -290,12 +295,12 @@ export default function TeacherMarkingStudioPage() {
           </span>
           <div>
             <div style={{ fontSize: "0.725rem", color: "#F59E0B", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-              Pending Review
+              Pending Teacher Marking
             </div>
             <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "#F59E0B", lineHeight: 1.1, marginTop: "2px" }}>
               {counts.pending}
             </div>
-            <div style={{ fontSize: "0.7rem", color: "var(--text-secondary)", marginTop: "2px" }}>{counts.aiGraded} AI-evaluated • Needs verification</div>
+            <div style={{ fontSize: "0.7rem", color: "var(--text-secondary)", marginTop: "2px" }}>Awaiting teacher manual evaluation</div>
           </div>
         </div>
 
@@ -339,9 +344,8 @@ export default function TeacherMarkingStudioPage() {
             <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", marginRight: "4px" }}>Status:</span>
             {[
               { id: "all" as StatusFilterType, label: "All Submissions", count: counts.total },
-              { id: "pending" as StatusFilterType, label: "Pending Review", count: counts.pending, alert: counts.pending > 0 },
-              { id: "ai_graded" as StatusFilterType, label: "AI Evaluated", count: counts.aiGraded },
-              { id: "teacher_verified" as StatusFilterType, label: "Teacher Verified", count: counts.verified },
+              { id: "pending" as StatusFilterType, label: "Pending Teacher Marking", count: counts.pending, alert: counts.pending > 0 },
+              { id: "teacher_verified" as StatusFilterType, label: "Teacher Verified & Published", count: counts.verified },
             ].map((st) => {
               const isSelected = statusFilter === st.id;
               return (
@@ -627,7 +631,7 @@ export default function TeacherMarkingStudioPage() {
                   <div style={{ minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem", flexWrap: "wrap" }}>
                       <span className={`badge ${isVerified ? "badge-success" : "badge-warning"}`} style={{ fontWeight: 700, fontSize: "0.7rem", letterSpacing: "0.02em" }}>
-                        {isVerified ? "TEACHER VERIFIED" : "PENDING REVIEW"}
+                        {isVerified ? "TEACHER VERIFIED" : "PENDING TEACHER MARKING"}
                       </span>
 
                       {/* Paper Type Badge */}
@@ -668,25 +672,39 @@ export default function TeacherMarkingStudioPage() {
                   {/* Grade Badge */}
                   <div style={{ textAlign: "center" }}>
                     <div style={{ fontSize: "0.68rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>
-                      Predicted
+                      {isVerified || paperType === "paper_1_mcq" ? "Official Grade" : "Marking Status"}
                     </div>
-                    <span className={`badge ${gradeInfo.badgeClass}`} style={{ fontSize: "0.825rem", fontWeight: 800, marginTop: "2px" }}>
-                      {gradeInfo.grade}
-                    </span>
+                    {isVerified || paperType === "paper_1_mcq" ? (
+                      <span className={`badge ${gradeInfo.badgeClass}`} style={{ fontSize: "0.825rem", fontWeight: 800, marginTop: "2px" }}>
+                        {gradeInfo.grade}
+                      </span>
+                    ) : (
+                      <span className="badge badge-warning" style={{ fontSize: "0.75rem", fontWeight: 700, marginTop: "2px" }}>
+                        Needs Marking
+                      </span>
+                    )}
                   </div>
 
                   {/* Scaled Marks */}
                   <div style={{ textAlign: "right", minWidth: "85px" }}>
                     <div style={{ fontSize: "0.68rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>
-                      Scaled Score
+                      Score
                     </div>
                     <div style={{ fontSize: "1.25rem", fontWeight: 800, color: "var(--text-primary)" }}>
-                      {sub.scaled_score ?? sub.raw_score ?? 0.0}
-                      <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontWeight: 500 }}>
-                        {sub.max_score ? ` / ${sub.max_score}` : " pts"}
-                      </span>
+                      {isVerified || paperType === "paper_1_mcq" ? (
+                        <>
+                          {sub.scaled_score ?? sub.raw_score ?? 0.0}
+                          <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontWeight: 500 }}>
+                            {sub.max_score ? ` / ${sub.max_score}` : " pts"}
+                          </span>
+                        </>
+                      ) : (
+                        <span style={{ fontSize: "0.95rem", color: "var(--warning)", fontWeight: 700 }}>
+                          Awaiting Marks
+                        </span>
+                      )}
                     </div>
-                    {gradeInfo.percentage > 0 && (
+                    {(isVerified || paperType === "paper_1_mcq") && gradeInfo.percentage > 0 && (
                       <div style={{ fontSize: "0.725rem", fontWeight: 700, color: gradeInfo.color }}>
                         {gradeInfo.percentage}% Attainment
                       </div>
@@ -696,7 +714,7 @@ export default function TeacherMarkingStudioPage() {
                   {/* Action Link */}
                   <Link
                     href={`/dashboard/teacher/al-exams/grade/${sub.id}`}
-                    className="btn btn-primary btn-sm"
+                    className={`btn btn-sm ${isVerified ? "btn-secondary" : "btn-primary"}`}
                     style={{
                       display: "inline-flex",
                       alignItems: "center",

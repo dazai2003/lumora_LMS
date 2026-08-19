@@ -1120,9 +1120,9 @@ export default function EssayAIGeneratorModal({
                           </span>
                           <span
                             className={`badge ${isMarksMatching ? "badge-info" : "badge-warning"}`}
-                            style={{ fontSize: "0.76rem", fontWeight: 700, fontFamily: "monospace" }}
+                            style={{ fontSize: "0.76rem", fontWeight: 700, fontFamily: "monospace", display: "inline-flex", alignItems: "center", gap: "4px" }}
                           >
-                            Total: {calculatedQMarks} / {q.marks} Marks {isMarksMatching ? "✓" : "⚠️"}
+                            <SvgIcon name={isMarksMatching ? "check" : "alert-triangle"} size={12} /> Total: {calculatedQMarks} / {q.marks} Marks
                           </span>
                         </div>
 
@@ -1272,9 +1272,9 @@ export default function EssayAIGeneratorModal({
                           </label>
                           <span
                             className={`badge ${isMarksMatching ? "badge-info" : "badge-warning"}`}
-                            style={{ fontSize: "0.76rem", fontWeight: 700, fontFamily: "monospace" }}
+                            style={{ fontSize: "0.76rem", fontWeight: 700, fontFamily: "monospace", display: "inline-flex", alignItems: "center", gap: "4px" }}
                           >
-                            Total: {calculatedQMarks} / {q.marks} Marks {isMarksMatching ? "✓" : "⚠️"}
+                            <SvgIcon name={isMarksMatching ? "check" : "alert-triangle"} size={12} /> Total: {calculatedQMarks} / {q.marks} Marks
                           </span>
                         </div>
 
@@ -1450,12 +1450,12 @@ export default function EssayAIGeneratorModal({
               Total Blueprint: <strong style={{ color: "var(--accent-primary)", fontFamily: "monospace" }}>{validation.totalMarks} Marks</strong>
             </span>
             {validation.isValid ? (
-              <span className="badge badge-success" style={{ fontSize: "0.74rem" }}>
-                ✓ Valid Blueprint
+              <span className="badge badge-success" style={{ fontSize: "0.74rem", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                <SvgIcon name="check-circle" size={12} /> Valid Blueprint
               </span>
             ) : (
-              <span className="badge badge-danger" style={{ fontSize: "0.74rem" }}>
-                ⚠️ Errors Found
+              <span className="badge badge-danger" style={{ fontSize: "0.74rem", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                <SvgIcon name="alert-triangle" size={12} /> Errors Found
               </span>
             )}
           </div>

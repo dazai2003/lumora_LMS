@@ -36,18 +36,16 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
   const [course, setCourse] = useState<Course | null>(null);
   const [units, setUnits] = useState<UnitWithLessons[]>([]);
   const [standaloneLessons, setStandaloneLessons] = useState<Lesson[]>([]);
-  const [courseMaterials, setCourseMaterials] = useState<Material[]>([]);
   const [students, setStudents] = useState<{ student_id: number; student_name: string; student_email: string; enrolled_at: string }[]>([]);
   const [alExams, setAlExams] = useState<ALExam[]>([]);
   const [quizBreakdown, setQuizBreakdown] = useState<QuizBreakdown | null>(null);
   
-  const [activeTab, setActiveTab] = useState<"units" | "materials" | "assessments" | "students" | "settings">("units");
+  const [activeTab, setActiveTab] = useState<"units" | "assessments" | "students" | "settings">("units");
   const [loading, setLoading] = useState(true);
   const { addToast } = useToast();
 
   // Search & Filter state
   const [studentSearch, setStudentSearch] = useState("");
-  const [selectedMaterialCategory, setSelectedMaterialCategory] = useState("all");
 
   // Collapsible unit state
   const [openUnits, setOpenUnits] = useState<Set<number>>(new Set());
@@ -77,18 +75,6 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
   const [deleteLessonTarget, setDeleteLessonTarget] = useState<Lesson | null>(null);
   const [deletingLesson, setDeletingLesson] = useState(false);
 
-  // Course Material Upload Modal State
-  const [showUploadMaterialModal, setShowUploadMaterialModal] = useState(false);
-  const [matTitle, setMatTitle] = useState("");
-  const [matCategory, setMatCategory] = useState("past_paper");
-  const [matPaperType, setMatPaperType] = useState<"paper_1_mcq" | "paper_2_structured" | "paper_2_essay" | "full_paper">("full_paper");
-  const [matYear, setMatYear] = useState("2024");
-  const [matDesc, setMatDesc] = useState("");
-  const [matFile, setMatFile] = useState<File | null>(null);
-  const [uploadingMat, setUploadingMat] = useState(false);
-  const [deleteMaterialTarget, setDeleteMaterialTarget] = useState<Material | null>(null);
-  const [deletingMaterial, setDeletingMaterial] = useState(false);
-
   // Course Settings View / Edit Mode State
   const [isEditingSettings, setIsEditingSettings] = useState(false);
   const [editTitle, setEditTitle] = useState("");
@@ -102,11 +88,10 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
 
   const loadData = async () => {
     try {
-      const [c, uList, allLessons, cMats, s, qb, exams] = await Promise.all([
+      const [c, uList, allLessons, s, qb, exams] = await Promise.all([
         api.getCourse(courseId),
         api.listUnits(courseId).catch(() => []),
         api.listLessons(courseId).catch(() => []),
-        api.listCourseMaterials(courseId).catch(() => []),
         api.getCourseStudents(courseId).catch(() => []),
         api.getCourseQuizBreakdown(courseId).catch(() => null),
         api.listALExams(courseId).catch(() => []),
@@ -114,7 +99,6 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
       setCourse(c);
       setUnits(uList || []);
       setStandaloneLessons((allLessons || []).filter(l => !l.unit_id));
-      setCourseMaterials(cMats || []);
       setStudents(s as typeof students);
       setQuizBreakdown(qb);
       setAlExams(exams || []);
@@ -290,58 +274,6 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
     }
   };
 
-  /* ─── Course Materials Upload & Delete ─── */
-  const handleUploadCourseMaterial = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!matTitle.trim() || !matFile) {
-      addToast("Please provide a material title and select a file.", "warning");
-      return;
-    }
-    setUploadingMat(true);
-    try {
-      const formData = new FormData();
-      formData.append("course_id", courseId.toString());
-      formData.append("title", matTitle.trim());
-      formData.append("category", matCategory);
-      formData.append("material_type", matFile.name.endsWith(".pdf") ? "pdf" : "note");
-      if (matCategory === "past_paper" || matCategory === "model_paper") {
-        formData.append("paper_type", matPaperType);
-        formData.append("year", matYear.trim());
-      }
-      if (matDesc.trim()) formData.append("description", matDesc.trim());
-      formData.append("file", matFile);
-
-      await api.uploadCourseMaterial(formData);
-      addToast(`Material "${matTitle}" uploaded successfully!`, "success");
-      setShowUploadMaterialModal(false);
-      setMatTitle("");
-      setMatDesc("");
-      setMatFile(null);
-      loadData();
-    } catch (err: any) {
-      console.error(err);
-      addToast(err.message || "Failed to upload material.", "error");
-    } finally {
-      setUploadingMat(false);
-    }
-  };
-
-  const handleDeleteMaterial = async () => {
-    if (!deleteMaterialTarget) return;
-    setDeletingMaterial(true);
-    try {
-      await api.deleteMaterial(deleteMaterialTarget.id);
-      addToast(`Material "${deleteMaterialTarget.title}" deleted.`, "warning");
-      setDeleteMaterialTarget(null);
-      loadData();
-    } catch (err) {
-      console.error(err);
-      addToast("Failed to delete material.", "error");
-    } finally {
-      setDeletingMaterial(false);
-    }
-  };
-
   /* ─── Course Settings View / Edit ─── */
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -403,12 +335,8 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
     s.student_email.toLowerCase().includes(studentSearch.toLowerCase())
   );
 
-  const filteredMaterials = courseMaterials.filter(m => {
-    if (selectedMaterialCategory === "all") return true;
-    return (m.category || "general") === selectedMaterialCategory;
-  });
-
   const totalLessons = units.reduce((sum, u) => sum + u.lessons.length, 0) + standaloneLessons.length;
+  const totalLessonMaterials = units.reduce((sum, u) => sum + u.lessons.reduce((lsum, l) => lsum + (l.material_count || 0), 0), 0) + standaloneLessons.reduce((sum, l) => sum + (l.material_count || 0), 0);
 
   return (
     <div style={{ maxWidth: "1200px", margin: "0 auto", paddingBottom: "3rem" }}>
@@ -440,7 +368,7 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
         {[
           { label: "Curriculum Units", value: units.length, icon: "layers" as const, color: "#2563EB" },
           { label: "Total Lessons", value: totalLessons, icon: "book" as const, color: "#8B5CF6" },
-          { label: "Course Materials", value: courseMaterials.length, icon: "folder" as const, color: "#EC4899" },
+          { label: "Lesson Materials", value: totalLessonMaterials, icon: "folder" as const, color: "#EC4899" },
           { label: "A/L Assessments", value: alExams.length > 0 ? alExams.length : (quizBreakdown?.quizzes.length || 0), icon: "award" as const, color: "#6366F1" },
           { label: "Enrolled Students", value: students.length, icon: "users" as const, color: "#10B981" },
         ].map(s => (
@@ -470,7 +398,6 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
       <div style={{ display: "flex", gap: "0.25rem", borderBottom: "1px solid var(--border)", marginBottom: "2rem", overflowX: "auto" }}>
         {[
           { key: "units", label: `Units & Lessons (${units.length})`, icon: "layers" as const },
-          { key: "materials", label: `Course Materials (${courseMaterials.length})`, icon: "folder" as const },
           { key: "assessments", label: `A/L Assessments (${alExams.length > 0 ? alExams.length : (quizBreakdown?.quizzes.length || 0)})`, icon: "award" as const },
           { key: "students", label: `Students (${students.length})`, icon: "users" as const },
           { key: "settings", label: "Course Settings", icon: "settings" as const },
@@ -899,183 +826,7 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
       )}
 
       {/* ════════════════════════════════════════════ */}
-      {/*  TAB 2: COURSE MATERIALS HUB                */}
-      {/* ════════════════════════════════════════════ */}
-      {activeTab === "materials" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-          {/* Header Action Bar */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
-            <div>
-              <h3 style={{ fontSize: "1.15rem", fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
-                Course Materials & Documents
-              </h3>
-              <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginTop: "0.2rem" }}>
-                Upload and manage reference materials, past papers, marking schemes, and government resource books.
-              </div>
-            </div>
-
-            <button
-              className="btn btn-primary"
-              onClick={() => setShowUploadMaterialModal(true)}
-              style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem", fontSize: "0.88rem" }}
-            >
-              <SvgIcon name="upload" size={16} /> Upload Material
-            </button>
-          </div>
-
-          {/* Category Filter Pills */}
-          <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap" }}>
-            {MATERIAL_CATEGORIES.map(cat => {
-              const isSelected = selectedMaterialCategory === cat.id;
-              return (
-                <button
-                  key={cat.id}
-                  onClick={() => setSelectedMaterialCategory(cat.id)}
-                  style={{
-                    padding: "0.45rem 0.85rem",
-                    borderRadius: "var(--radius-md)",
-                    fontSize: "0.82rem",
-                    fontWeight: isSelected ? 700 : 500,
-                    border: "none",
-                    background: isSelected ? "var(--accent-primary)" : "var(--bg-card)",
-                    color: isSelected ? "#FFFFFF" : "var(--text-secondary)",
-                    cursor: "pointer",
-                    boxShadow: isSelected ? "var(--shadow-sm)" : "none",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "0.4rem",
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  <SvgIcon name={cat.icon as any} size={14} />
-                  <span>{cat.label}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Materials List / Grid */}
-          {filteredMaterials.length === 0 ? (
-            <div style={{
-              padding: "4rem 2rem",
-              background: "var(--bg-card)",
-              border: "2px dashed var(--border)",
-              borderRadius: "var(--radius-lg)",
-              textAlign: "center",
-            }}>
-              <div style={{
-                width: "72px", height: "72px", borderRadius: "50%",
-                background: "rgba(236, 72, 153, 0.08)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                margin: "0 auto 1.5rem"
-              }}>
-                <SvgIcon name="folder" size={32} style={{ color: "#EC4899" }} />
-              </div>
-              <h3 style={{ fontSize: "1.15rem", fontWeight: 700, marginBottom: "0.5rem", color: "var(--text-primary)" }}>
-                No course materials uploaded
-              </h3>
-              <p style={{ fontSize: "0.9rem", color: "var(--text-secondary)", maxWidth: "440px", margin: "0 auto 1.5rem", lineHeight: 1.6 }}>
-                Upload PDF past papers, marking schemes, resource books, or Word documents for your students to download and study.
-              </p>
-              <button
-                className="btn btn-primary"
-                onClick={() => setShowUploadMaterialModal(true)}
-                style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}
-              >
-                <SvgIcon name="upload" size={16} /> Upload First Material
-              </button>
-            </div>
-          ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "1rem" }}>
-              {filteredMaterials.map(mat => {
-                const catObj = MATERIAL_CATEGORIES.find(c => c.id === mat.category) || MATERIAL_CATEGORIES[0];
-                const fileUrl = mat.file_path ? `http://localhost:8000/${mat.file_path}` : "#";
-
-                return (
-                  <div
-                    key={mat.id}
-                    style={{
-                      padding: "1.25rem",
-                      background: "var(--bg-card)",
-                      border: "1px solid var(--border)",
-                      borderRadius: "var(--radius-md)",
-                      display: "flex",
-                      flexDirection: "column",
-                      justifyContent: "space-between",
-                      gap: "1rem",
-                      boxShadow: "var(--shadow-sm)",
-                    }}
-                  >
-                    <div>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem", marginBottom: "0.75rem" }}>
-                        <span style={{
-                          fontSize: "0.72rem", fontWeight: 700, padding: "0.2rem 0.6rem",
-                          borderRadius: "var(--radius-sm)", background: "rgba(37, 99, 235, 0.08)", color: "var(--accent-primary)",
-                          textTransform: "uppercase", letterSpacing: "0.5px"
-                        }}>
-                          {catObj.label}
-                        </span>
-
-                        <button
-                          className="btn-icon"
-                          style={{ color: "var(--error)", padding: "0.2rem" }}
-                          title="Delete Material"
-                          onClick={() => setDeleteMaterialTarget(mat)}
-                        >
-                          <SvgIcon name="trash" size={15} />
-                        </button>
-                      </div>
-
-                      <div style={{ display: "flex", gap: "0.85rem", alignItems: "flex-start" }}>
-                        <div style={{
-                          width: "40px", height: "40px", borderRadius: "var(--radius-sm)",
-                          background: "var(--bg-primary)", border: "1px solid var(--border)",
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                          flexShrink: 0, color: "var(--accent-primary)"
-                        }}>
-                          <SvgIcon name={mat.file_path?.endsWith(".pdf") ? "file-text" : "folder"} size={20} />
-                        </div>
-                        <div>
-                          <h4 style={{ fontSize: "1rem", fontWeight: 700, margin: 0, color: "var(--text-primary)", lineHeight: 1.3 }}>
-                            {mat.title}
-                          </h4>
-                          {mat.description && (
-                            <p style={{ fontSize: "0.83rem", color: "var(--text-secondary)", margin: "0.3rem 0 0", lineHeight: 1.4 }}>
-                              {mat.description}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{
-                      display: "flex", justifyContent: "space-between", alignItems: "center",
-                      paddingTop: "0.75rem", borderTop: "1px solid var(--border-subtle)",
-                      fontSize: "0.78rem", color: "var(--text-muted)"
-                    }}>
-                      <span>{new Date(mat.created_at).toLocaleDateString()}</span>
-                      {mat.file_path && (
-                        <a
-                          href={fileUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="btn btn-secondary"
-                          style={{ padding: "0.3rem 0.75rem", fontSize: "0.78rem", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
-                        >
-                          <SvgIcon name="download" size={13} /> View / Download
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ════════════════════════════════════════════ */}
-      {/*  TAB 3: A/L ASSESSMENTS & EXAMS              */}
+      {/*  TAB 2: A/L ASSESSMENTS & EXAMS              */}
       {/* ════════════════════════════════════════════ */}
       {activeTab === "assessments" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
@@ -1803,237 +1554,6 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
         </Modal>
       )}
 
-      {/* ═══════════ MODAL: UPLOAD COURSE MATERIAL ═══════════ */}
-      {showUploadMaterialModal && (
-        <Modal title="Upload Course Material" onClose={() => setShowUploadMaterialModal(false)} maxWidth="640px">
-          <form onSubmit={handleUploadCourseMaterial}>
-            <div style={{
-              background: "linear-gradient(135deg, rgba(236, 72, 153, 0.08) 0%, rgba(37, 99, 235, 0.08) 100%)",
-              borderRadius: "var(--radius-md)",
-              padding: "1.35rem 1.5rem",
-              marginBottom: "1.75rem",
-              display: "flex", alignItems: "center", gap: "1.25rem",
-              border: "1px solid rgba(236, 72, 153, 0.15)",
-            }}>
-              <div style={{
-                width: "56px", height: "56px", borderRadius: "var(--radius-md)",
-                background: "rgba(236, 72, 153, 0.15)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                flexShrink: 0,
-              }}>
-                <SvgIcon name="upload" size={28} style={{ color: "#EC4899" }} />
-              </div>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: "1.05rem", color: "var(--text-primary)", marginBottom: "0.25rem" }}>
-                  Upload Reference Document
-                </div>
-                <div style={{ fontSize: "0.88rem", color: "var(--text-secondary)", lineHeight: 1.55 }}>
-                  Share past papers, marking schemes, government resource books, or syllabus documents with your class.
-                </div>
-              </div>
-            </div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: "1.4rem" }}>
-              {/* File Dropzone Input */}
-              <div>
-                <label style={{ display: "block", fontSize: "0.9rem", fontWeight: 600, marginBottom: "0.5rem", color: "var(--text-primary)" }}>
-                  Select Document File <span style={{ color: "var(--error)" }}>*</span>
-                </label>
-                <div
-                  onClick={() => fileInputRef.current?.click()}
-                  style={{
-                    padding: "1.75rem 1.5rem",
-                    border: "2px dashed var(--border)",
-                    borderRadius: "var(--radius-md)",
-                    background: "var(--bg-input)",
-                    textAlign: "center",
-                    cursor: "pointer",
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  <SvgIcon name="file-text" size={32} style={{ color: "var(--accent-primary)", marginBottom: "0.5rem" }} />
-                  <div style={{ fontWeight: 600, fontSize: "0.95rem", color: "var(--text-primary)" }}>
-                    {matFile ? matFile.name : "Click to select a PDF, Word document, or image file"}
-                  </div>
-                  <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
-                    Supported formats: PDF, DOC, DOCX, TXT, PNG, JPG, ZIP (max 100MB)
-                  </div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    style={{ display: "none" }}
-                    accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.zip"
-                    onChange={e => {
-                      if (e.target.files && e.target.files[0]) {
-                        const selected = e.target.files[0];
-                        setMatFile(selected);
-                        const cleanTitle = selected.name.replace(/\.[^/.]+$/, "").replace(/[_]/g, " ").replace(/\s+/g, " ").trim();
-                        setMatTitle(cleanTitle);
-                      }
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Title Text Box */}
-              <div>
-                <label style={{ display: "block", fontSize: "0.9rem", fontWeight: 600, marginBottom: "0.5rem", color: "var(--text-primary)" }}>
-                  Material Title <span style={{ color: "var(--error)" }}>*</span>
-                </label>
-                <input
-                  type="text"
-                  className="input-field"
-                  placeholder="e.g. 2023 A/L Biology Past Paper & Model Answers"
-                  value={matTitle}
-                  onChange={e => setMatTitle(e.target.value)}
-                  required
-                  style={{
-                    fontSize: "1rem",
-                    padding: "0.85rem 1.1rem",
-                    borderRadius: "var(--radius-md)",
-                    width: "100%",
-                    background: "var(--bg-input)",
-                    border: "1px solid var(--border)",
-                  }}
-                />
-              </div>
-
-              {/* Category Selector */}
-              <div>
-                <label style={{ display: "block", fontSize: "0.9rem", fontWeight: 600, marginBottom: "0.5rem", color: "var(--text-primary)" }}>
-                  Material Category
-                </label>
-                <select
-                  className="select"
-                  value={matCategory}
-                  onChange={e => setMatCategory(e.target.value)}
-                  style={{
-                    fontSize: "0.95rem",
-                    padding: "0.75rem 1rem",
-                    borderRadius: "var(--radius-md)",
-                    width: "100%",
-                    background: "var(--bg-input)",
-                    border: "1px solid var(--border)",
-                  }}
-                >
-                  <option value="past_paper">Past Papers</option>
-                  <option value="model_paper">Model Papers</option>
-                  <option value="marking_scheme">Marking Schemes</option>
-                  <option value="resource_book">Resource Books</option>
-                  <option value="syllabus">Syllabus & Revision Notes</option>
-                  <option value="general">General Reference Documents</option>
-                </select>
-              </div>
-
-              {/* Past Paper / Model Paper Classification Controls */}
-              {(matCategory === "past_paper" || matCategory === "model_paper") && (
-                <div style={{
-                  padding: "1.15rem 1.25rem",
-                  background: "linear-gradient(135deg, rgba(37,99,235,0.06) 0%, rgba(139,92,246,0.06) 100%)",
-                  border: "1px solid rgba(37,99,235,0.18)",
-                  borderRadius: "var(--radius-md)",
-                  display: "flex", flexDirection: "column", gap: "1rem"
-                }}>
-                  <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--accent-primary)", display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                    <SvgIcon name="sparkle" size={14} /> Automatic Question Bank Ingestion & Classification
-                  </div>
-                  
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-                    <div>
-                      <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, marginBottom: "0.4rem", color: "var(--text-primary)" }}>
-                        Paper Format / Part
-                      </label>
-                      <select
-                        className="select"
-                        value={matPaperType}
-                        onChange={e => setMatPaperType(e.target.value as any)}
-                        style={{ fontSize: "0.85rem", padding: "0.55rem 0.85rem", width: "100%", background: "var(--bg-card)", border: "1px solid var(--border)" }}
-                      >
-                        <option value="full_paper">Full Paper (Parts I, II-A & II-B)</option>
-                        <option value="paper_1_mcq">Paper I (MCQs)</option>
-                        <option value="paper_2_structured">Paper II-A (Structured)</option>
-                        <option value="paper_2_essay">Paper II-B (Essay Studio)</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, marginBottom: "0.4rem", color: "var(--text-primary)" }}>
-                        Examination Year / Session
-                      </label>
-                      <input
-                        type="text"
-                        className="input-field"
-                        placeholder="e.g. 2024, 2023, Model Paper 1"
-                        value={matYear}
-                        onChange={e => setMatYear(e.target.value)}
-                        style={{ fontSize: "0.85rem", padding: "0.55rem 0.85rem", width: "100%", background: "var(--bg-card)", border: "1px solid var(--border)" }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Description Textarea */}
-              <div>
-                <label style={{ display: "block", fontSize: "0.9rem", fontWeight: 600, marginBottom: "0.5rem", color: "var(--text-primary)" }}>
-                  Description <span style={{ fontSize: "0.8rem", fontWeight: 400, color: "var(--text-muted)" }}>(Optional)</span>
-                </label>
-                <textarea
-                  className="input-field"
-                  rows={3}
-                  placeholder="Brief note or instructions for students regarding this document..."
-                  value={matDesc}
-                  onChange={e => setMatDesc(e.target.value)}
-                  style={{
-                    fontSize: "0.95rem",
-                    padding: "0.85rem 1.1rem",
-                    borderRadius: "var(--radius-md)",
-                    minHeight: "100px",
-                    lineHeight: 1.55,
-                    resize: "vertical",
-                    width: "100%",
-                    background: "var(--bg-input)",
-                    border: "1px solid var(--border)",
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* Footer Actions */}
-            <div style={{
-              display: "flex", justifyContent: "flex-end", gap: "0.85rem",
-              marginTop: "2rem", paddingTop: "1.35rem",
-              borderTop: "1px solid var(--border)",
-            }}>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => setShowUploadMaterialModal(false)}
-                style={{ fontSize: "0.95rem", padding: "0.75rem 1.5rem", borderRadius: "var(--radius-md)" }}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="btn btn-primary"
-                disabled={uploadingMat || !matTitle.trim() || !matFile}
-                style={{
-                  display: "inline-flex", alignItems: "center", gap: "0.5rem",
-                  fontSize: "0.95rem", padding: "0.75rem 1.5rem", fontWeight: 600,
-                  borderRadius: "var(--radius-md)"
-                }}
-              >
-                {uploadingMat ? (
-                  <><div className="spinner" style={{ width: "16px", height: "16px", borderWidth: "2px" }} /> Uploading File...</>
-                ) : (
-                  <><SvgIcon name="upload" size={16} /> Upload Material</>
-                )}
-              </button>
-            </div>
-          </form>
-        </Modal>
-      )}
-
       {/* ═══════════ DELETE CONFIRMATIONS ═══════════ */}
       {deleteUnitTarget && (
         <ConfirmDialog
@@ -2052,16 +1572,6 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
           onConfirm={handleDeleteLesson}
           onCancel={() => setDeleteLessonTarget(null)}
           loading={deletingLesson}
-        />
-      )}
-
-      {deleteMaterialTarget && (
-        <ConfirmDialog
-          title="Delete Course Material"
-          message={`Are you sure you want to delete material document "${deleteMaterialTarget.title}"?`}
-          onConfirm={handleDeleteMaterial}
-          onCancel={() => setDeleteMaterialTarget(null)}
-          loading={deletingMaterial}
         />
       )}
     </div>

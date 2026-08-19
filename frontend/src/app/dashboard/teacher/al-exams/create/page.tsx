@@ -4020,7 +4020,9 @@ function TeacherExamCreateContent() {
                   <label style={{ fontSize: "0.88rem", fontWeight: 700, margin: 0, display: "flex", alignItems: "center", gap: "0.4rem" }}>
                     3. QUESTION TYPE DISTRIBUTION WORKSPACE
                     {aiGenMode === "al_preset" ? (
-                      <span className="badge badge-primary" style={{ fontSize: "0.75rem" }}>🔒 Locked by examination preset</span>
+                      <span className="badge badge-primary" style={{ fontSize: "0.75rem", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                        <SvgIcon name="lock" size={11} /> Locked by examination preset
+                      </span>
                     ) : (
                       <span className="badge badge-success" style={{ fontSize: "0.75rem" }}>Interactive 100% Balancing</span>
                     )}
@@ -4181,101 +4183,13 @@ function TeacherExamCreateContent() {
                     })}
                   </div>
                 </div>
-
-                {/* Informational Learning Material Status Banner (Phase 9) */}
-                {totalMaterialsCount > 0 ? (
-                  lessonsWithMaterialsCount === totalLessonsCount ? (
-                    <div style={{ padding: "0.65rem 0.85rem", background: "rgba(16, 185, 129, 0.08)", color: "var(--text-primary)", borderRadius: "var(--radius-sm)", fontSize: "0.82rem", fontWeight: 500, display: "flex", alignItems: "center", gap: "0.5rem", border: "1px solid rgba(16, 185, 129, 0.25)" }}>
-                      <SvgIcon name="check" size={16} style={{ color: "var(--color-success, #10b981)" }} />
-                      <span>
-                        <strong>Learning Material Available:</strong> {totalLessonsCount} lessons &middot; {totalMaterialsCount} PDF/media resources indexed across {selectedUnitsData.length} selected units. Lumora will prioritize your course content.
-                      </span>
-                    </div>
-                  ) : (
-                    <div style={{ padding: "0.65rem 0.85rem", background: "rgba(99, 102, 241, 0.08)", color: "var(--text-primary)", borderRadius: "var(--radius-sm)", fontSize: "0.82rem", fontWeight: 500, display: "flex", alignItems: "center", gap: "0.5rem", border: "1px solid rgba(99, 102, 241, 0.25)" }}>
-                      <SvgIcon name="layers" size={16} style={{ color: "var(--accent-primary)" }} />
-                      <span>
-                        <strong>Partial Learning Material:</strong> Available for {lessonsWithMaterialsCount} of {totalLessonsCount} lessons ({totalMaterialsCount} resources indexed). Available materials will be prioritized; remaining concepts will be grounded in certified syllabus standards.
-                      </span>
-                    </div>
-                  )
-                ) : (
-                  <div style={{ padding: "0.65rem 0.85rem", background: "rgba(99, 102, 241, 0.06)", color: "var(--text-primary)", borderRadius: "var(--radius-sm)", fontSize: "0.82rem", fontWeight: 500, display: "flex", alignItems: "center", gap: "0.5rem", border: "1px solid rgba(99, 102, 241, 0.2)" }}>
-                    <SvgIcon name="info" size={16} style={{ color: "var(--accent-primary)" }} />
-                    <span>
-                      No usable uploaded learning material was found for the selected scope. Lumora will generate using syllabus-aligned core concepts.
-                    </span>
-                  </div>
-                )}
               </div>
             </div>
 
-            {/* 5. SOURCE MATERIALS HIERARCHY (RAG) */}
-            <div className="card" style={{ padding: "1.1rem", background: "var(--bg-secondary)" }}>
-              <label style={{ fontSize: "0.88rem", fontWeight: 700, display: "block", marginBottom: "0.6rem" }}>
-                5. SOURCE MATERIALS HIERARCHY (RAG)
-              </label>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.25rem" }}>
-                <div>
-                  <h5 style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--accent-primary)", margin: "0 0 0.5rem 0", textTransform: "uppercase" }}>
-                    Primary Materials
-                  </h5>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                    {[
-                      { id: "video_transcripts", label: "Video Transcripts" },
-                      { id: "lesson_pdfs", label: "Lesson PDFs" },
-                      { id: "teacher_documents", label: "Teacher Documents" },
-                      { id: "teacher_notes", label: "Teacher Notes" },
-                    ].map(m => (
-                      <label key={m.id} style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.82rem", cursor: "pointer" }}>
-                        <input
-                          type="checkbox"
-                          checked={aiPrimaryMaterials.includes(m.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) setAiPrimaryMaterials([...aiPrimaryMaterials, m.id]);
-                            else setAiPrimaryMaterials(aiPrimaryMaterials.filter(i => i !== m.id));
-                          }}
-                        />
-                        <span>{m.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <h5 style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text-secondary)", margin: "0 0 0.5rem 0", textTransform: "uppercase" }}>
-                    Supporting Materials
-                  </h5>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                    {[
-                      { id: "resource_books", label: "Resource Books" },
-                      { id: "syllabus", label: "Syllabus" },
-                      { id: "past_papers", label: "Past Papers" },
-                      { id: "model_papers", label: "Model Papers" },
-                      { id: "marking_schemes", label: "Marking Schemes" },
-                    ].map(m => (
-                      <label key={m.id} style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.82rem", cursor: "pointer" }}>
-                        <input
-                          type="checkbox"
-                          checked={aiSupportingMaterials.includes(m.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) setAiSupportingMaterials([...aiSupportingMaterials, m.id]);
-                            else setAiSupportingMaterials(aiSupportingMaterials.filter(i => i !== m.id));
-                          }}
-                        />
-                        <span>{m.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* 6 & 7. DIFFICULTY & COGNITIVE LEVEL */}
+            {/* 5 & 6. DIFFICULTY & COGNITIVE LEVEL */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
               <div className="card" style={{ padding: "1.1rem", background: "var(--bg-secondary)" }}>
-                <label style={{ fontSize: "0.85rem", fontWeight: 700, display: "block", marginBottom: "0.4rem" }}>6. DIFFICULTY PROFILE</label>
+                <label style={{ fontSize: "0.85rem", fontWeight: 700, display: "block", marginBottom: "0.4rem" }}>5. DIFFICULTY PROFILE</label>
                 <select className="select" value={aiDifficultyMode} onChange={(e) => setAiDifficultyMode(e.target.value as any)}>
                   <option value="al_recommended">A/L Recommended (15% Easy / 25% Mod / 40% Std / 15% Ch / 5% Adv)</option>
                   <option value="easy">Easy Only</option>
@@ -4288,7 +4202,7 @@ function TeacherExamCreateContent() {
 
               <div className="card" style={{ padding: "1.1rem", background: "var(--bg-secondary)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" }}>
-                  <label style={{ fontSize: "0.85rem", fontWeight: 700, margin: 0 }}>7. COGNITIVE LEVEL</label>
+                  <label style={{ fontSize: "0.85rem", fontWeight: 700, margin: 0 }}>6. COGNITIVE LEVEL</label>
                   <button
                     type="button"
                     className="btn btn-secondary"

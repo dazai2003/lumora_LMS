@@ -179,8 +179,8 @@ def build_essay_blueprint_json_skeleton(blueprints: List[Dict[str, Any]]) -> str
         q_id = bp.get("id") or f"q_{structure_fmt}_{q_num}"
 
         if structure_fmt == "single_complete":
-            # Itemized answer points totaling exactly `points` (standard 10 points for A/L single complete)
-            item_count = bp.get("item_count") or 10
+            # Itemized answer points totaling exactly `points` (standard 8-12 points for A/L single complete)
+            item_count = bp.get("item_count") or 8
             pts_per_item = max(1.0, round(points / item_count, 1))
             remainder = round(points - (pts_per_item * (item_count - 1)), 1)
 
@@ -190,7 +190,7 @@ def build_essay_blueprint_json_skeleton(blueprints: List[Dict[str, Any]]) -> str
                 "question_number": q_num,
                 "structure_type": "SINGLE_COMPLETE",
                 "structure_format": "single_complete",
-                "stem_text": "<Generate authentic, comprehensive A/L Biology essay prompt testing in-depth physiological, anatomical, or biochemical mechanisms>",
+                "stem_text": "<Generate ONE single, cohesive, in-depth biological essay question prompt focusing on an overarching biological concept. DO NOT include (a), (b), (c) subdivisions inside the prompt.>",
                 "marks": points,
                 "points": points,
                 "answer_points": [
@@ -203,7 +203,7 @@ def build_essay_blueprint_json_skeleton(blueprints: List[Dict[str, Any]]) -> str
                     }
                     for i in range(item_count)
                 ],
-                "marking_scheme": f"<Detailed examiner marking criteria breaking down marks across the answer points to total exactly {points} marks>",
+                "marking_scheme": f"<Detailed examiner marking criteria breaking down marks across the itemized answer points to total exactly {points} marks>",
                 "examiner_notes": "<Optional examiner tips on common student misconceptions or key scientific keywords>",
                 "diagram_info": {
                     "requires_image": False,
@@ -422,7 +422,10 @@ CRITICAL ANTI-REPETITION & RIGOR RULES
    - Explain / Describe / Discuss / Compare / Evaluate / Analyse / Account for / Discuss the relationship between
 5. STRICT STRUCTURAL FIDELITY (DO NOT CHANGE BLUEPRINT HIERARCHY):
    - You MUST follow the exact structure format requested for each question.
-   - For 'SINGLE_COMPLETE' / 'single_complete': Generate a detailed, topic-specific essay prompt, 6 to 12 itemized answer points totaling the assigned marks, and a comprehensive marking scheme.
+   - For 'SINGLE_COMPLETE' / 'single_complete':
+     * The `stem_text` MUST be ONE unified, coherent biological essay prompt focusing on an overarching biological concept.
+     * DO NOT split `stem_text` into multiple subparts like '(a)', '(b)', '(c)' or '(i)', '(ii)'. It must be a single unbroken essay prompt.
+     * Provide itemized answer points totaling the assigned marks, and a comprehensive marking scheme.
    - For 'MULTI_PART' / 'multi_part': Generate a context premise stem, linked subparts labeled with Roman numerals (i), (ii), (iii)... and optional nested parts (a), (b)... with specific prompts, answer points, and individual marking schemes.
    - For 'SHORT_NOTES' / 'short_notes': Generate the instruction 'Write short notes on the following:' and specific distinct biological topics labeled (i), (ii), (iii)... or (a), (b), (c)..., each with specific answer points and marking criteria.
    - DO NOT add extra subquestions, DO NOT remove subquestions, DO NOT merge subquestions, and DO NOT change the marks.
@@ -612,134 +615,135 @@ def parse_and_validate_essay_candidates(raw_data: Any, blueprints: List[Dict[str
             else:
                 answer_points = reconcile_leaf_answer_point_marks(answer_points, blueprint_marks)
 
-        # Process Subparts (For multi_part and short_notes)
+        # Process Subparts (Strictly for multi_part and short_notes only)
         subparts = []
-        raw_subs = q_data.get("children") or q_data.get("subparts") or []
-        bp_children = bp.get("children") or bp.get("subparts") or []
+        if structure_fmt != "single_complete":
+            raw_subs = q_data.get("children") or q_data.get("subparts") or []
+            bp_children = bp.get("children") or bp.get("subparts") or []
 
-        # If AI didn't provide subparts or fewer subparts than blueprint, align with blueprint children
-        sub_count = max(len(bp_children) if isinstance(bp_children, list) else 0, len(raw_subs) if isinstance(raw_subs, list) else 0)
-        sub_count = max(1, sub_count)
+            # Align with blueprint children or raw subs
+            sub_count = max(len(bp_children) if isinstance(bp_children, list) else 0, len(raw_subs) if isinstance(raw_subs, list) else 0)
+            sub_count = max(1, sub_count)
 
-        for s_idx in range(sub_count):
-            bp_child = bp_children[s_idx] if (isinstance(bp_children, list) and s_idx < len(bp_children) and isinstance(bp_children[s_idx], dict)) else {}
-            s_data = raw_subs[s_idx] if (isinstance(raw_subs, list) and s_idx < len(raw_subs) and isinstance(raw_subs[s_idx], dict)) else {}
+            for s_idx in range(sub_count):
+                bp_child = bp_children[s_idx] if (isinstance(bp_children, list) and s_idx < len(bp_children) and isinstance(bp_children[s_idx], dict)) else {}
+                s_data = raw_subs[s_idx] if (isinstance(raw_subs, list) and s_idx < len(raw_subs) and isinstance(raw_subs[s_idx], dict)) else {}
 
-            s_id = bp_child.get("id") or s_data.get("id") or f"sub_{q_num}_{s_idx + 1}"
-            s_label = bp_child.get("label") or s_data.get("label", f"({s_idx + 1})")
-            raw_s_pts = bp_child.get("marks") or bp_child.get("max_points") or (blueprint_marks / sub_count)
-            s_target_marks = round(float(raw_s_pts), 1)
-            s_prompt = normalize_scientific_notation(s_data.get("prompt", "")).strip()
-            if not s_prompt:
-                s_prompt = f"{s_label} Explain the biological mechanisms and significance of the specified topic."
+                s_id = bp_child.get("id") or s_data.get("id") or f"sub_{q_num}_{s_idx + 1}"
+                s_label = bp_child.get("label") or s_data.get("label", f"({s_idx + 1})")
+                raw_s_pts = bp_child.get("marks") or bp_child.get("max_points") or (blueprint_marks / sub_count)
+                s_target_marks = round(float(raw_s_pts), 1)
+                s_prompt = normalize_scientific_notation(s_data.get("prompt", "")).strip()
+                if not s_prompt:
+                    s_prompt = f"{s_label} Explain the biological mechanisms and significance of the specified topic."
 
-            # Check for nested children
-            nested_raw = s_data.get("children") or bp_child.get("children") or []
-            nested_subparts = []
+                # Check for nested children
+                nested_raw = s_data.get("children") or bp_child.get("children") or []
+                nested_subparts = []
 
-            if isinstance(nested_raw, list) and len(nested_raw) > 0:
-                for n_idx, n_data in enumerate(nested_raw):
-                    if not isinstance(n_data, dict):
-                        continue
-                    bp_nested_list = bp_child.get("children", [])
-                    bp_nested = bp_nested_list[n_idx] if (isinstance(bp_nested_list, list) and n_idx < len(bp_nested_list) and isinstance(bp_nested_list[n_idx], dict)) else {}
-                    n_id = bp_nested.get("id") or n_data.get("id") or f"nested_{s_id}_{n_idx + 1}"
-                    n_label = bp_nested.get("label") or n_data.get("label", f"({chr(97 + n_idx)})")
-                    raw_n_pts = bp_nested.get("marks") or n_data.get("marks") or (s_target_marks / max(1, len(nested_raw)))
-                    n_marks = round(float(raw_n_pts), 1)
-                    n_prompt = normalize_scientific_notation(n_data.get("prompt", "")).strip() or f"{n_label} Specific sub-item prompt."
-                    n_scheme = n_data.get("marking_scheme", "")
+                if isinstance(nested_raw, list) and len(nested_raw) > 0:
+                    for n_idx, n_data in enumerate(nested_raw):
+                        if not isinstance(n_data, dict):
+                            continue
+                        bp_nested_list = bp_child.get("children", [])
+                        bp_nested = bp_nested_list[n_idx] if (isinstance(bp_nested_list, list) and n_idx < len(bp_nested_list) and isinstance(bp_nested_list[n_idx], dict)) else {}
+                        n_id = bp_nested.get("id") or n_data.get("id") or f"nested_{s_id}_{n_idx + 1}"
+                        n_label = bp_nested.get("label") or n_data.get("label", f"({chr(97 + n_idx)})")
+                        raw_n_pts = bp_nested.get("marks") or n_data.get("marks") or (s_target_marks / max(1, len(nested_raw)))
+                        n_marks = round(float(raw_n_pts), 1)
+                        n_prompt = normalize_scientific_notation(n_data.get("prompt", "")).strip() or f"{n_label} Specific sub-item prompt."
+                        n_scheme = n_data.get("marking_scheme", "")
 
-                    n_ans_pts = []
-                    raw_n_ans = n_data.get("answer_points", [])
-                    if isinstance(raw_n_ans, list):
-                        for np_idx, np_p in enumerate(raw_n_ans):
-                            if isinstance(np_p, dict):
-                                np_desc = normalize_scientific_notation(np_p.get("description", "")).strip()
-                                if np_desc:
-                                    np_m = round(float(np_p.get("marks") or n_marks), 1)
-                                    n_ans_pts.append({
-                                        "id": np_p.get("id") or f"pt_{n_id}_{np_idx + 1}",
-                                        "item_number": np_p.get("item_number", np_idx + 1),
-                                        "description": np_desc,
-                                        "marks": np_m,
-                                        "accepted_alternatives": np_p.get("accepted_alternatives", "")
-                                    })
-                    if not n_ans_pts:
-                        n_ans_pts = [{
-                            "id": f"pt_{n_id}_1",
-                            "item_number": 1,
-                            "description": f"Key biological concept for {n_label}",
+                        n_ans_pts = []
+                        raw_n_ans = n_data.get("answer_points", [])
+                        if isinstance(raw_n_ans, list):
+                            for np_idx, np_p in enumerate(raw_n_ans):
+                                if isinstance(np_p, dict):
+                                    np_desc = normalize_scientific_notation(np_p.get("description", "")).strip()
+                                    if np_desc:
+                                        np_m = round(float(np_p.get("marks") or n_marks), 1)
+                                        n_ans_pts.append({
+                                            "id": np_p.get("id") or f"pt_{n_id}_{np_idx + 1}",
+                                            "item_number": np_p.get("item_number", np_idx + 1),
+                                            "description": np_desc,
+                                            "marks": np_m,
+                                            "accepted_alternatives": np_p.get("accepted_alternatives", "")
+                                        })
+                        if not n_ans_pts:
+                            n_ans_pts = [{
+                                "id": f"pt_{n_id}_1",
+                                "item_number": 1,
+                                "description": f"Key biological concept for {n_label}",
+                                "marks": n_marks,
+                                "accepted_alternatives": ""
+                            }]
+                        else:
+                            n_ans_pts = reconcile_leaf_answer_point_marks(n_ans_pts, n_marks)
+
+                        nested_subparts.append({
+                            "id": n_id,
+                            "order": n_idx + 1,
+                            "label": n_label,
+                            "prompt": n_prompt,
                             "marks": n_marks,
-                            "accepted_alternatives": ""
-                        }]
-                    else:
-                        n_ans_pts = reconcile_leaf_answer_point_marks(n_ans_pts, n_marks)
+                            "max_points": n_marks,
+                            "answer_points": n_ans_pts,
+                            "marking_scheme": n_scheme
+                        })
 
-                    nested_subparts.append({
-                        "id": n_id,
-                        "order": n_idx + 1,
-                        "label": n_label,
-                        "prompt": n_prompt,
-                        "marks": n_marks,
-                        "max_points": n_marks,
-                        "answer_points": n_ans_pts,
-                        "marking_scheme": n_scheme
+                    subparts.append({
+                        "id": s_id,
+                        "order": s_idx + 1,
+                        "label": s_label,
+                        "prompt": s_prompt,
+                        "marks": s_target_marks,
+                        "max_points": s_target_marks,
+                        "children": nested_subparts,
+                        "subparts": nested_subparts,
+                        "marking_scheme": s_data.get("marking_scheme", "")
                     })
-
-                subparts.append({
-                    "id": s_id,
-                    "order": s_idx + 1,
-                    "label": s_label,
-                    "prompt": s_prompt,
-                    "marks": s_target_marks,
-                    "max_points": s_target_marks,
-                    "children": nested_subparts,
-                    "subparts": nested_subparts,
-                    "marking_scheme": s_data.get("marking_scheme", "")
-                })
-            else:
-                # Leaf subpart
-                s_ans_pts = []
-                raw_s_ans = s_data.get("answer_points", [])
-                if isinstance(raw_s_ans, list):
-                    for sp_idx, sp_p in enumerate(raw_s_ans):
-                        if isinstance(sp_p, dict):
-                            sp_desc = normalize_scientific_notation(sp_p.get("description", "")).strip()
-                            if sp_desc:
-                                sp_m = round(float(sp_p.get("marks") or 5.0), 1)
-                                s_ans_pts.append({
-                                    "id": sp_p.get("id") or f"pt_{s_id}_{sp_idx + 1}",
-                                    "item_number": sp_p.get("item_number", sp_idx + 1),
-                                    "description": sp_desc,
-                                    "marks": sp_m,
-                                    "accepted_alternatives": sp_p.get("accepted_alternatives", "")
-                                })
-                if not s_ans_pts:
-                    pts_ea = max(1.0, round(s_target_marks / 3, 1))
-                    s_ans_pts = [
-                        {
-                            "id": f"pt_{s_id}_{p + 1}",
-                            "item_number": p + 1,
-                            "description": f"Biological fact #{p + 1} for part {s_label}",
-                            "marks": pts_ea if p < 2 else round(s_target_marks - (pts_ea * 2), 1),
-                            "accepted_alternatives": ""
-                        }
-                        for p in range(3)
-                    ]
                 else:
-                    s_ans_pts = reconcile_leaf_answer_point_marks(s_ans_pts, s_target_marks)
+                    # Leaf subpart
+                    s_ans_pts = []
+                    raw_s_ans = s_data.get("answer_points", [])
+                    if isinstance(raw_s_ans, list):
+                        for sp_idx, sp_p in enumerate(raw_s_ans):
+                            if isinstance(sp_p, dict):
+                                sp_desc = normalize_scientific_notation(sp_p.get("description", "")).strip()
+                                if sp_desc:
+                                    sp_m = round(float(sp_p.get("marks") or 5.0), 1)
+                                    s_ans_pts.append({
+                                        "id": sp_p.get("id") or f"pt_{s_id}_{sp_idx + 1}",
+                                        "item_number": sp_p.get("item_number", sp_idx + 1),
+                                        "description": sp_desc,
+                                        "marks": sp_m,
+                                        "accepted_alternatives": sp_p.get("accepted_alternatives", "")
+                                    })
+                    if not s_ans_pts:
+                        pts_ea = max(1.0, round(s_target_marks / 3, 1))
+                        s_ans_pts = [
+                            {
+                                "id": f"pt_{s_id}_{p + 1}",
+                                "item_number": p + 1,
+                                "description": f"Biological fact #{p + 1} for part {s_label}",
+                                "marks": pts_ea if p < 2 else round(s_target_marks - (pts_ea * 2), 1),
+                                "accepted_alternatives": ""
+                            }
+                            for p in range(3)
+                        ]
+                    else:
+                        s_ans_pts = reconcile_leaf_answer_point_marks(s_ans_pts, s_target_marks)
 
-                subparts.append({
-                    "id": s_id,
-                    "order": s_idx + 1,
-                    "label": s_label,
-                    "prompt": s_prompt,
-                    "marks": s_target_marks,
-                    "max_points": s_target_marks,
-                    "answer_points": s_ans_pts,
-                    "marking_scheme": s_data.get("marking_scheme", "")
-                })
+                    subparts.append({
+                        "id": s_id,
+                        "order": s_idx + 1,
+                        "label": s_label,
+                        "prompt": s_prompt,
+                        "marks": s_target_marks,
+                        "max_points": s_target_marks,
+                        "answer_points": s_ans_pts,
+                        "marking_scheme": s_data.get("marking_scheme", "")
+                    })
 
         # Diagram info
         diag_info = q_data.get("diagram_info", {})
@@ -761,10 +765,22 @@ def parse_and_validate_essay_candidates(raw_data: Any, blueprints: List[Dict[str
             "marks": blueprint_marks,
             "points": blueprint_marks,
             "answer_points": answer_points,
+            "criteria": answer_points,
             "subparts": subparts,
             "children": subparts,
             "marking_scheme": marking_scheme,
             "examiner_notes": examiner_notes,
+            "essay_checklist_json": {
+                "structure_format": structure_fmt,
+                "structure_type": structure_fmt,
+                "stem_text": stem_text,
+                "instruction": instruction if structure_fmt == "short_notes" else "",
+                "marking_scheme": marking_scheme,
+                "examiner_notes": examiner_notes,
+                "answer_points": answer_points,
+                "criteria": answer_points,
+                "subparts": subparts,
+            },
             "requires_image": requires_image,
             "image_description": image_description if requires_image else None,
             "diagram_url": None,

@@ -609,7 +609,7 @@ export default function EssayCandidateReviewModal({
                 </div>
 
                 {/* Subparts Breakdown (For Multi-Part or Short Notes) */}
-                {currentCand.subparts && currentCand.subparts.length > 0 && (
+                {currentCand.structure_format !== "single_complete" && currentCand.subparts && currentCand.subparts.length > 0 && (
                   <div className="card" style={{ padding: "1.1rem", background: "var(--bg-card)", border: "1px solid var(--border)" }}>
                     <h5 style={{ fontSize: "0.88rem", fontWeight: 700, margin: "0 0 0.75rem 0", color: "var(--text-primary)" }}>
                       {currentCand.structure_format === "short_notes" ? "Short Note Topics" : "Sub-Question Parts"}

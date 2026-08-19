@@ -153,12 +153,21 @@ export default function MCQQuestionPaperRenderer({
   }, [question.options, templateType]);
 
   // 2. Dynamic Statements & Stem Parsing (Deduplication Pipeline for Multi-Variable & Truth Evaluation)
-  const { statementsList, stemWithoutStatements } = useMemo(() => {
+  const { statementsList, stemWithoutStatements } = useMemo<{ statementsList: { code: string; text: string }[]; stemWithoutStatements: string }>(() => {
     const rawStem = question.stem_text || "";
 
-    // Case A: Explicit statements_json provided
-    if (Array.isArray(question.statements_json) && question.statements_json.length > 0) {
-      const parsed = question.statements_json.map((st: any, i: number) => {
+    // Check if statements_json exists and contains REAL (non-placeholder) statements
+    const hasValidStatementsJson =
+      Array.isArray(question.statements_json) &&
+      question.statements_json.length >= 2 &&
+      !question.statements_json.every((st: any) => {
+        const t = (typeof st === "string" ? st : st?.text || "").trim().toLowerCase();
+        return /^(?:premise|statement)\s*[a-e](?:\s*regarding\s*.*)?$/i.test(t) || t === "" || t.startsWith("premise ");
+      });
+
+    // Case A: Explicit valid non-placeholder statements_json provided
+    if (hasValidStatementsJson) {
+      const parsed: { code: string; text: string }[] = question.statements_json.map((st: any, i: number) => {
         if (typeof st === "string") {
           return { code: String.fromCharCode(65 + i), text: st };
         }
@@ -187,7 +196,7 @@ export default function MCQQuestionPaperRenderer({
       };
     }
 
-    // Case B: No statements_json, but rawStem has embedded A. ... B. ... C. ... D. statements
+    // Case B: No valid statements_json, parse embedded (A) ... (B) ... (C) ... (D) ... statements directly from rawStem
     const lines = rawStem.split("\n");
     const parsedStatements: { code: string; text: string }[] = [];
     const remainingStemLines: string[] = [];
@@ -799,49 +808,23 @@ export default function MCQQuestionPaperRenderer({
           </div>
         )}
 
-        {/* 10. MULTIPLE-RESPONSE GRID DIRECTIONS SUMMARY HEADER */}
+        {/* 10. MULTIPLE-RESPONSE GRID DIRECTIONS HEADER */}
         {templateType === "multi_response_grid" && (
           <div
             style={{
-              marginBottom: "1.1rem",
-              padding: "0.85rem 1.1rem",
+              marginBottom: "1rem",
+              padding: "0.75rem 1rem",
               background: "rgba(99, 102, 241, 0.05)",
-              border: "1px solid rgba(99, 102, 241, 0.22)",
+              border: "1px solid rgba(99, 102, 241, 0.2)",
               borderRadius: "var(--radius-md)",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
             }}
           >
-            <div style={{ fontSize: "0.84rem", fontWeight: 700, color: "var(--accent-primary)", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
-              <span>• Official A/L Directions for Multiple-Response Grid:</span>
-            </div>
-            <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: "0.6rem", lineHeight: 1.4 }}>
-              Decide which statement(s) (A–E) are correct, then select the corresponding number (1–5).
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "0.4rem" }}>
-              {[
-                { num: "1", label: "(A), (B), (D) correct" },
-                { num: "2", label: "(A), (C), (D) correct" },
-                { num: "3", label: "(A), (B) correct" },
-                { num: "4", label: "(C), (D) correct" },
-                { num: "5", label: "Any other response" },
-              ].map((comb) => (
-                <div
-                  key={comb.num}
-                  style={{
-                    padding: "0.35rem 0.55rem",
-                    background: "var(--bg-card)",
-                    border: "1px solid var(--border)",
-                    borderRadius: "var(--radius-sm)",
-                    fontSize: "0.76rem",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "0.4rem",
-                  }}
-                >
-                  <span style={{ fontWeight: 800, color: "var(--accent-primary)", minWidth: "18px" }}>({comb.num})</span>
-                  <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{comb.label}</span>
-                </div>
-              ))}
+            <SvgIcon name="info" size={16} style={{ color: "var(--accent-primary)", flexShrink: 0 }} />
+            <div style={{ fontSize: "0.85rem", color: "var(--text-primary)", lineHeight: 1.4 }}>
+              <strong>Official A/L Multiple-Response Grid:</strong> Decide which statement(s) (A–E) are correct, then select the corresponding option (1–5) below.
             </div>
           </div>
         )}
@@ -958,9 +941,9 @@ export default function MCQQuestionPaperRenderer({
                 </div>
 
                 {/* Selected Indicator Checkmark */}
-                {isSelected && (
-                  <div style={{ color: "var(--accent-primary)", fontSize: "0.9rem", fontWeight: 800 }}>
-                    ✓
+                {isSelected && !isCorrectOption && (
+                  <div style={{ color: "var(--accent-primary)", display: "flex", alignItems: "center" }}>
+                    <SvgIcon name="check-circle" size={18} />
                   </div>
                 )}
                 {isCorrectOption && (

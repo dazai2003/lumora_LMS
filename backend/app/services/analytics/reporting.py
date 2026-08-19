@@ -40,17 +40,17 @@ def generate_course_analytics_report(
         Enrollment.is_active == True
     ).count()
 
-    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-    active_learners_count = db.query(StudentMaterialProgress.student_id).join(
-        Material, StudentMaterialProgress.material_id == Material.id
-    ).filter(
-        Material.course_id == course_id,
-        StudentMaterialProgress.updated_at >= thirty_days_ago
-    ).distinct().count()
-
-    # Materials and progress
-    materials = db.query(Material).filter(Material.course_id == course_id).all()
+    # Lessons, Materials, and Progress
+    lessons = db.query(Lesson).filter(Lesson.course_id == course_id).all()
+    lesson_ids = [l.id for l in lessons]
+    materials = db.query(Material).filter(Material.lesson_id.in_(lesson_ids)).all() if lesson_ids else []
     mat_ids = [m.id for m in materials]
+
+    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    active_learners_count = db.query(StudentMaterialProgress.student_id).filter(
+        StudentMaterialProgress.material_id.in_(mat_ids),
+        StudentMaterialProgress.updated_at >= thirty_days_ago
+    ).distinct().count() if mat_ids else 0
     
     total_prog = db.query(StudentMaterialProgress).filter(
         StudentMaterialProgress.material_id.in_(mat_ids)
@@ -252,7 +252,9 @@ def generate_course_analytics_csv(
             ALStudentSubmission.status.in_(["submitted", "ai_graded", "teacher_verified"])
         ).all() if exam_ids else []
 
-        materials = db.query(Material).filter(Material.course_id == course_id).all()
+        lessons = db.query(Lesson).filter(Lesson.course_id == course_id).all()
+        lesson_ids = [l.id for l in lessons]
+        materials = db.query(Material).filter(Material.lesson_id.in_(lesson_ids)).all() if lesson_ids else []
         mat_ids = [m.id for m in materials]
         progress_records = db.query(StudentMaterialProgress).filter(
             StudentMaterialProgress.material_id.in_(mat_ids)
@@ -413,7 +415,9 @@ def generate_course_analytics_csv(
             "Completed Count", "Completion Rate %", "Total Flags", "Unresolved Flags"
         ])
 
-        materials = db.query(Material).filter(Material.course_id == course_id).all()
+        lessons = db.query(Lesson).filter(Lesson.course_id == course_id).all()
+        lesson_ids = [l.id for l in lessons]
+        materials = db.query(Material).filter(Material.lesson_id.in_(lesson_ids)).all() if lesson_ids else []
         mat_ids = [m.id for m in materials]
 
         progress_records = db.query(StudentMaterialProgress).filter(
@@ -462,7 +466,9 @@ def generate_course_analytics_csv(
             "Student Comment", "Status", "Teacher Reply", "Logged At"
         ])
 
-        materials = db.query(Material).filter(Material.course_id == course_id).all()
+        lessons = db.query(Lesson).filter(Lesson.course_id == course_id).all()
+        lesson_ids = [l.id for l in lessons]
+        materials = db.query(Material).filter(Material.lesson_id.in_(lesson_ids)).all() if lesson_ids else []
         mat_map = {m.id: m for m in materials}
         mat_ids = list(mat_map.keys())
 

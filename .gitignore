@@ -41,3 +41,8 @@ desktop.ini
 # Databases & Vector Stores
 *.db
 chroma_data/
+new_lessons/
+scratch/
+backend/scratch/
+
+

@@ -603,11 +603,11 @@ export default function EssayQuestionEditorModal({
                     ? "badge-danger"
                     : "badge-warning"
                 }`}
-                style={{ fontSize: "0.82rem", fontWeight: 700, padding: "0.4rem 0.75rem" }}
+                style={{ fontSize: "0.82rem", fontWeight: 700, padding: "0.4rem 0.75rem", display: "inline-flex", alignItems: "center", gap: "4px" }}
               >
-                {isCriteriaComplete && `✓ Valid: ${criteriaTotalMarks} / ${maxMarks} marks`}
-                {isCriteriaOverAllocated && `⚠ Over-allocated: ${criteriaTotalMarks} / ${maxMarks} (${criteriaTotalMarks - maxMarks} marks over)`}
-                {!isCriteriaComplete && !isCriteriaOverAllocated && `⏳ Incomplete: ${criteriaTotalMarks} / ${maxMarks} (${criteriaRemainingMarks} marks remaining)`}
+                {isCriteriaComplete && <><SvgIcon name="check-circle" size={13} /> Valid: {criteriaTotalMarks} / {maxMarks} marks</>}
+                {isCriteriaOverAllocated && <><SvgIcon name="alert-triangle" size={13} /> Over-allocated: {criteriaTotalMarks} / {maxMarks} ({criteriaTotalMarks - maxMarks} marks over)</>}
+                {!isCriteriaComplete && !isCriteriaOverAllocated && <><SvgIcon name="clock" size={13} /> Incomplete: {criteriaTotalMarks} / {maxMarks} ({criteriaRemainingMarks} marks remaining)</>}
               </span>
 
               <button

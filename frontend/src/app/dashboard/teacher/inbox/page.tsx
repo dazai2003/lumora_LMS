@@ -209,8 +209,7 @@ function InboxPageContent() {
                           c.course_title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           (c.last_message || "").toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCourse = courseFilter === "all" || c.course_title === courseFilter;
-    const matchesTab = tabFilter === "all" ? true : (tabFilter === "admin" ? (c.course_id === 0 || c.course_title === "System Admin Support") : (c.course_id > 0 && c.course_title !== "System Admin Support"));
-    return matchesSearch && matchesCourse && matchesTab;
+    return matchesSearch && matchesCourse;
   });
 
   if (loading) {
@@ -226,8 +225,8 @@ function InboxPageContent() {
       {/* Header & Metrics */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
         <div className="page-header" style={{ marginBottom: 0 }}>
-          <h1>Messages & Support Inbox</h1>
-          <p>Direct communication channel with your students and system administrators</p>
+          <h1 style={{ fontSize: "1.65rem", fontWeight: 800 }}>Student Messages &amp; Discussions</h1>
+          <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>Direct inquiry and messaging channel with your enrolled students</p>
         </div>
 
         {/* Quick Stat Badges */}
@@ -238,7 +237,7 @@ function InboxPageContent() {
             </div>
             <div>
               <div className="stat-value" style={{ fontSize: "1.1rem" }}>{conversations.length}</div>
-              <div className="stat-label" style={{ fontSize: "0.7rem" }}>Active Students</div>
+              <div className="stat-label" style={{ fontSize: "0.7rem" }}>Enrolled Students</div>
             </div>
           </div>
 
@@ -248,7 +247,7 @@ function InboxPageContent() {
             </div>
             <div>
               <div className="stat-value" style={{ fontSize: "1.1rem", color: totalUnread > 0 ? "#ef4444" : "var(--text-primary)" }}>{totalUnread}</div>
-              <div className="stat-label" style={{ fontSize: "0.7rem" }}>Unread</div>
+              <div className="stat-label" style={{ fontSize: "0.7rem" }}>Unread Messages</div>
             </div>
           </div>
         </div>
@@ -267,7 +266,7 @@ function InboxPageContent() {
         
         {/* Left Sidebar: Conversations List */}
         <div style={{ 
-          width: "320px", 
+          width: "330px", 
           borderRight: "1px solid var(--border)",
           display: "flex",
           flexDirection: "column",
@@ -282,21 +281,6 @@ function InboxPageContent() {
             flexDirection: "column",
             gap: "0.5rem"
           }}>
-            {/* Category Filter Tabs */}
-            <div style={{ display: "flex", gap: "0.25rem", padding: "0.25rem", background: "var(--bg-card)", borderRadius: "8px", border: "1px solid var(--border-subtle)" }}>
-              <button 
-                onClick={() => setTabFilter("all")}
-                style={{ flex: 1, padding: "0.35rem 0.4rem", borderRadius: "6px", fontSize: "0.75rem", fontWeight: 600, border: "none", cursor: "pointer", background: tabFilter === "all" ? "var(--accent-primary)" : "transparent", color: tabFilter === "all" ? "white" : "var(--text-secondary)", transition: "all 0.15s ease" }}
-              >
-                All
-              </button>
-              <button 
-                onClick={() => setTabFilter("students")}
-                style={{ flex: 1, padding: "0.35rem 0.4rem", borderRadius: "6px", fontSize: "0.75rem", fontWeight: 600, border: "none", cursor: "pointer", background: tabFilter === "students" ? "var(--accent-primary)" : "transparent", color: tabFilter === "students" ? "white" : "var(--text-secondary)", transition: "all 0.15s ease" }}
-              >
-                Students ({conversations.filter(c => c.course_id > 0 && c.course_title !== "System Admin Support").length})
-              </button>
-            </div>
             <div style={{ position: "relative" }}>
               <input 
                 type="text" 
@@ -311,14 +295,14 @@ function InboxPageContent() {
               </div>
             </div>
 
-            {uniqueCourses.length > 0 && (
+            {uniqueCourses.length > 1 && (
               <select 
                 className="input-field" 
                 value={courseFilter}
                 onChange={(e) => setCourseFilter(e.target.value)}
                 style={{ fontSize: "0.8rem", padding: "0.4rem 0.6rem" }}
               >
-                <option value="all">All Courses</option>
+                <option value="all">All Courses ({conversations.length})</option>
                 {uniqueCourses.map(c => (
                   <option key={c} value={c}>{c}</option>
                 ))}
@@ -377,11 +361,6 @@ function InboxPageContent() {
                           <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.9rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                             {conv.other_user_name}
                           </div>
-                          {(conv.course_id === 0 || conv.course_title === "System Admin Support") && (
-                            <span style={{ fontSize: "0.62rem", padding: "0.1rem 0.4rem", borderRadius: "4px", background: "rgba(239, 68, 68, 0.15)", color: "#ef4444", fontWeight: 700, textTransform: "uppercase", flexShrink: 0 }}>
-                              Admin
-                            </span>
-                          )}
                         </div>
                         <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", flexShrink: 0, marginLeft: "0.5rem" }}>
                           {formatTime(conv.last_message_at)}

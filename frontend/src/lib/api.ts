@@ -80,12 +80,9 @@ class ApiClient {
     const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
     const url = `${cleanBase}${cleanEndpoint}`;
 
-    // Configure resilient timeout (120s for AI endpoints, 35s for standard endpoints)
-    const effectiveTimeout = timeoutMs || (
-      endpoint.includes("/generate-") || endpoint.includes("/ai-") || endpoint.includes("/evaluate") || endpoint.includes("/regenerate")
-        ? 120000
-        : 35000
-    );
+    // Configure resilient timeout (90s for AI generation, 35s for standard endpoints)
+    const isAiEndpoint = endpoint.includes("/generate-") || endpoint.includes("/ai-") || endpoint.includes("/evaluate") || endpoint.includes("/regenerate") || endpoint.includes("/qa/") || endpoint.includes("/ask");
+    const effectiveTimeout = timeoutMs || (isAiEndpoint ? 90000 : 35000);
 
     const controller = new AbortController();
     const timerId = setTimeout(() => {
@@ -103,10 +100,12 @@ class ApiClient {
     } catch (err: any) {
       clearTimeout(timerId);
       if (err?.name === "AbortError") {
-        throw new ApiError(
-          504,
-          `Request timed out after ${Math.round(effectiveTimeout / 1000)}s while waiting for the AI model to synthesize questions. Please try generating a smaller batch or retry.`
-        );
+        const timeoutMsg = endpoint.includes("/generate-") || endpoint.includes("/synthesize")
+          ? `Request timed out after ${Math.round(effectiveTimeout / 1000)}s while waiting for AI generation. Please try generating a smaller batch or retry.`
+          : endpoint.includes("/qa/") || endpoint.includes("/ask")
+          ? `Request timed out while waiting for the AI tutor response. Please try asking again.`
+          : `Request timed out after ${Math.round(effectiveTimeout / 1000)}s. Please try again.`;
+        throw new ApiError(504, timeoutMsg);
       }
       // Fast retry to handle transient dev-server socket reloads
       await new Promise((r) => setTimeout(r, 250));
@@ -124,7 +123,7 @@ class ApiClient {
         if (retryErr?.name === "AbortError") {
           throw new ApiError(
             504,
-            `Request timed out after ${Math.round(effectiveTimeout / 1000)}s while waiting for AI generation.`
+            `Request timed out after ${Math.round(effectiveTimeout / 1000)}s while waiting for server response.`
           );
         }
         console.error(`[Lumora ApiClient Network Error] Failed to connect to ${url}:`, retryErr);
@@ -433,10 +432,6 @@ class ApiClient {
     return this.request<Material[]>(`/materials/lesson/${lessonId}`);
   }
 
-  async listCourseMaterials(courseId: number) {
-    return this.request<Material[]>(`/materials/course/${courseId}`);
-  }
-
   async uploadMaterial(formData: FormData) {
     return this.request<Material>("/materials/upload", {
       method: "POST",
@@ -444,8 +439,8 @@ class ApiClient {
     });
   }
 
-  async uploadCourseMaterial(formData: FormData) {
-    return this.request<Material>("/materials/course-upload", {
+  async parsePastPaperPdf(formData: FormData) {
+    return this.request<{ message: string; count: number; questions: any[]; success: boolean }>("/questions/parse-pdf", {
       method: "POST",
       body: formData,
     });
@@ -841,6 +836,8 @@ class ApiClient {
       title: string;
       exam_type: string;
       time_limit_minutes: number;
+      time_remaining_seconds?: number | null;
+      is_resumed?: boolean;
       started_at: string;
       saved_answers?: Record<number, any>;
       questions: any[];
@@ -1682,14 +1679,23 @@ class ApiClient {
 
     try {
       const cleanBase = API_BASE.replace(/\/+$/, "");
-      const res = await fetch(`${cleanBase}/qa/ask/stream`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
-        },
-        body: JSON.stringify({ course_id: courseId, question, existing_question_id: existingQuestionId })
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 50000);
+
+      let res: Response;
+      try {
+        res = await fetch(`${cleanBase}/qa/ask/stream`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`,
+          },
+          body: JSON.stringify({ course_id: courseId, question, existing_question_id: existingQuestionId }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
       
       if (!res.ok) {
         if (res.status === 401) {
@@ -1701,6 +1707,25 @@ class ApiClient {
           onError(new ApiError(401, "Your session has expired. Please log in again."));
           return;
         }
+
+        // Automatic non-streaming fallback
+        try {
+          const fallbackRes = await this.askQuestion(courseId, question, existingQuestionId);
+          if (fallbackRes) {
+            onMessage({
+              type: "start",
+              question_id: fallbackRes.question_id,
+              is_grounded: fallbackRes.is_grounded,
+              context_sources: fallbackRes.context_sources || [],
+            });
+            onMessage({
+              type: "chunk",
+              text: fallbackRes.response_text || "",
+            });
+            onDone();
+            return;
+          }
+        } catch (_) {}
 
         let errMessage = "AI service is currently busy. Please try again in a moment.";
         try {
@@ -1716,9 +1741,22 @@ class ApiClient {
       const reader = res.body?.getReader();
       const decoder = new TextDecoder("utf-8");
       
-      if (!reader) return onDone();
+      if (!reader) {
+        try {
+          const fallbackRes = await this.askQuestion(courseId, question, existingQuestionId);
+          if (fallbackRes) {
+            onMessage({ type: "start", question_id: fallbackRes.question_id, is_grounded: fallbackRes.is_grounded, context_sources: fallbackRes.context_sources || [] });
+            onMessage({ type: "chunk", text: fallbackRes.response_text || "" });
+          }
+          return onDone();
+        } catch (fbErr: any) {
+          onError(fbErr instanceof Error ? fbErr : new Error("Unable to reach AI tutor. Please try again."));
+          return;
+        }
+      }
       
       let buffer = "";
+      let receivedAnyChunk = false;
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -1736,10 +1774,11 @@ class ApiClient {
               try {
                 const data = JSON.parse(jsonStr);
                 if (data.type === 'error') {
-                  onError(new Error(data.text));
+                  onError(new Error(data.text || "AI tutor encountered an error."));
                 } else if (data.type === 'done') {
                   onDone();
                 } else {
+                  receivedAnyChunk = true;
                   onMessage(data);
                 }
               } catch (e) {
@@ -1754,13 +1793,47 @@ class ApiClient {
         if (jsonStr) {
           try {
             const data = JSON.parse(jsonStr);
+            receivedAnyChunk = true;
             onMessage(data);
           } catch (e) {}
         }
       }
+
+      if (!receivedAnyChunk) {
+        try {
+          const fallbackRes = await this.askQuestion(courseId, question, existingQuestionId);
+          if (fallbackRes) {
+            onMessage({ type: "start", question_id: fallbackRes.question_id, is_grounded: fallbackRes.is_grounded, context_sources: fallbackRes.context_sources || [] });
+            onMessage({ type: "chunk", text: fallbackRes.response_text || "" });
+          }
+        } catch (_) {}
+      }
+
       onDone();
     } catch (e: any) {
-      onError(e instanceof Error ? e : new Error(e?.message || "Connection interrupted while receiving AI response."));
+      // Automatic non-streaming fallback on network/stream failure
+      try {
+        const fallbackRes = await this.askQuestion(courseId, question, existingQuestionId);
+        if (fallbackRes) {
+          onMessage({
+            type: "start",
+            question_id: fallbackRes.question_id,
+            is_grounded: fallbackRes.is_grounded,
+            context_sources: fallbackRes.context_sources || [],
+          });
+          onMessage({
+            type: "chunk",
+            text: fallbackRes.response_text || "",
+          });
+          onDone();
+          return;
+        }
+      } catch (_) {}
+
+      const userMsg = e?.message && !e.message.includes("Failed to fetch")
+        ? e.message
+        : "Connection to AI tutor was interrupted. Please click 'Ask Question' to retry.";
+      onError(new Error(userMsg));
     }
   }
 
