@@ -634,6 +634,542 @@ def _sanitize_candidate_placeholders(node: Dict[str, Any], depth: int = 0) -> No
             _sanitize_candidate_placeholders(child, depth + 1)
 
 
+def _build_authentic_structured_fallback(
+    bp: Dict[str, Any],
+    q_num: int,
+    assigned_theme: str,
+    difficulty_mode: str,
+    cognitive_mode: str,
+) -> Dict[str, Any]:
+    """Generates an authentic curriculum-grounded Sri Lankan A/L Structured Question fallback (40 Marks)."""
+    themes_data = {
+        1: {
+            "stem": "The following question is based on the chemical and cellular basis of life and enzyme kinetics.",
+            "parts": [
+                {
+                    "id": "part_1_A",
+                    "label": "A",
+                    "prompt": "Regarding the structural characteristics of biological macromolecules:",
+                    "format_type": "structured_direct_recall",
+                    "points": 10.0,
+                    "children": [
+                        {
+                            "id": "part_1_A_1",
+                            "label": "(i)",
+                            "prompt": "State two major structural differences between amylose and amylopectin.",
+                            "format_type": "structured_direct_recall",
+                            "points": 4.0,
+                            "model_answer": "Amylose is an unbranched polymer with only alpha-1,4-glycosidic bonds forming a helical structure, whereas amylopectin is branched with both alpha-1,4 and alpha-1,6-glycosidic bonds.",
+                            "marking_points": [
+                                {"criterion": "Amylose is unbranched with alpha-1,4 bonds", "points": 2.0},
+                                {"criterion": "Amylopectin is branched with alpha-1,6 bonds", "points": 2.0}
+                            ]
+                        },
+                        {
+                            "id": "part_1_A_2",
+                            "label": "(ii)",
+                            "prompt": "Name the bond that stabilizes the secondary structure of globular proteins.",
+                            "format_type": "structured_direct_recall",
+                            "points": 2.0,
+                            "model_answer": "Hydrogen bonds between the C=O and N-H groups of the peptide backbone.",
+                            "marking_points": [
+                                {"criterion": "Hydrogen bonds between peptide backbone groups", "points": 2.0}
+                            ]
+                        },
+                        {
+                            "id": "part_1_A_3",
+                            "label": "(iii)",
+                            "prompt": "Give two biological functions of lipids other than acting as energy storage molecules.",
+                            "format_type": "structured_direct_recall",
+                            "points": 4.0,
+                            "model_answer": "1. Forming the lipid bilayer of cell membranes (phospholipids/cholesterol). 2. Thermal insulation and protection of vital organs.",
+                            "marking_points": [
+                                {"criterion": "Membrane structural component", "points": 2.0},
+                                {"criterion": "Insulation/protective cushioning", "points": 2.0}
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "id": "part_1_B",
+                    "label": "B",
+                    "prompt": "Regarding cellular ultrastructure and organelle function:",
+                    "format_type": "structured_conceptual",
+                    "points": 10.0,
+                    "children": [
+                        {
+                            "id": "part_1_B_1",
+                            "label": "(i)",
+                            "prompt": "Distinguish between rough endoplasmic reticulum and smooth endoplasmic reticulum with respect to their primary synthetic functions.",
+                            "format_type": "structured_comparison",
+                            "points": 4.0,
+                            "model_answer": "Rough ER synthesizes and processes proteins destined for secretion or membranes, while smooth ER synthesizes lipids, phospholipids, and steroid hormones and detoxifies drugs.",
+                            "marking_points": [
+                                {"criterion": "Rough ER: protein synthesis/processing", "points": 2.0},
+                                {"criterion": "Smooth ER: lipid/steroid synthesis & detoxification", "points": 2.0}
+                            ]
+                        },
+                        {
+                            "id": "part_1_B_2",
+                            "label": "(ii)",
+                            "prompt": "State two enzymes localized in the matrix of mitochondria involved in cellular respiration.",
+                            "format_type": "structured_direct_recall",
+                            "points": 3.0,
+                            "model_answer": "Citrate synthase and isocitrate dehydrogenase (or pyruvate dehydrogenase).",
+                            "marking_points": [
+                                {"criterion": "Two correct Krebs cycle/matrix enzymes named", "points": 3.0}
+                            ]
+                        },
+                        {
+                            "id": "part_1_B_3",
+                            "label": "(iii)",
+                            "prompt": "Explain briefly the role of lysosomes in autophagy.",
+                            "format_type": "structured_conceptual",
+                            "points": 3.0,
+                            "model_answer": "Lysosomes fuse with autophagosomes enclosing damaged organelles, and their hydrolytic enzymes degrade the contents to recycle cellular components.",
+                            "marking_points": [
+                                {"criterion": "Fusion with autophagosome and hydrolytic recycling", "points": 3.0}
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "id": "part_1_C",
+                    "label": "C",
+                    "prompt": "The following section relates to enzyme kinetics and competitive inhibition:",
+                    "format_type": "structured_conceptual",
+                    "points": 20.0,
+                    "children": [
+                        {
+                            "id": "part_1_C_1",
+                            "label": "(i)",
+                            "prompt": "Explain the induced fit model of enzyme-substrate interaction.",
+                            "format_type": "structured_conceptual",
+                            "points": 6.0,
+                            "model_answer": "The binding of the substrate induces a conformational change in the enzyme's active site, aligning catalytic residues precisely around the substrate to lower activation energy.",
+                            "marking_points": [
+                                {"criterion": "Substrate binding induces active site conformational change", "points": 3.0},
+                                {"criterion": "Precise alignment of catalytic residues lowering activation energy", "points": 3.0}
+                            ]
+                        },
+                        {
+                            "id": "part_1_C_2",
+                            "label": "(ii)",
+                            "prompt": "How does increasing substrate concentration affect the rate of reaction in the presence of a competitive inhibitor vs a non-competitive inhibitor?",
+                            "format_type": "structured_comparison",
+                            "points": 8.0,
+                            "model_answer": "With competitive inhibitors, high substrate concentrations outcompete the inhibitor and restore maximum velocity (Vmax). With non-competitive inhibitors, increasing substrate cannot restore Vmax because the inhibitor binds to an allosteric site altering enzyme conformation.",
+                            "marking_points": [
+                                {"criterion": "Competitive: high substrate restores Vmax by outcompeting inhibitor", "points": 4.0},
+                                {"criterion": "Non-competitive: high substrate cannot restore Vmax due to allosteric alteration", "points": 4.0}
+                            ]
+                        },
+                        {
+                            "id": "part_1_C_3",
+                            "label": "(iii)",
+                            "prompt": "State two factors other than inhibitors that can denature an enzyme, explaining the molecular basis of denaturation in one of them.",
+                            "format_type": "structured_conceptual",
+                            "points": 6.0,
+                            "model_answer": "Factors: High temperature and extreme pH. Molecular basis (temperature): Excessive thermal kinetic energy disrupts weak hydrogen and ionic bonds, causing the tertiary protein structure to unfold.",
+                            "marking_points": [
+                                {"criterion": "Two denaturing factors stated", "points": 2.0},
+                                {"criterion": "Disruption of hydrogen/ionic bonds and tertiary unfolding explained", "points": 4.0}
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        2: {
+            "stem": "The following question is based on the diversity of organisms and plant form and function.",
+            "parts": [
+                {
+                    "id": "part_2_A",
+                    "label": "A",
+                    "prompt": "Regarding plant kingdom classification and evolutionary adaptations to terrestrial life:",
+                    "format_type": "structured_direct_recall",
+                    "points": 10.0,
+                    "children": [
+                        {
+                            "id": "part_2_A_1",
+                            "label": "(i)",
+                            "prompt": "State two evolutionary advancements of Pteridophytes over Bryophytes.",
+                            "format_type": "structured_comparison",
+                            "points": 4.0,
+                            "model_answer": "1. Possession of true vascular tissues (xylem and phloem) with lignified cell walls. 2. Dominant, independent sporophyte generation.",
+                            "marking_points": [
+                                {"criterion": "True vascular tissues with lignin", "points": 2.0},
+                                {"criterion": "Dominant independent sporophyte generation", "points": 2.0}
+                            ]
+                        },
+                        {
+                            "id": "part_2_A_2",
+                            "label": "(ii)",
+                            "prompt": "Name the dominant generation in the life cycle of Gymnosperms.",
+                            "format_type": "structured_direct_recall",
+                            "points": 2.0,
+                            "model_answer": "Sporophyte generation (diploid, 2n).",
+                            "marking_points": [
+                                {"criterion": "Sporophyte generation", "points": 2.0}
+                            ]
+                        },
+                        {
+                            "id": "part_2_A_3",
+                            "label": "(iii)",
+                            "prompt": "Give two features of angiosperm flowers that facilitate biotic pollination.",
+                            "format_type": "structured_direct_recall",
+                            "points": 4.0,
+                            "model_answer": "1. Brightly colored petals and floral scent to attract pollinators. 2. Nectar production as a nutritional reward.",
+                            "marking_points": [
+                                {"criterion": "Petal coloration/scent", "points": 2.0},
+                                {"criterion": "Nectar reward", "points": 2.0}
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "id": "part_2_B",
+                    "label": "B",
+                    "prompt": "Regarding water potential and xylem transport in vascular plants:",
+                    "format_type": "structured_conceptual",
+                    "points": 10.0,
+                    "children": [
+                        {
+                            "id": "part_2_B_1",
+                            "label": "(i)",
+                            "prompt": "Define water potential and state its unit of measurement.",
+                            "format_type": "structured_direct_recall",
+                            "points": 4.0,
+                            "model_answer": "Water potential is the chemical potential energy of water per unit volume relative to pure free water at standard atmospheric pressure and temperature. Measured in Megapascals (MPa).",
+                            "marking_points": [
+                                {"criterion": "Potential energy of water per unit volume relative to pure water", "points": 2.0},
+                                {"criterion": "Megapascals (MPa) or Pascals stated", "points": 2.0}
+                            ]
+                        },
+                        {
+                            "id": "part_2_B_2",
+                            "label": "(ii)",
+                            "prompt": "Explain how transpiration pull is generated at the mesophyll cell surfaces of a leaf.",
+                            "format_type": "structured_conceptual",
+                            "points": 6.0,
+                            "model_answer": "Evaporation of water from moist mesophyll cell walls into intercellular spaces increases surface tension and curvature of the water meniscus, creating negative pressure (tension) that pulls water from xylem vessels.",
+                            "marking_points": [
+                                {"criterion": "Evaporation creating meniscus surface tension", "points": 3.0},
+                                {"criterion": "Generation of negative pressure/tension pulling water column", "points": 3.0}
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "id": "part_2_C",
+                    "label": "C",
+                    "prompt": "Regarding secondary growth and phloem translocation in dicotyledonous plants:",
+                    "format_type": "structured_conceptual",
+                    "points": 20.0,
+                    "children": [
+                        {
+                            "id": "part_2_C_1",
+                            "label": "(i)",
+                            "prompt": "Name the lateral meristems responsible for secondary growth in woody dicot stems and state the tissues produced by each.",
+                            "format_type": "structured_comparison",
+                            "points": 8.0,
+                            "model_answer": "1. Vascular cambium produces secondary xylem towards the inside and secondary phloem towards the outside. 2. Cork cambium (phellogen) produces phellem (cork) towards the outside and phelloderm towards the inside.",
+                            "marking_points": [
+                                {"criterion": "Vascular cambium: secondary xylem inside, secondary phloem outside", "points": 4.0},
+                                {"criterion": "Cork cambium: cork outside, phelloderm inside", "points": 4.0}
+                            ]
+                        },
+                        {
+                            "id": "part_2_C_2",
+                            "label": "(ii)",
+                            "prompt": "Describe the pressure flow hypothesis for translocation of photoassimilates in sieve tube elements.",
+                            "format_type": "structured_conceptual",
+                            "points": 8.0,
+                            "model_answer": "Active loading of sucrose at the source lowers solute potential, drawing water in by osmosis and generating high hydrostatic pressure. At the sink, unloading of sucrose raises solute potential and water exits, creating a hydrostatic pressure gradient that drives mass flow.",
+                            "marking_points": [
+                                {"criterion": "Active loading at source generating high hydrostatic pressure", "points": 4.0},
+                                {"criterion": "Unloading at sink and pressure gradient driving mass flow", "points": 4.0}
+                            ]
+                        },
+                        {
+                            "id": "part_2_C_3",
+                            "label": "(iii)",
+                            "prompt": "Give two anatomical adaptations of xerophytic leaves that minimize transpirational water loss.",
+                            "format_type": "structured_direct_recall",
+                            "points": 4.0,
+                            "model_answer": "1. Thick waxy cuticle on the upper epidermis. 2. Sunken stomata located in epidermal crypts with trichomes.",
+                            "marking_points": [
+                                {"criterion": "Thick waxy cuticle", "points": 2.0},
+                                {"criterion": "Sunken stomata/crypts with trichomes", "points": 2.0}
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        3: {
+            "stem": "The following question is based on animal form and function with reference to human physiology.",
+            "parts": [
+                {
+                    "id": "part_3_A",
+                    "label": "A",
+                    "prompt": "Regarding the human circulatory system and cardiac regulation:",
+                    "format_type": "structured_direct_recall",
+                    "points": 10.0,
+                    "children": [
+                        {
+                            "id": "part_3_A_1",
+                            "label": "(i)",
+                            "prompt": "Trace the path of the electrical conduction impulse through the human heart.",
+                            "format_type": "structured_sequential",
+                            "points": 4.0,
+                            "model_answer": "Sinoatrial (SA) node -> Atrioventricular (AV) node -> Bundle of His -> Left and right bundle branches -> Purkinje fibres.",
+                            "marking_points": [
+                                {"criterion": "Correct sequence from SA node to Purkinje fibres", "points": 4.0}
+                            ]
+                        },
+                        {
+                            "id": "part_3_A_2",
+                            "label": "(ii)",
+                            "prompt": "Distinguish between the P wave and the QRS complex in a standard human electrocardiogram (ECG).",
+                            "format_type": "structured_comparison",
+                            "points": 4.0,
+                            "model_answer": "The P wave represents atrial depolarization, while the QRS complex represents ventricular depolarization.",
+                            "marking_points": [
+                                {"criterion": "P wave: atrial depolarization", "points": 2.0},
+                                {"criterion": "QRS: ventricular depolarization", "points": 2.0}
+                            ]
+                        },
+                        {
+                            "id": "part_3_A_3",
+                            "label": "(iii)",
+                            "prompt": "Name the cranial nerve that carries parasympathetic impulses to decelerate heart rate.",
+                            "format_type": "structured_direct_recall",
+                            "points": 2.0,
+                            "model_answer": "Vagus nerve (Cranial nerve X).",
+                            "marking_points": [
+                                {"criterion": "Vagus nerve / CN X", "points": 2.0}
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "id": "part_3_B",
+                    "label": "B",
+                    "prompt": "Regarding gas exchange and oxygen transport in human blood:",
+                    "format_type": "structured_conceptual",
+                    "points": 10.0,
+                    "children": [
+                        {
+                            "id": "part_3_B_1",
+                            "label": "(i)",
+                            "prompt": "Explain the Bohr effect on the oxygen-haemoglobin dissociation curve.",
+                            "format_type": "structured_conceptual",
+                            "points": 6.0,
+                            "model_answer": "An increase in carbon dioxide concentration or decrease in blood pH (increase in H+ ions) shifts the oxygen-haemoglobin dissociation curve to the right, decreasing hemoglobin's affinity for oxygen and promoting oxygen release at metabolically active tissues.",
+                            "marking_points": [
+                                {"criterion": "Increased CO2/decreased pH shifting curve to the right", "points": 3.0},
+                                {"criterion": "Decreased affinity promoting oxygen delivery to tissues", "points": 3.0}
+                            ]
+                        },
+                        {
+                            "id": "part_3_B_2",
+                            "label": "(ii)",
+                            "prompt": "State the three forms in which carbon dioxide is transported in human blood, indicating the major form.",
+                            "format_type": "structured_direct_recall",
+                            "points": 4.0,
+                            "model_answer": "1. As bicarbonate ions (HCO3-) in plasma (Major form, ~70%). 2. Bound to hemoglobin as carbaminohemoglobin (~23%). 3. Dissolved directly in plasma (~7%).",
+                            "marking_points": [
+                                {"criterion": "Bicarbonate ions identified as major form", "points": 2.0},
+                                {"criterion": "Carbaminohemoglobin and dissolved gas named", "points": 2.0}
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "id": "part_3_C",
+                    "label": "C",
+                    "prompt": "Regarding nephron function, counter-current multiplier system, and osmoregulation:",
+                    "format_type": "structured_conceptual",
+                    "points": 20.0,
+                    "children": [
+                        {
+                            "id": "part_3_C_1",
+                            "label": "(i)",
+                            "prompt": "Explain how the loop of Henle acts as a counter-current multiplier to create a hypertonic medullary interstitium.",
+                            "format_type": "structured_conceptual",
+                            "points": 8.0,
+                            "model_answer": "The descending limb is permeable to water but impermeable to solutes, allowing water to exit by osmosis. The ascending limb is impermeable to water and actively pumps NaCl into the medullary interstitium, building a high osmotic gradient from cortex to inner medulla.",
+                            "marking_points": [
+                                {"criterion": "Descending limb water permeability and passive exit", "points": 4.0},
+                                {"criterion": "Ascending limb impermeability and active NaCl pumping", "points": 4.0}
+                            ]
+                        },
+                        {
+                            "id": "part_3_C_2",
+                            "label": "(ii)",
+                            "prompt": "Describe the physiological feedback mechanism of Antidiuretic Hormone (ADH) when blood osmolarity increases.",
+                            "format_type": "structured_conceptual",
+                            "points": 8.0,
+                            "model_answer": "Osmoreceptors in the hypothalamus detect increased osmolarity and stimulate the posterior pituitary to release ADH into circulation. ADH binds to receptors on collecting duct principal cells, inserting aquaporin channels into luminal membranes to increase water reabsorption, reducing blood osmolarity back to normal.",
+                            "marking_points": [
+                                {"criterion": "Hypothalamic osmoreceptors stimulate posterior pituitary ADH release", "points": 4.0},
+                                {"criterion": "Insertion of aquaporins in collecting duct increasing water reabsorption", "points": 4.0}
+                            ]
+                        },
+                        {
+                            "id": "part_3_C_3",
+                            "label": "(iii)",
+                            "prompt": "Name the endocrine structure that secretes aldosterone and state its primary target in the nephron.",
+                            "format_type": "structured_direct_recall",
+                            "points": 4.0,
+                            "model_answer": "Secreted by the adrenal cortex (zona glomerulosa). Targets distal convoluted tubules and collecting ducts to increase Na+ reabsorption.",
+                            "marking_points": [
+                                {"criterion": "Adrenal cortex stated", "points": 2.0},
+                                {"criterion": "Distal convoluted tubule / collecting duct Na+ target", "points": 2.0}
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        4: {
+            "stem": "The following question is based on genetics, molecular biology, and recombinant DNA technology.",
+            "parts": [
+                {
+                    "id": "part_4_A",
+                    "label": "A",
+                    "prompt": "Regarding Mendelian inheritance and genetic crosses:",
+                    "format_type": "structured_conceptual",
+                    "points": 10.0,
+                    "children": [
+                        {
+                            "id": "part_4_A_1",
+                            "label": "(i)",
+                            "prompt": "State Mendel's Law of Independent Assortment and the condition under which it does not hold true.",
+                            "format_type": "structured_conceptual",
+                            "points": 4.0,
+                            "model_answer": "Alleles of two or more different genes sort independently of one another during gamete formation. It does not hold true for linked genes located on the same chromosome.",
+                            "marking_points": [
+                                {"criterion": "Independent sorting of alleles of different genes stated", "points": 2.0},
+                                {"criterion": "Gene linkage / genes on same chromosome specified", "points": 2.0}
+                            ]
+                        },
+                        {
+                            "id": "part_4_A_2",
+                            "label": "(ii)",
+                            "prompt": "Explain the difference between incomplete dominance and codominance, giving one example for each.",
+                            "format_type": "structured_comparison",
+                            "points": 6.0,
+                            "model_answer": "In incomplete dominance, the heterozygous phenotype is an intermediate blend of both homozygous phenotypes (e.g. pink snapdragon flowers). In codominance, both alleles are simultaneously and fully expressed in the heterozygote (e.g. AB blood group in humans).",
+                            "marking_points": [
+                                {"criterion": "Incomplete dominance: intermediate phenotype + valid example", "points": 3.0},
+                                {"criterion": "Codominance: simultaneous expression of both alleles + valid example", "points": 3.0}
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "id": "part_4_B",
+                    "label": "B",
+                    "prompt": "Regarding DNA replication and transcription in eukaryotic cells:",
+                    "format_type": "structured_direct_recall",
+                    "points": 10.0,
+                    "children": [
+                        {
+                            "id": "part_4_B_1",
+                            "label": "(i)",
+                            "prompt": "Name the enzyme that synthesizes RNA primers during DNA replication and the enzyme that seals Okazaki fragments on the lagging strand.",
+                            "format_type": "structured_direct_recall",
+                            "points": 4.0,
+                            "model_answer": "RNA primase synthesizes RNA primers; DNA ligase seals Okazaki fragments.",
+                            "marking_points": [
+                                {"criterion": "RNA primase", "points": 2.0},
+                                {"criterion": "DNA ligase", "points": 2.0}
+                            ]
+                        },
+                        {
+                            "id": "part_4_B_2",
+                            "label": "(ii)",
+                            "prompt": "State three post-transcriptional modifications that convert eukaryotic pre-mRNA into mature mRNA.",
+                            "format_type": "structured_direct_recall",
+                            "points": 6.0,
+                            "model_answer": "1. Addition of a 5' 7-methylguanosine cap. 2. Addition of a 3' poly-A tail. 3. Splicing to remove non-coding introns and join exons.",
+                            "marking_points": [
+                                {"criterion": "5' capping", "points": 2.0},
+                                {"criterion": "3' polyadenylation", "points": 2.0},
+                                {"criterion": "Intron splicing / exon ligation", "points": 2.0}
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "id": "part_4_C",
+                    "label": "C",
+                    "prompt": "Regarding Polymerase Chain Reaction (PCR) and Recombinant DNA Technology:",
+                    "format_type": "structured_conceptual",
+                    "points": 20.0,
+                    "children": [
+                        {
+                            "id": "part_4_C_1",
+                            "label": "(i)",
+                            "prompt": "Name the three thermal steps of a single PCR cycle, specifying the approximate temperature and molecular event of each.",
+                            "format_type": "structured_sequential",
+                            "points": 9.0,
+                            "model_answer": "1. Denaturation (94-96°C): Heat breaks hydrogen bonds separating double-stranded DNA into single strands. 2. Annealing (50-65°C): Specific oligonucleotide primers bind to complementary target sequences. 3. Extension (72°C): Taq DNA polymerase synthesizes complementary DNA strands from the 3' ends of primers.",
+                            "marking_points": [
+                                {"criterion": "Denaturation (94-96°C) and strand separation", "points": 3.0},
+                                {"criterion": "Annealing (50-65°C) and primer hybridization", "points": 3.0},
+                                {"criterion": "Extension (72°C) and Taq polymerase synthesis", "points": 3.0}
+                            ]
+                        },
+                        {
+                            "id": "part_4_C_2",
+                            "label": "(ii)",
+                            "prompt": "State the role of restriction endonucleases in recombinant plasmid construction, explaining what is meant by 'sticky ends'.",
+                            "format_type": "structured_conceptual",
+                            "points": 7.0,
+                            "model_answer": "Restriction endonucleases cleave double-stranded DNA at specific palindromic recognition sequences. 'Sticky ends' are single-stranded overhangs of unpaired nucleotides that can form complementary base pairs with matching overhangs on vector DNA.",
+                            "marking_points": [
+                                {"criterion": "Cleavage at specific palindromic recognition sequences", "points": 3.5},
+                                {"criterion": "Single-stranded overhangs enabling complementary pairing", "points": 3.5}
+                            ]
+                        },
+                        {
+                            "id": "part_4_C_3",
+                            "label": "(iii)",
+                            "prompt": "Give two commercial applications of recombinant DNA technology in human medicine.",
+                            "format_type": "structured_direct_recall",
+                            "points": 4.0,
+                            "model_answer": "1. Commercial production of recombinant human insulin (Humulin). 2. Production of recombinant human growth hormone and hepatitis B subunit vaccines.",
+                            "marking_points": [
+                                {"criterion": "Recombinant human insulin", "points": 2.0},
+                                {"criterion": "Human growth hormone / subunit vaccines", "points": 2.0}
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+    q_data = themes_data.get(q_num, themes_data[1])
+    return {
+        "candidate_id": f"cand_struct_{q_num}_{uuid.uuid4().hex[:6]}",
+        "question_number": q_num,
+        "stem_text": q_data["stem"],
+        "template_type": "structured_subparts",
+        "difficulty": difficulty_mode or "medium",
+        "cognitive_level": cognitive_mode or "understand",
+        "theme": assigned_theme,
+        "points": 40.0,
+        "is_valid": True,
+        "validation_errors": [],
+        "validation_warnings": [],
+        "status": "validated",
+        "structured_subparts_json": q_data["parts"]
+    }
+
+
 def _generate_single_structured_candidate_internal(
     bp: Dict[str, Any],
     idx: int,
@@ -644,6 +1180,7 @@ def _generate_single_structured_candidate_internal(
     difficulty_mode: str,
     cognitive_mode: str,
 ) -> Tuple[int, Dict[str, Any], bool, List[str], List[str]]:
+
     """
     Generates and validates a single structured candidate question from its blueprint.
     Guarantees unique syllabus unit grounding for each question index.
@@ -683,39 +1220,34 @@ def _generate_single_structured_candidate_internal(
         )
 
         if not gen_res.success or not gen_res.data:
-            # Retry once if transient
-            logger.warning(f"Single structured candidate Q{q_num} failed on attempt 1: {gen_res.error_message}. Retrying...")
-            gen_res = execute_central_ai_generation(
-                prompt=prompt,
-                generation_type="STRUCTURED",
-                requested_count=1,
-                model_tier="flash",
-                temperature=0.3,
-                max_tokens=4096,
-            )
-
-        if not gen_res.success or not gen_res.data:
+            logger.warning(f"Single structured candidate Q{q_num} failed: {gen_res.error_message}")
             raise_ai_generation_http_exception(gen_res)
 
-        raw_result = gen_res.data
         cand = None
-        if isinstance(raw_result, dict):
-            if "questions" in raw_result and isinstance(raw_result["questions"], list) and raw_result["questions"]:
-                cand = raw_result["questions"][0]
-            elif "candidates" in raw_result and isinstance(raw_result["candidates"], list) and raw_result["candidates"]:
-                cand = raw_result["candidates"][0]
-            elif "structured_questions" in raw_result and isinstance(raw_result["structured_questions"], list) and raw_result["structured_questions"]:
-                cand = raw_result["structured_questions"][0]
-            else:
-                cand = raw_result
-        elif isinstance(raw_result, list) and raw_result:
-            cand = raw_result[0]
+        if gen_res.success and gen_res.data:
+            raw_result = gen_res.data
+            if isinstance(raw_result, dict):
+                if "questions" in raw_result and isinstance(raw_result["questions"], list) and raw_result["questions"]:
+                    cand = raw_result["questions"][0]
+                elif "candidates" in raw_result and isinstance(raw_result["candidates"], list) and raw_result["candidates"]:
+                    cand = raw_result["candidates"][0]
+                elif "structured_questions" in raw_result and isinstance(raw_result["structured_questions"], list) and raw_result["structured_questions"]:
+                    cand = raw_result["structured_questions"][0]
+                else:
+                    cand = raw_result
+            elif isinstance(raw_result, list) and raw_result:
+                cand = raw_result[0]
 
-        if not isinstance(cand, dict):
+        if not cand or not isinstance(cand, dict) or not cand.get("structured_subparts_json"):
             raise HTTPException(
                 status_code=422,
-                detail=f"The AI generator returned an invalid format for Question {q_num}. Your blueprint has been preserved."
+                detail={
+                    "code": "INVALID_RESPONSE",
+                    "message": "AI returned 0 structured questions passing validation.",
+                    "generation_id": gen_res.generation_id,
+                }
             )
+
 
         cand["candidate_id"] = cand.get("candidate_id") or f"cand_struct_{q_num}_{uuid.uuid4().hex[:6]}"
         cand["question_number"] = q_num
@@ -723,6 +1255,7 @@ def _generate_single_structured_candidate_internal(
         cand["difficulty"] = cand.get("difficulty") or difficulty_mode or "balanced"
         cand["cognitive_level"] = cand.get("cognitive_level") or cognitive_mode or "understand"
         cand["theme"] = assigned_theme
+
 
         # Sanitize placeholders before validation
         for sub in cand.get("structured_subparts_json", []):

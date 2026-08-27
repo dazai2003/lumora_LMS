@@ -39,20 +39,21 @@ class GeminiService:
     """
 
     MODEL_MAP = {
-        "flash": "gemini-flash-latest",
+        "flash": "gemini-3.5-flash-lite",
         "flash_lite": "gemini-flash-lite-latest",
-        "flash_36": "gemini-3.6-flash",
+        "flash_31": "gemini-3.1-flash-lite",
         "flash_35": "gemini-3.5-flash-lite",
-        "pro": "gemini-pro-latest",
+        "flash_36": "gemini-3.6-flash",
+        "pro": "gemini-3.6-flash",
     }
 
     FALLBACK_MODELS = [
-        "gemini-flash-latest",
-        "gemini-3.6-flash",
         "gemini-3.5-flash-lite",
         "gemini-flash-lite-latest",
-        "gemini-pro-latest",
+        "gemini-3.1-flash-lite",
+        "gemini-3.6-flash",
     ]
+
 
 
     def __init__(self):
@@ -145,6 +146,8 @@ class GeminiService:
 
         from google.genai import types
 
+        import concurrent.futures
+
         config = types.GenerateContentConfig(
             temperature=temperature,
             max_output_tokens=max_tokens,
@@ -152,13 +155,18 @@ class GeminiService:
         if system_instruction:
             config.system_instruction = system_instruction
 
+        PER_MODEL_TIMEOUT_SEC = 20
+
         for model_name in candidate_models:
             try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                    config=config,
-                )
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as single_exec:
+                    future = single_exec.submit(
+                        client.models.generate_content,
+                        model=model_name,
+                        contents=prompt,
+                        config=config,
+                    )
+                    response = future.result(timeout=PER_MODEL_TIMEOUT_SEC)
 
                 result_text = response.text or ""
                 elapsed_ms = int((time.time() - start_time) * 1000)
@@ -179,6 +187,10 @@ class GeminiService:
                 logger.info(f"Gemini text generation succeeded ({model_name}): {elapsed_ms}ms, {tokens or '?'} tokens")
                 return result_text
 
+            except concurrent.futures.TimeoutError:
+                last_error = TimeoutError(f"Model {model_name} exceeded {PER_MODEL_TIMEOUT_SEC}s timeout")
+                logger.warning(f"Gemini text model {model_name} timed out after {PER_MODEL_TIMEOUT_SEC}s. Trying next candidate model...")
+                continue
             except Exception as e:
                 last_error = e
                 logger.warning(f"Gemini model {model_name} failed: {e}. Trying next candidate model...")
@@ -213,9 +225,9 @@ class GeminiService:
         Generate a structured JSON response from Gemini with automatic multi-model failover.
 
         Resilience features:
-        - Per-model timeout of 25 seconds to prevent a single stuck model from blocking the chain.
+        - Per-model timeout of 20 seconds to prevent a single stuck model from blocking the chain.
         - 503-aware shortcut: if a Flash model returns 503 ("high demand"), skip sibling Flash
-          variants (they share the same serving infrastructure) and jump directly to Pro.
+          variants and jump directly to the next fast available tier.
         - Configurable max_fallback_models to limit cascade depth for batch callers.
         """
         import concurrent.futures
@@ -240,13 +252,13 @@ class GeminiService:
         if response_schema is not None:
             config.response_schema = response_schema
 
-        PER_MODEL_TIMEOUT_SEC = 30
+        PER_MODEL_TIMEOUT_SEC = 20
 
         for model_name in candidate_models:
             # 503-aware shortcut: if we already saw a 503 from a Flash model,
-            # skip other Flash variants (same infra) and jump to Pro
-            if saw_503 and "flash" in model_name.lower() and "pro" not in model_name.lower():
-                logger.info(f"Skipping {model_name} (503 shortcut: Flash infra is overloaded)")
+            # skip other saturated aliases and jump to lightweight models
+            if saw_503 and "latest" in model_name.lower():
+                logger.info(f"Skipping {model_name} (503 shortcut: model alias is overloaded)")
                 continue
 
             try:
