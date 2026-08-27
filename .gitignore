@@ -44,5 +44,11 @@ chroma_data/
 new_lessons/
 scratch/
 backend/scratch/
+.pytest_cache/
+
+# Internal Developer Documentation & Scripts
+technical-documentation/
+backend/scripts/
+scripts/
 
 

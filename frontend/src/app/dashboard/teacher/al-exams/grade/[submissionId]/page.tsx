@@ -1,5 +1,25 @@
 "use client";
 
+/**
+ * Lumora Teacher SpeedGrader & Assessment Verification Studio.
+ * 
+ * High-performance grading workstation for evaluating A/L Paper I (MCQ), Paper II-A (Structured),
+ * and Paper II-B (Essay) candidate scripts.
+ * 
+ * Key Design Decisions & Notes:
+ * 1. Granular Structured Subpart Scoring:
+ *    - Hierarchical tree rendering: Part (a), (b) -> Subpart (i), (ii) -> Section (a), (b).
+ *    - Each subpart has independent numerical mark adjustment controls capped by that node's max points.
+ * 2. 2-Column Essay Evaluation Workstation:
+ *    - Left Column (58%): Student's written answer with biological diagrams and formatting.
+ *    - Right Column (42%): Official marking criteria checklist with Gemini AI pre-detection badges.
+ *    - Custom Criteria: Teachers can add ad-hoc criteria directly to award points for unique insights.
+ * 3. Pure MCQ Verification:
+ *    - Shows candidate choices vs official keys, and provides a 1-click 'Confirm & Accept MCQ Marking' flow.
+ * 4. Human Final Authority:
+ *    - Final certification commits 'teacher_verified' status and publishes official A/L letter grades.
+ */
+
 import { useEffect, useState, use, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -944,11 +964,38 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
          ═══════════════════════════════════════════════════════════════ */}
       {hasMcq && (activeSectionTab === "all" || activeSectionTab === "paper1") && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem", marginBottom: "2rem" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
             <h2 style={{ fontSize: "1.15rem", fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
               Paper I — MCQ Submissions &amp; Deterministic Answer Analysis
             </h2>
             <span className="badge badge-info">{(mcqQuestions.length > 0 ? mcqQuestions.length : 50)} Items • Deterministic Auto-Graded</span>
+          </div>
+
+          {/* MCQ Teacher Review Notice Banner */}
+          <div
+            style={{
+              padding: "0.85rem 1.15rem",
+              borderRadius: "var(--radius-md)",
+              background: "rgba(37, 99, 235, 0.08)",
+              border: "1px solid rgba(37, 99, 235, 0.25)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: "0.75rem",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+              <SvgIcon name="clipboard" size={18} />
+              <span style={{ fontSize: "0.85rem", color: "var(--text-primary)", fontWeight: 500 }}>
+                Paper I MCQs are auto-graded deterministically. You can inspect candidate choices, override individual question marks if needed, and confirm the official score below.
+              </span>
+            </div>
+            {submission.status !== "teacher_verified" && (
+              <span className="badge badge-warning" style={{ fontSize: "0.72rem", fontWeight: 700 }}>
+                Pending Teacher Confirmation
+              </span>
+            )}
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
@@ -1679,7 +1726,13 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
             style={{ padding: "0.65rem 1.85rem", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "0.5rem", fontSize: "0.95rem" }}
           >
             <SvgIcon name="check-circle" size={18} />
-            {saving ? "Publishing Grade..." : submission.status === "teacher_verified" ? "Save Grade Revision" : "Approve & Publish Final Grade"}
+            {saving
+              ? "Publishing Grade..."
+              : submission.status === "teacher_verified"
+              ? "Save Grade Revision"
+              : (hasMcq && !hasStructured && !hasEssay)
+              ? "Confirm & Accept MCQ Marking"
+              : "Approve & Publish Final Grade"}
           </button>
         </div>
       </div>

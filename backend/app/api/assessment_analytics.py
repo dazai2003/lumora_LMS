@@ -2,7 +2,7 @@
 A/L Assessment Analytics Foundation API Router.
 Provides read-only, psychometric, hierarchical, material, and AI analytics endpoints.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Request, Query
 from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime
@@ -564,20 +564,66 @@ def get_course_comprehensive_report_analytics(
     )
 
 
+def _get_export_user(
+    request: Request,
+    token: Optional[str] = None,
+    db: Session = Depends(get_db),
+) -> User:
+    auth_header = request.headers.get("Authorization")
+    raw_token = None
+    if auth_header and auth_header.startswith("Bearer "):
+        raw_token = auth_header.split(" ", 1)[1]
+    elif token:
+        raw_token = token
+
+    if not raw_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
+
+    from app.auth import decode_token
+    token_data = decode_token(raw_token)
+    user = None
+    if token_data.user_id is not None:
+        user = db.query(User).filter(User.id == token_data.user_id).first()
+    if user is None and token_data.email:
+        user = db.query(User).filter(User.email == token_data.email).first()
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is deactivated",
+        )
+    if user.role not in [UserRole.TEACHER, UserRole.ADMIN]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Required role(s): teacher, admin",
+        )
+    return user
+
+
 @router.get("/courses/{course_id}/export/csv")
 def export_course_analytics_csv(
+    request: Request,
     course_id: int,
     type: str = "course_summary",
     unit_id: Optional[int] = None,
     exam_id: Optional[int] = None,
     student_id: Optional[int] = None,
-    current_user: User = Depends(require_admin_or_teacher),
+    token: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     """
     Exports course analytics data (syllabus mastery, student roster, item analysis,
     materials, difficulty flags) as a downloadable CSV document.
     """
+    current_user = _get_export_user(request, token, db)
     course = _check_course_teacher_access(course_id, current_user, db)
     csv_content = generate_course_analytics_csv(
         course_id=course_id,
@@ -595,6 +641,7 @@ def export_course_analytics_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
+
 
 
 

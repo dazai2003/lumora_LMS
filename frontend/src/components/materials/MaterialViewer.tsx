@@ -1,5 +1,24 @@
 "use client";
 
+/**
+ * Lumora Unified Learning Material Viewer & Telemetry Engine.
+ * 
+ * Interactive reader supporting Videos (MP4/H.264), PDF Documents (PyMuPDF/iframe),
+ * Markdown Notes, and High-Resolution Scientific Diagrams.
+ * 
+ * Key Design Decisions & Notes:
+ * 1. Video Telemetry & Precise Timestamp Resumption:
+ *    - `hasResumedRef` ensures resume seek happens only once after metadata is loaded to avoid race conditions.
+ *    - Throttles sync to database every 4 seconds during active playback.
+ *    - Automatically marks video complete when student watches >= 85% of total duration.
+ * 2. PDF Page Resumption & Hash Anchoring:
+ *    - Appends `#page=${currentPage}` to the iframe URL to jump directly to saved page coordinates.
+ *    - Bookmark action allows students to save exact page numbers instantly.
+ * 3. Formative Difficulty Hotspots:
+ *    - Students can raise difficulty flags at specific video timestamps or PDF pages.
+ *    - Aggregated in real time to populate the Teacher Analytics Material Friction Heatmap.
+ */
+
 import React, { useState, useEffect, useRef } from "react";
 import api, { Material, MaterialNote, MaterialFlag, StudentMaterialProgress } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";

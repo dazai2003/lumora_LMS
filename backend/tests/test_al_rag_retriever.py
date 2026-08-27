@@ -124,54 +124,90 @@ def test_scenario_6_syllabus_fallback_grounding_zero_materials(db_session):
 
 # Scenario 7: Unit Material Summary Aggregation for Frontend Reporting
 def test_scenario_7_unit_material_summary_reporting(db_session):
-    # Test Unit 66 (has materials)
-    summary_u1 = LearningMaterialRetriever.get_unit_material_summary(
-        db=db_session,
-        course_id=36,
-        unit_ids=[66],
-    )
-    assert summary_u1["total_units"] == 1
-    assert summary_u1["total_lessons"] >= 2
-    assert summary_u1["total_materials"] >= 2
-    assert summary_u1["completed_materials"] >= 2
-    assert summary_u1["availability_state"] in ("full", "partial")
-    assert "learning material" in summary_u1["display_message"].lower()
-
-    # Create temporary empty unit (0 materials)
-    empty_unit = Unit(course_id=36, title="Empty Test Unit", order=999)
-    db_session.add(empty_unit)
+    # 1. Create fully self-contained test units with lessons and completed materials
+    unit_full = Unit(course_id=36, title="Test Summary Unit Full", order=998)
+    empty_unit = Unit(course_id=36, title="Test Summary Unit Empty", order=999)
+    db_session.add_all([unit_full, empty_unit])
     db_session.commit()
+    db_session.refresh(unit_full)
     db_session.refresh(empty_unit)
 
-    # Test empty unit (0 materials)
-    summary_u7 = LearningMaterialRetriever.get_unit_material_summary(
-        db=db_session,
-        course_id=36,
-        unit_ids=[empty_unit.id],
-    )
-    assert summary_u7["total_units"] == 1
-    assert summary_u7["total_materials"] == 0
-    assert summary_u7["availability_state"] == "none"
-    assert "No usable uploaded learning material" in summary_u7["display_message"]
-
-    # Test Multi-unit (Dynamic active units + empty_unit -> Partial)
-    active_units = db_session.query(Unit).filter(Unit.course_id == 36).order_by(Unit.order).all()
-    u1_id = active_units[0].id if active_units else 65
-    u2_id = active_units[1].id if len(active_units) > 1 else 66
-
-    summary_multi = LearningMaterialRetriever.get_unit_material_summary(
-        db=db_session,
-        course_id=36,
-        unit_ids=[u1_id, u2_id, empty_unit.id],
-    )
-    assert summary_multi["total_units"] == 3
-    assert summary_multi["completed_materials"] >= 2
-    assert summary_multi["availability_state"] == "partial"
-    assert "available for" in summary_multi["display_message"].lower()
-
-    # Cleanup
-    db_session.delete(empty_unit)
+    lesson1 = Lesson(course_id=36, unit_id=unit_full.id, title="Test Lesson 1", order=1, is_published=True)
+    lesson2 = Lesson(course_id=36, unit_id=unit_full.id, title="Test Lesson 2", order=2, is_published=True)
+    db_session.add_all([lesson1, lesson2])
     db_session.commit()
+    db_session.refresh(lesson1)
+    db_session.refresh(lesson2)
+
+    mat1 = Material(
+        course_id=36,
+        lesson_id=lesson1.id,
+        title="Test Cell Structure Notes",
+        material_type=MaterialType.NOTE,
+        category="general",
+        is_private_rag_vault=False,
+        content="Mitochondria are double membrane-bound organelles essential for ATP synthesis.",
+        extracted_text="Mitochondria are double membrane-bound organelles essential for ATP synthesis.",
+        processing_status=ProcessingStatus.COMPLETED,
+    )
+    mat2 = Material(
+        course_id=36,
+        lesson_id=lesson2.id,
+        title="Test Respiration PDF Document",
+        material_type=MaterialType.PDF,
+        category="general",
+        is_private_rag_vault=False,
+        content="Glycolysis and citric acid cycle pathways provide reducing equivalents.",
+        extracted_text="Glycolysis and citric acid cycle pathways provide reducing equivalents.",
+        processing_status=ProcessingStatus.COMPLETED,
+    )
+    db_session.add_all([mat1, mat2])
+    db_session.commit()
+
+    try:
+        # Test 1: Full Unit (2 lessons, 2 completed materials -> full availability)
+        summary_u1 = LearningMaterialRetriever.get_unit_material_summary(
+            db=db_session,
+            course_id=36,
+            unit_ids=[unit_full.id],
+        )
+        assert summary_u1["total_units"] == 1
+        assert summary_u1["total_lessons"] == 2
+        assert summary_u1["total_materials"] == 2
+        assert summary_u1["completed_materials"] == 2
+        assert summary_u1["availability_state"] == "full"
+        assert "learning material available" in summary_u1["display_message"].lower()
+
+        # Test 2: Empty Unit (0 lessons, 0 materials -> none availability)
+        summary_empty = LearningMaterialRetriever.get_unit_material_summary(
+            db=db_session,
+            course_id=36,
+            unit_ids=[empty_unit.id],
+        )
+        assert summary_empty["total_units"] == 1
+        assert summary_empty["total_materials"] == 0
+        assert summary_empty["availability_state"] == "none"
+        assert "no usable uploaded learning material" in summary_empty["display_message"].lower()
+
+        # Test 3: Multi-unit combined (unit_full + empty_unit -> partial availability)
+        summary_multi = LearningMaterialRetriever.get_unit_material_summary(
+            db=db_session,
+            course_id=36,
+            unit_ids=[unit_full.id, empty_unit.id],
+        )
+        assert summary_multi["total_units"] == 2
+        assert summary_multi["total_lessons"] == 2
+        assert summary_multi["total_materials"] == 2
+        assert summary_multi["completed_materials"] == 2
+        assert summary_multi["availability_state"] == "partial"
+        assert "available for" in summary_multi["display_message"].lower()
+
+    finally:
+        # Cleanup test fixture records
+        db_session.query(Material).filter(Material.id.in_([mat1.id, mat2.id])).delete(synchronize_session=False)
+        db_session.query(Lesson).filter(Lesson.id.in_([lesson1.id, lesson2.id])).delete(synchronize_session=False)
+        db_session.query(Unit).filter(Unit.id.in_([unit_full.id, empty_unit.id])).delete(synchronize_session=False)
+        db_session.commit()
 
 
 # Scenario 8: Unit Isolation (No Cross-Unit Contamination)

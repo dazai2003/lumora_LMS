@@ -1,6 +1,20 @@
 """
-Lumora 2.0 — AI Pre-Marking Service for Structured & Essay Questions
-Evaluates student responses against frozen assessment question snapshots.
+Lumora Assessment Grading & Pre-Marking Service.
+
+Handles automated evaluation of student examination submissions across Paper I, Paper II-A, and Paper II-B.
+
+Key Design Decisions & Notes:
+1. 4-Tier Score Hierarchy:
+   - auto_score: Deterministic machine scoring computed instantly for MCQs (<10ms).
+   - ai_score: Gemini pre-grading recommendation for written structured subparts & essay rubrics.
+   - teacher_score: Human teacher overrides entered in the Marking Studio workstation.
+   - final_score: Certified active score (defaults to teacher_score if reviewed, else fallback).
+2. Human-in-the-Loop & Ethical AI:
+   - AI is deliberately positioned as a pre-marking assistant, never the final authority.
+   - Teachers retain 100% control to adjust subpart points, add custom criteria, and certify grades.
+3. Fallback Resilience:
+   - If Gemini is unreachable or rate-limited, returns is_fallback=True with 0.0 suggested score
+     and logs an error so the teacher can grade manually without breaking the submission lifecycle.
 """
 
 import logging
@@ -27,6 +41,7 @@ class AIPreMarkingResult(BaseModel):
     feedback: Optional[str] = None
     is_fallback: bool = False
 
+# Strict system instruction reinforcing human-in-the-loop ethical AI governance
 SYSTEM_PRE_MARKING_PROMPT = """You are an assessment pre-marking assistant.
 You are NOT the final examiner.
 Evaluate the student's response only against the supplied frozen question and marking criteria.

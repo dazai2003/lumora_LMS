@@ -1,6 +1,18 @@
 """
-G.C.E. Advanced Level Exam Engine API.
-Updated for Lumora Exam Engine.
+Lumora A/L Examination Engine & Submission Lifecycle API.
+
+Provides endpoints for A/L paper authoring, live candidate exam taking, throttled autosaving,
+deterministic MCQ auto-grading, and teacher SpeedGrader verification.
+
+Key Design Decisions & Notes:
+1. End-to-End Attempt State Machine:
+   - DRAFT / IN_PROGRESS: Student taking exam with live autosave every 5s.
+   - SUBMITTED: Student commits exam -> triggers <10ms deterministic MCQ scoring.
+   - AI_PRE_GRADED: Gemini populates initial rubric checklist for written structured/essay items.
+   - TEACHER_VERIFIED: Human teacher confirms scores, publishes final grade, and writes summary notes.
+2. Tenant & Course Isolation:
+   - All teacher authoring and grading routes enforce `require_teacher` and verify course ownership.
+   - Students can only view and attempt exams for courses in which they are actively enrolled.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks

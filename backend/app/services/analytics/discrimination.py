@@ -1,6 +1,23 @@
 """
 Psychometric Item Discrimination Index (d) Calculation Service.
-Uses upper 27% and lower 27% student quartile groups with rigorous sample validation.
+
+Implements Kelly's 27% Upper/Lower Quartile Rule per Classical Test Theory (CTT).
+
+Key Design Decisions & Notes:
+1. Why Kelly's 27% Rule:
+   - Truman Kelly (1939) mathematically proved that selecting the upper 27% and lower 27%
+     of a normally distributed cohort maximizes statistical discrimination power while minimizing error.
+2. Discrimination Formula:
+   - d = (Upper_Group_Correct - Lower_Group_Correct) / (0.27 * Total_Cohort_N)
+3. Psychometric Interpretation Benchmarks:
+   - d >= 0.40: Excellent item (strongly separates top students from struggling students).
+   - 0.30 <= d < 0.40: Good item (effective assessment differentiator).
+   - 0.20 <= d < 0.30: Marginal item (acceptable, but distractors could be sharpened).
+   - d < 0.20: Poor item (does not effectively distinguish mastery levels).
+   - d < 0.00: Negative discrimination (CRITICAL ALERT: high performers chose distractor, possible ambiguity).
+4. Sample Size Validation:
+   - Strictly enforces minimum N >= 10 candidates before computing d, returning 'insufficient_sample'
+     confidence flag otherwise to prevent misleading small-sample conclusions.
 """
 from typing import List, Dict, Any, Optional
 import math
@@ -17,14 +34,6 @@ def calculate_item_discrimination(
     """
     Calculates the Discrimination Index d for an MCQ item:
     d = (Upper_27%_Correct - Lower_27%_Correct) / (0.27 * N)
-
-    Parameters:
-      - question_id: ID of the question
-      - correct_option: Canonical correct option e.g. "A"
-      - student_submissions_ranking: Ordered list of student attempts with total scores
-      - answers_by_submission: Mapping of submission_id to ALStudentAnswer
-
-    Returns DiscriminationMetric with statistical confidence flags.
     """
     total_submissions = len(student_submissions_ranking)
     

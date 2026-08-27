@@ -1,10 +1,20 @@
 """
 Lumora A/L Assessment Structured Question Generator & Validation Service.
 
-Blueprint-driven AI generation and strict validation for Sri Lankan G.C.E. Advanced Level
-Biology Paper II Part A Structured Questions (1 to 5 questions, each 40.0 raw points / 100 scaled marks).
-Enforces 3-layer context separation (Assessment, Blueprint, Content Scope), strict placeholder
-detection, real biological model answers, and itemized marking criteria matching node points.
+Handles blueprint-driven AI generation and strict schema validation for Sri Lankan G.C.E. Advanced Level
+Biology Paper II Part A (Structured Questions).
+
+Key Design Decisions & Notes:
+1. Authentic A/L Paper II-A Structure:
+   - Typically 4 structured questions per paper.
+   - Each full question carries 40 raw marks (scaled to 100% composite with Paper II-B).
+2. Subpart Hierarchy:
+   - Questions branch into subparts: (a), (b), (c) and roman numerals (i), (ii), (iii).
+   - Each subpart defines its own max point cap, dotted-line constraint, expected keywords, and model key.
+3. 3-Layer Prompting Context:
+   - Layer 1 (Assessment Rules): Exam duration, total marks, target cognitive level.
+   - Layer 2 (Blueprint Schema): Format-specific JSON keys (e.g. sequence items, matrix columns).
+   - Layer 3 (Syllabus Scope): Grounded RAG context from verified NIE resource materials.
 """
 
 import json

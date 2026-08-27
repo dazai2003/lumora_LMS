@@ -1637,6 +1637,8 @@ class ApiClient {
     if (params?.unit_id) q.set("unit_id", String(params.unit_id));
     if (params?.exam_id) q.set("exam_id", String(params.exam_id));
     if (params?.student_id) q.set("student_id", String(params.student_id));
+    const token = this.getToken();
+    if (token) q.set("token", token);
     return `${API_BASE}/analytics/courses/${courseId}/export/csv?${q.toString()}`;
   }
 

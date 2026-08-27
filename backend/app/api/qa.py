@@ -1,6 +1,19 @@
 """
-AI Q&A API: Students ask questions, AI answers using course materials (RAG).
-Teachers can view student questions and AI responses.
+Lumora Student Ask AI & Teacher Q&A Moderation API.
+
+Provides grounded RAG question-answering for enrolled students and human-in-the-loop
+moderation workstations for teachers.
+
+Key Design Decisions & Notes:
+1. Grounded RAG Flow:
+   - Verifies active course enrollment before querying.
+   - Retrieves top semantic chunks from lesson materials and NIE resource books.
+   - Formulates answers with explicit citation sources (e.g. 'Unit 2: Cell Biology, Page 14').
+2. Teacher Governance & Moderation:
+   - Every student question and AI response is persisted in `student_questions` and `ai_responses`.
+   - Teachers can inspect questions in their Q&A Moderation console, apply corrections, or answer directly.
+3. Offline / Fallback Handling:
+   - If AI quota or network drops, provides a safe, grounded error explanation rather than crashing.
 """
 import os
 import logging
@@ -13,7 +26,7 @@ from datetime import datetime
 
 from app.database import get_db
 from app.models import (
-    User, UserRole, Course, Enrollment, Material,
+    User, UserRole, Course, Enrollment, Material, Lesson, Unit,
     StudentQuestion, AIResponse, AILog, ProcessingStatus,
     TeacherQuestion, Notification, NotificationType
 )
@@ -34,7 +47,10 @@ def ask_question(
     current_user: User = Depends(require_role(UserRole.STUDENT)),
     db: Session = Depends(get_db),
 ):
-    """Student asks a question about a course. AI answers using course materials."""
+    """
+    Handles student Ask AI inquiry grounded in course learning materials.
+    Returns structured response with citation sources and confidence score.
+    """
     import time
     start_time = time.time()
 
@@ -234,7 +250,7 @@ async def ask_question_stream(
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(_do_vector_search)
-            results = future.result(timeout=1.5)
+            results = future.result(timeout=2.5)
     except Exception as timeout_err:
         logger.warning(f"Vector search timed out or failed: {timeout_err}")
 

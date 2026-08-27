@@ -1,5 +1,20 @@
 """
-JWT Authentication utilities: token creation, password hashing, and user extraction.
+Lumora JWT Authentication & Role-Based Access Control (RBAC) Security Service.
+
+Handles secure password hashing, stateless JWT token generation/validation, and
+FastAPI role-enforcement dependency injection.
+
+Key Design Decisions & Notes:
+1. Security Specifications:
+   - Password hashing: CryptContext using Bcrypt with automatic salt generation.
+   - Token standard: RFC 7519 JSON Web Tokens signed with HMAC-SHA256 (HS256).
+   - Default token validity: 1440 minutes (24 hours) for smooth classroom sessions.
+2. RBAC Dependency Injection:
+   - `get_current_user`: Decodes JWT payload, validates expiration, and fetches user from DB.
+   - `require_role(...)`: Higher-order dependency rejecting unauthorized roles with HTTP 403 Forbidden.
+   - `require_teacher`: Enforces Teacher privilege for course management and SpeedGrader access.
+3. Compatibility Fix:
+   - Patches passlib bcrypt 4.x __about__ version attribute dynamically to avoid deprecation runtime crash.
 """
 from datetime import datetime, timedelta
 from typing import Optional

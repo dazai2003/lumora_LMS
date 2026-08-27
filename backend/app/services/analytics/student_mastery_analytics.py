@@ -1,7 +1,19 @@
 """
-Student Personal Mastery and Revision Guidance Engine.
-Transforms assessment submissions, question taxonomy, material progress, and AI inquiries
-into honest, transparent, evidence-based personal mastery reports.
+Student Personal Mastery & Revision Intelligence Engine.
+
+Computes comprehensive diagnostic dossiers for students by combining assessment performance,
+learning material telemetry, difficulty flags, and AI inquiry history.
+
+Key Design Decisions & Notes:
+1. Multi-Dimensional Unit Mastery Vector:
+   - Evaluates performance across all syllabus units (e.g. Unit 1: Chemistry of Life to Unit 10: Environmental Biology).
+   - Generates a normalized mastery score (0–100%) for radar chart visualization.
+2. Formative Revision Priority Algorithm:
+   - Ranks syllabus units by revision urgency:
+     Priority_Score = (0.70 * Assessment_Error_Rate) + (0.30 * Material_Incompletion_Rate)
+   - Generates actionable, topic-specific revision advice (e.g. 'Review Calvin cycle electron carriers').
+3. Multi-Factor Academic Risk Model:
+   - Classifies student trajectories: High Mastery, Steady Progress, Inconsistent, or At-Risk.
 """
 from typing import List, Dict, Any, Optional
 import statistics

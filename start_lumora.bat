@@ -30,7 +30,7 @@ echo [4/4] Waiting for services to initialize...
 timeout /t 4 >nul
 
 echo.
-echo ========================================================
+echo =============V==I==H==A==N==G==A==========================
 echo  Lumora LMS is ready! Opening http://localhost:3000 ...
 echo ========================================================
 start http://localhost:3000

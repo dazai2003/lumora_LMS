@@ -1,6 +1,19 @@
 """
 MCQ Item Analysis and Psychometric Calculation Engine.
-Calculates difficulty index p, option distribution A-E, distractor efficiency, and cognitive skill aggregates.
+
+Calculates Item Difficulty (p), Distractor Efficiency (A-E), and Cognitive Skill Aggregates.
+
+Key Design Decisions & Notes:
+1. Difficulty Index (p-value):
+   - Formula: p = Correct_Responses / Total_Attempts
+   - p > 0.80: Easy item (foundation recall).
+   - 0.30 <= p <= 0.80: Ideal balanced difficulty zone.
+   - p < 0.30: Hard / Challenging discriminator.
+2. Distractor Efficiency & Non-Functioning Distractors (NFD):
+   - Measures the percentage of students attracted to each incorrect option (A through E).
+   - An option selected by < 5% of candidates is flagged as a Non-Functioning Distractor (NFD).
+3. Cognitive Breakdown:
+   - Groups items by Bloom's taxonomy: Recall (Remember), Conceptual (Understand), Analytical (Apply/Analyze).
 """
 from typing import List, Dict, Any, Optional
 import statistics

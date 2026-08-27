@@ -1,15 +1,19 @@
 """
 Lumora A/L Assessment Essay Question Generator & Validation Service.
 
-Blueprint-driven AI generation and strict validation for Sri Lankan G.C.E. Advanced Level
-Biology Paper II Part B Essay Questions (1 to 5 questions, typically 150 points or custom marks).
-Supports 3 authentic G.C.E. A/L Essay structures:
-  1. Single Complete Question (single_complete)
-  2. Multi-Part Descriptive Subparts (multi_part)
-  3. Short Notes Style (short_notes)
+Handles blueprint-driven AI generation and schema validation for Sri Lankan G.C.E. Advanced Level
+Biology Paper II Part B (Essay Paper).
 
-Enforces syllabus content grounding via RAG, itemized Answer Points with point allocation,
-dedicated Marking Schemes, and optional Examiner Notes.
+Key Design Decisions & Notes:
+1. 3 Authentic A/L Essay Archetypes:
+   - 'single_complete': Monolithic comprehensive essay prompt (typically Q6, 150 marks, ~37-40 marking points).
+   - 'multi_part': Dual-segment essay split into Part (a) & Part (b) (e.g. Q5, Q7, Q8, Q9, 75/75 marks).
+   - 'short_notes': 3-choice or 4-choice short note prompts (e.g. Q10, 50 marks per note).
+2. Criteria Points & Rubric Checklist:
+   - Generates itemized checkmark criteria (8-10 points for standard sections) used by both Gemini
+     pre-marking and human teachers in the SpeedGrader studio.
+3. RAG Grounding:
+   - Prompts are strictly seeded with syllabus excerpts from uploaded NIE Resource Book PDFs to prevent hallucinations.
 """
 
 import json

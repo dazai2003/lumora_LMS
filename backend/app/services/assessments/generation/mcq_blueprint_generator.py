@@ -2,7 +2,7 @@
 Lumora A/L Assessment AI Generation Service.
 
 Handles AI-powered assessment and question generation for Sri Lankan G.C.E. Advanced Level Biology
-using Gemini AI and RAG context from course materials.
+using Gemini AI models and grounded RAG context from uploaded course materials.
 
 Enforces strict JSON schema structures across all 7 MCQ templates, Paper II Structured subparts,
 and Paper II Essay evaluation rubrics. Guarantees 0 duplicates via normalized exact and semantic
@@ -22,7 +22,15 @@ from app.services.ai_generation_core import execute_central_ai_generation, raise
 
 logger = logging.getLogger(__name__)
 
-# Official G.C.E. A/L Biology Question Blueprint Target Weights (7 MCQ Formats)
+# Target weights based on empirical distribution of Sri Lankan G.C.E. A/L Biology past papers.
+# Total allocation adds up to 100% across the 7 recognized A/L assessment formats:
+#  - Generic MCQ (Direct Factual): ~26% (13 questions)
+#  - Multi-Response Grid (Q41-50): ~20% (10 questions)
+#  - 5-Statement Truth Evaluation: ~16% (8 questions)
+#  - Matching Matrix Column:       ~14% (7 questions)
+#  - Combination Table:            ~12% (6 questions)
+#  - Sequential / Diagnostic:      ~8%  (4 questions)
+#  - Incomplete Stem/Calculation:  ~4%  (2 questions)
 AL_CERTIFIED_MCQ_WEIGHTS = {
     "generic_mcq": 26.0,             # Direct Factual Recall / Plain MCQ (26%)
     "multi_response_grid": 20.0,     # 1-to-5 Multi-Response Grid (20%)
@@ -33,6 +41,7 @@ AL_CERTIFIED_MCQ_WEIGHTS = {
     "incomplete_stem": 4.0,          # Incomplete Stem / Calculation (4%)
 }
 
+# Standard A/L difficulty balance: 20% Easy (foundation), 60% Medium (core), 20% Hard (discriminators)
 AL_CERTIFIED_DIFFICULTY = {
     "easy": 20.0,
     "medium": 60.0,
@@ -42,8 +51,18 @@ AL_CERTIFIED_DIFFICULTY = {
 
 def calculate_exact_question_counts(total_count: int, distribution: Dict[str, float]) -> Dict[str, int]:
     """
-    Deterministic integer rounding and remainder allocation for target question counts.
-    Guarantees sum(counts) == total_count EXACTLY.
+    Hamilton's Largest-Remainder Method for question count allocation.
+    
+    Why this is used instead of standard round():
+    Standard rounding of percentages (e.g. 50 * 0.26 = 13.0, 50 * 0.14 = 7.0, but odd counts like 15 or 35)
+    frequently leads to a total sum of 49 or 51 due to rounding drift.
+    
+    Hamilton's algorithm:
+    1. Floor each calculated decimal share to get base integer counts.
+    2. Compute remainder fraction for each category.
+    3. Distribute any deficit (total - allocated) to categories with the largest fractional remainders.
+    
+    Guarantees sum(counts) == total_count EXACTLY with zero missing/extra questions.
     """
     if total_count <= 0 or not distribution:
         return {}
@@ -63,6 +82,7 @@ def calculate_exact_question_counts(total_count: int, distribution: Dict[str, fl
         remainders[fmt] = exact_share - floor_count
         allocated_total += floor_count
 
+    # Distribute remainder points to categories with highest fractional parts
     deficit = total_count - allocated_total
     if deficit > 0:
         sorted_templates = sorted(distribution.keys(), key=lambda k: remainders[k], reverse=True)

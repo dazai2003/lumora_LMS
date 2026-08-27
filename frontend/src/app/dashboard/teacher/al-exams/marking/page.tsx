@@ -1,5 +1,24 @@
 "use client";
 
+/**
+ * Lumora Teacher Marking Studio & SpeedGrader Queue.
+ * 
+ * Central dispatch console where educators review, override, and verify student assessment attempts.
+ * 
+ * Key Design Decisions & Notes:
+ * 1. Pending-First Queue Sorting:
+ *    - Unreviewed submissions (status !== 'teacher_verified') are strictly sorted to the top of the queue.
+ *    - Ensures teachers immediately see pending items before previously certified submissions.
+ * 2. Authentic A/L Grading Scale:
+ *    - Distinction (A): >= 75%
+ *    - Very Good Pass (B): >= 65%
+ *    - Credit Pass (C): >= 55%
+ *    - Ordinary Pass (S): >= 35%
+ *    - Fail (F): < 35%
+ * 3. Filter Matrix:
+ *    - Supports multi-dimensional filtering by Verification Status, Paper Type, Score Range, and Student Name.
+ */
+
 import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import api, { ALStudentSubmission, ALExam } from "@/lib/api";
@@ -188,8 +207,17 @@ export default function TeacherMarkingStudioPage() {
       return true;
     });
 
-    // Sort order
+    // Sort order with UNREVIEWED / PENDING SUBMISSIONS ALWAYS FIRST AT THE TOP
     result.sort((a, b) => {
+      const isPendingA = a.status !== "teacher_verified";
+      const isPendingB = b.status !== "teacher_verified";
+
+      // 1. Pending / Unreviewed submissions always float to the top
+      if (isPendingA !== isPendingB) {
+        return isPendingA ? -1 : 1;
+      }
+
+      // 2. Secondary sorting within each group based on user preference
       if (sortOrder === "newest") {
         const dateA = new Date(a.submitted_at || a.started_at || 0).getTime();
         const dateB = new Date(b.submitted_at || b.started_at || 0).getTime();
