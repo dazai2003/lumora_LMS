@@ -870,27 +870,33 @@ def regenerate_single_structured_candidate(
 
 def create_default_teacher_blueprint(question_count: int = 4) -> List[Dict[str, Any]]:
     """
-    Creates a standard teacher blueprint for 1 to 5 questions where each question has
-    Sections A, B, C rolling up to 40.0 raw points.
+    Creates the official Sri Lankan G.C.E. A/L Paper II Part A teacher blueprint:
+    - Q1: Cellular Core (Units 1 & 2: Biomolecules, Cytology, Respiration, Photosynthesis)
+    - Q2: Diversity & Physiology Core (Units 3, 4, 5: Plant Anatomy, Taxonomy, Tissue Systems)
+    - Q3: Concentrated Animal Physiology (Unit 5: Nervous, Excretory, Endocrine, Reproduction)
+    - Q4: Applied Sciences & Environment (Units 6, 7, 8, 9, 10: Genetics, Recombinant DNA, Ecology, Micro)
+    Each question rolls up to exactly 40.0 raw points across Sections A, B, and C.
     """
     blueprints = []
-    themes = [
-        "Cell Biology, Bioenergetics, and Plant Water Relations",
-        "Human Physiology, Circulatory Systems, and Excretion",
-        "Genetics, Molecular Biology, and Recombinant DNA",
-        "Microbiology, Plant Diversity, and Applied Ecology",
-        "Evolution, Environmental Biology, and Animal Diversity",
+    official_themes = [
+        ("Question 1: Cellular Core (Units 1 & 2)", "Biomolecules, Cytology, Enzymes, Respiration, and Photosynthesis", [1, 2]),
+        ("Question 2: Diversity & Physiology Core (Units 3, 4, 5)", "Taxonomy, Plant Tissues & Transport, and Animal Organ Systems", [3, 4, 5]),
+        ("Question 3: Concentrated Animal Physiology (Unit 5)", "Human Excretion, Endocrine, Nervous Coordination, and Homeostasis", [5]),
+        ("Question 4: Applied Sciences & Environment (Units 6, 7, 8, 9, 10)", "Genetics, Recombinant DNA, Ecology, Microbiology, and Applied Biotechnology", [6, 7, 8, 9, 10]),
+        ("Question 5 (Supplementary): Plant Form & Function (Unit 4)", "Secondary Growth, Plant Movements, and Phloem Translocation", [4]),
     ]
 
     for q_idx in range(question_count):
         q_num = q_idx + 1
-        theme = themes[q_idx % len(themes)]
+        title, theme, unit_scope = official_themes[q_idx % len(official_themes)]
         blueprints.append({
             "question_number": q_num,
+            "title": title,
             "theme": theme,
+            "unit_scope": unit_scope,
             "points": 40.0,
             "difficulty": "medium",
-            "cognitive_level": "understand",
+            "cognitive_level": "understand" if q_num <= 2 else "apply",
             "structured_subparts_json": [
                 {
                     "id": f"q{q_num}_sec_a",
@@ -927,3 +933,4 @@ def create_default_teacher_blueprint(question_count: int = 4) -> List[Dict[str, 
             ]
         })
     return blueprints
+

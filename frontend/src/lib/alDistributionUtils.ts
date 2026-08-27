@@ -38,6 +38,21 @@ export const AL_CERTIFIED_PAPER_1_DISTRIBUTION: QuestionDistribution = {
   incomplete_stem: 4,        // Incomplete Stem / Calculation
 };
 
+/** Official Sri Lankan G.C.E. A/L Biology 10-Unit Mathematical Weight Distribution (%) */
+export const AL_OFFICIAL_10_UNIT_PAPER_1_DISTRIBUTION: Record<number, { name: string; pct: number; rangeSingle: string; rangeMulti: string }> = {
+  1: { name: "Chemical Basis of Life", pct: 5.0, rangeSingle: "Q01 - Q02", rangeMulti: "Q41" },
+  2: { name: "Cellular Basis of Life (Metabolism)", pct: 11.0, rangeSingle: "Q03 - Q07", rangeMulti: "Q41" },
+  3: { name: "Evolution and Diversity of Organisms", pct: 9.0, rangeSingle: "Q08 - Q11", rangeMulti: "Q42" },
+  4: { name: "Plant Form and Function", pct: 13.0, rangeSingle: "Q12 - Q17", rangeMulti: "Q43" },
+  5: { name: "Animal Form and Function (Largest)", pct: 28.0, rangeSingle: "Q18 - Q30", rangeMulti: "Q44 - Q46" },
+  6: { name: "Genetics", pct: 5.0, rangeSingle: "Q31 - Q32", rangeMulti: "Q47" },
+  7: { name: "Molecular Biology & Biotechnology", pct: 5.0, rangeSingle: "Q33 - Q34", rangeMulti: "Q47" },
+  8: { name: "Environmental Biology", pct: 5.0, rangeSingle: "Q35, Q38", rangeMulti: "Q49, Q50" },
+  9: { name: "Microbiology", pct: 7.0, rangeSingle: "Q36, Q37, Q39", rangeMulti: "Q48" },
+  10: { name: "Applied Biology & Human Health", pct: 3.0, rangeSingle: "Q40", rangeMulti: "Q49, Q50" },
+};
+
+
 /** Official A/L Biology Difficulty Distribution (%) */
 export const AL_DEFAULT_DIFFICULTY_DISTRIBUTION: DifficultyDistribution = {
   easy: 15,

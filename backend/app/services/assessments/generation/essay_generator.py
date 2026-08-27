@@ -114,30 +114,40 @@ def resolve_essay_question_domain_scope(
 
     total_units = len(course_units)
 
-    # Canonical A/L Essay Domains:
-    # Essay 1: Plant or Animal Physiology (Units 4 & 5)
+    # Canonical A/L Paper II Part B Essay Domains (Questions 5 to 10):
+    # Q5 & Q6: Cellular, Botanical & Molecular Processes (Units 1, 2, 4, 7)
     if idx == 0:
-        target_units = [u for u in course_units if getattr(u, 'order', 0) in (4, 5)]
-        domain = "Domain 1: Plant and Animal Physiology (Photosynthesis Light/Dark Reactions, Phloem Mass-Flow Translocation, Plant Water Potential and Casparian Strip, Human Cardiac Conduction Cycle, Respiratory Gas Transport, Synaptic Transmission, Endocrine Blood Glucose Regulation)"
-        keywords = ["photosynthesis", "xylem", "phloem", "transpiration", "cardiac", "respiration", "synapse", "hormone", "insulin", "action potential"]
+        target_units = [u for u in course_units if getattr(u, 'order', 0) in (1, 2, 4, 7)]
+        domain = "Domain 1 (Q5): Cellular, Biochemical & Photosynthetic Processes (Photosynthesis Light/Dark Reactions, Chemiosmotic ATP Synthesis, Cellular Respiration Glycolysis/Krebs, Membrane Transport Dynamics, Plant Secondary Growth)"
+        keywords = ["photosynthesis", "chemiosmosis", "glycolysis", "krebs", "respiration", "chloroplast", "mitochondria", "rubisco", "enzyme", "atp synthesis"]
         preferred_structure = "single_complete"
-    # Essay 2: Genetics, Molecular Biology & Cellular Biochemistry (Units 2 & 6)
     elif idx == 1:
-        target_units = [u for u in course_units if getattr(u, 'order', 0) in (2, 6)]
-        domain = "Domain 2: Genetics, Molecular Biology & Cellular Biochemistry (Enzyme Kinetics, Cellular Respiration & ATP Synthesis, DNA Replication, Protein Synthesis Translation, Recombinant DNA & PCR, Chromosomal Aberrations, Mendelian Dihybrid Linkage)"
-        keywords = ["enzyme", "glycolysis", "krebs", "dna replication", "transcription", "translation", "mutation", "pcr", "recombinant dna", "protein"]
+        target_units = [u for u in course_units if getattr(u, 'order', 0) in (4, 7)]
+        domain = "Domain 2 (Q6): Plant Physiology & Molecular Gene Expression (Xylem Water Potential & Casparian Strip, Phloem Mass-Flow Translocation, Eukaryotic Transcription & Translation, Epigenetic Regulation)"
+        keywords = ["xylem", "phloem", "transpiration", "water potential", "transcription", "translation", "dna replication", "gene expression", "cambium"]
         preferred_structure = "multi_part"
-    # Essay 3: Applied Microbiology, Environmental Biology, Biodiversity & Applied Biology (Units 3, 7, 8, 9, 10)
+    # Q7 & Q8: Human Physiology & Applied Homeostatic Systems (Units 5, 10)
     elif idx == 2:
-        target_units = [u for u in course_units if getattr(u, 'order', 0) in (3, 7, 8, 9, 10)]
-        domain = "Domain 3: Applied Microbiology, Ecology, Biodiversity & Applied Biology (Nitrogen and Carbon Biogeochemical Cycles, Ecological Succession, Industrial Fermentation & Biogas, Activated Sludge Waste Treatment, In-situ and Ex-situ Biodiversity Conservation, Plant Tissue Culture)"
-        keywords = ["nitrogen cycle", "succession", "fermentation", "microbiology", "biogas", "tissue culture", "conservation", "biodiversity", "ecosystem"]
-        preferred_structure = "short_notes"
-    # Essay 4: Comprehensive Multi-Topic Triplet Short Notes
+        target_units = [u for u in course_units if getattr(u, 'order', 0) in (5,)]
+        domain = "Domain 3 (Q7): Concentrated Animal Physiology & Coordination (Action Potential Propagation, Synaptic Transmission, Cardiac Conduction Cycle, Sliding Filament Muscle Contraction, Renal Countercurrent Mechanism)"
+        keywords = ["action potential", "synapse", "cardiac cycle", "muscle contraction", "nephron", "countercurrent", "sliding filament", "reflex arc"]
+        preferred_structure = "single_complete"
+    elif idx == 3:
+        target_units = [u for u in course_units if getattr(u, 'order', 0) in (5, 10)]
+        domain = "Domain 4 (Q8): Homeostatic Control & Applied Human Systems (Endocrine Blood Glucose Regulation, Immune Humoral & Cell-Mediated Responses, Human Reproductive Hormonal Cycles, Applied Diagnostics)"
+        keywords = ["insulin", "glucagon", "endocrine", "immunity", "antibody", "t cell", "b cell", "hormone", "reproduction", "menstrual cycle"]
+        preferred_structure = "multi_part"
+    # Q9: Evolution, Ecology & Environmental Dynamics (Units 3, 8)
+    elif idx == 4:
+        target_units = [u for u in course_units if getattr(u, 'order', 0) in (3, 8)]
+        domain = "Domain 5 (Q9): Evolution, Speciation & Global Environmental Systems (Darwin-Wallace Natural Selection, Hardy-Weinberg Population Dynamics, Biogeochemical Cycles, Biome Succession, Anthropogenic Climate Change)"
+        keywords = ["natural selection", "speciation", "hardy weinberg", "evolution", "nitrogen cycle", "carbon cycle", "succession", "greenhouse effect", "biodiversity"]
+        preferred_structure = "multi_part"
+    # Q10: The Short Notes Triplet (Locked to Units 3, 5, 6, 7, 8, 9, 10)
     else:
         target_units = course_units
-        domain = "Domain 4: Multi-Domain Triplet Short Notes (Three distinct topics from three non-overlapping syllabus units)"
-        keywords = ["biomolecule", "photosystem", "hormone", "mutation", "microbiology", "ecology"]
+        domain = "Domain 6 (Q10): The Short Notes Triplet (Three independent, concise 50-mark sub-essays across non-overlapping units: e.g. Polymerase Chain Reaction, In-situ Biodiversity Conservation, Microbial Industrial Fermentation)"
+        keywords = ["pcr", "recombinant dna", "fermentation", "conservation", "biogas", "prions", "stem cells", "mutation", "biodiversity"]
         preferred_structure = "short_notes"
 
     target_ids = [u.id for u in target_units] if target_units else None

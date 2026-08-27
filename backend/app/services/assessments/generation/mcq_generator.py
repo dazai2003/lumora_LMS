@@ -47,6 +47,46 @@ AL_DEFAULT_DIFFICULTY_DISTRIBUTION: Dict[str, float] = {
 }
 
 
+# Official Sri Lankan G.C.E. A/L Biology 10-Unit Mathematical Weight Distribution (%)
+# Total allocation across all 10 syllabus units adds up to 100%
+AL_OFFICIAL_10_UNIT_MCQ_WEIGHTS: Dict[int, float] = {
+    1: 5.0,    # Unit 1: Chemical Basis of Life (Q01-Q02 / Q41) ~5% (2-3 Qs)
+    2: 11.0,   # Unit 2: Cellular Basis of Life / Metabolism (Q03-Q07 / Q41) ~11% (5-6 Qs)
+    3: 9.0,    # Unit 3: Evolution and Diversity (Q08-Q11 / Q42) ~9% (4-5 Qs)
+    4: 13.0,   # Unit 4: Plant Form and Function (Q12-Q17 / Q43) ~13% (6-7 Qs)
+    5: 28.0,   # Unit 5: Animal Form and Function (Q18-Q30 / Q44-Q46) ~28% (13-15 Qs - Largest Core)
+    6: 5.0,    # Unit 6: Genetics (Q31-Q32 / Q47) ~5% (2-3 Qs)
+    7: 5.0,    # Unit 7: Molecular Biology & Biotechnology (Q33-Q34 / Q47) ~5% (2-3 Qs)
+    8: 5.0,    # Unit 8: Environmental Biology (Q35, Q38 / Q49, Q50) ~5% (2-3 Qs)
+    9: 7.0,    # Unit 9: Microbiology (Q36, Q37, Q39 / Q48) ~7% (3-4 Qs)
+    10: 3.0,   # Unit 10: Applied Biology & Human Health (Q40 / Q49, Q50) ~3% (1-2 Qs)
+}
+
+# Standard 50-Question Chronological Slot-to-Unit Blueprint Map
+AL_50_QUESTION_CANONICAL_UNIT_MAP: Dict[int, int] = {
+    # Single-Response Range (Questions 1 to 40)
+    1: 1, 2: 1,                                                 # Unit 1 (Chemical Basis)
+    3: 2, 4: 2, 5: 2, 6: 2, 7: 2,                              # Unit 2 (Cellular Basis / Metabolism)
+    8: 3, 9: 3, 10: 3, 11: 3,                                  # Unit 3 (Evolution & Diversity)
+    12: 4, 13: 4, 14: 4, 15: 4, 16: 4, 17: 4,                  # Unit 4 (Plant Form & Function)
+    18: 5, 19: 5, 20: 5, 21: 5, 22: 5, 23: 5, 24: 5, 25: 5,
+    26: 5, 27: 5, 28: 5, 29: 5, 30: 5,                         # Unit 5 (Animal Physiology - Largest)
+    31: 6, 32: 6,                                              # Unit 6 (Genetics)
+    33: 7, 34: 7,                                              # Unit 7 (Molecular Biology & Biotech)
+    35: 8, 38: 8,                                              # Unit 8 (Environmental Biology)
+    36: 9, 37: 9, 39: 9,                                       # Unit 9 (Microbiology)
+    40: 10,                                                    # Unit 10 (Applied Biology)
+    # Multi-Response Range (Questions 41 to 50 - Chronological Pass 2)
+    41: 2,                                                     # Unit 1/2 Combination
+    42: 3,                                                     # Unit 3 Combination
+    43: 4,                                                     # Unit 4 Combination
+    44: 5, 45: 5, 46: 5,                                       # Unit 5 Combinations
+    47: 7,                                                     # Unit 6/7 Combination
+    48: 9,                                                     # Unit 9 Combination
+    49: 8, 50: 10,                                             # Unit 8/10 Combinations
+}
+
+
 def calculate_exact_question_counts(total_count: int, distribution: Optional[Dict[str, float]] = None) -> Dict[str, int]:
     """
     Deterministic largest-remainder (Hamilton method) integer allocation.
@@ -91,15 +131,36 @@ def plan_mcq_paper_slots(
     Generates a deterministic slot-by-slot internal Generation Plan.
     Enforces:
     1. Exact target counts per question type.
-    2. Syllabus progression (chronologically across Units 1-10).
-    3. Sri Lankan A/L 5-Phase Difficulty progression curve.
-    4. Max consecutive identical question types <= 2 throughout the paper.
-    5. Diverse cognitive taxonomy without hard-locking final 10 questions to one format.
+    2. National Curriculum 10-Unit Mathematical Weight Distribution.
+    3. Chronological double-pass syllabus progression across Units 1-10.
+    4. Sri Lankan A/L 5-Phase Difficulty progression curve.
+    5. Max consecutive identical question types <= 2 throughout the paper.
     """
     target_count = min(max(1, target_count), 100)
     type_counts = calculate_exact_question_counts(target_count, subtype_distribution or AL_CERTIFIED_MCQ_WEIGHTS)
 
-    units_pool = selected_unit_numbers if selected_unit_numbers and len(selected_unit_numbers) > 0 else list(range(1, 11))
+    # Unit allocation planning
+    is_full_syllabus = (not selected_unit_numbers) or (set(selected_unit_numbers) == set(range(1, 11)))
+    
+    if is_full_syllabus and target_count == 50:
+        # Exact 50-item canonical blueprint mapping
+        slot_unit_assignments = [AL_50_QUESTION_CANONICAL_UNIT_MAP.get(i + 1, 1) for i in range(50)]
+    elif is_full_syllabus:
+        # Scale 10 units with Hamilton largest-remainder allocation
+        unit_counts = calculate_exact_question_counts(target_count, {str(u): w for u, w in AL_OFFICIAL_10_UNIT_MCQ_WEIGHTS.items()})
+        slot_unit_assignments = []
+        for u_str, count in sorted(unit_counts.items(), key=lambda x: int(x[0])):
+            slot_unit_assignments.extend([int(u_str)] * count)
+        while len(slot_unit_assignments) < target_count:
+            slot_unit_assignments.append(5)  # Default to Unit 5 (Largest core)
+        slot_unit_assignments = slot_unit_assignments[:target_count]
+    else:
+        # User selected a specific subset of units
+        units_pool = selected_unit_numbers if selected_unit_numbers else list(range(1, 11))
+        slot_unit_assignments = []
+        for idx in range(target_count):
+            unit_idx = int((idx / float(target_count)) * len(units_pool))
+            slot_unit_assignments.append(units_pool[min(unit_idx, len(units_pool) - 1)])
 
     planned_slots: List[Dict[str, Any]] = []
 
@@ -111,8 +172,7 @@ def plan_mcq_paper_slots(
 
     for idx in range(target_count):
         q_num = idx + 1
-        unit_idx = int((idx / float(target_count)) * len(units_pool))
-        unit_num = units_pool[min(unit_idx, len(units_pool) - 1)]
+        unit_num = slot_unit_assignments[idx]
 
         ratio = (idx + 1) / float(target_count)
         if ratio <= 0.15:
@@ -143,6 +203,7 @@ def plan_mcq_paper_slots(
         })
 
     return planned_slots
+
 
 
 def _interleave_types(types: List[str], target_len: int) -> List[str]:
