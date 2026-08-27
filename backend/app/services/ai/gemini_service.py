@@ -207,14 +207,24 @@ class GeminiService:
         model_tier: str = "flash",
         temperature: float = 0.2,
         max_tokens: int = 8192,
+        max_fallback_models: int = 5,
     ) -> dict:
         """
         Generate a structured JSON response from Gemini with automatic multi-model failover.
+
+        Resilience features:
+        - Per-model timeout of 25 seconds to prevent a single stuck model from blocking the chain.
+        - 503-aware shortcut: if a Flash model returns 503 ("high demand"), skip sibling Flash
+          variants (they share the same serving infrastructure) and jump directly to Pro.
+        - Configurable max_fallback_models to limit cascade depth for batch callers.
         """
+        import concurrent.futures
+
         client = self._get_client()
-        candidate_models = self._get_candidate_models(model_tier)
+        candidate_models = self._get_candidate_models(model_tier)[:max_fallback_models]
         start_time = time.time()
         last_error = None
+        saw_503 = False
 
         from google.genai import types
 
@@ -230,13 +240,25 @@ class GeminiService:
         if response_schema is not None:
             config.response_schema = response_schema
 
+        PER_MODEL_TIMEOUT_SEC = 30
+
         for model_name in candidate_models:
+            # 503-aware shortcut: if we already saw a 503 from a Flash model,
+            # skip other Flash variants (same infra) and jump to Pro
+            if saw_503 and "flash" in model_name.lower() and "pro" not in model_name.lower():
+                logger.info(f"Skipping {model_name} (503 shortcut: Flash infra is overloaded)")
+                continue
+
             try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                    config=config,
-                )
+                # Use a thread with timeout to prevent a single model from blocking indefinitely
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as single_exec:
+                    future = single_exec.submit(
+                        client.models.generate_content,
+                        model=model_name,
+                        contents=prompt,
+                        config=config,
+                    )
+                    response = future.result(timeout=PER_MODEL_TIMEOUT_SEC)
 
                 raw_text = response.text or "{}"
 
@@ -289,9 +311,20 @@ class GeminiService:
                 logger.info(f"Gemini JSON generation succeeded ({model_name}): {elapsed_ms}ms, {tokens or '?'} tokens")
                 return result
 
+            except concurrent.futures.TimeoutError:
+                last_error = TimeoutError(f"Model {model_name} exceeded {PER_MODEL_TIMEOUT_SEC}s per-model timeout")
+                logger.warning(f"Gemini JSON model {model_name} timed out after {PER_MODEL_TIMEOUT_SEC}s. Trying next candidate model...")
+                continue
+
             except Exception as e:
                 last_error = e
-                logger.warning(f"Gemini JSON model {model_name} failed: {e}. Trying next candidate model...")
+                error_str = str(e).lower()
+                # Detect 503 / UNAVAILABLE to activate Flash-skip shortcut
+                if any(kw in error_str for kw in ["503", "unavailable", "high demand", "overloaded"]):
+                    saw_503 = True
+                    logger.warning(f"Gemini JSON model {model_name} returned 503 UNAVAILABLE: {e}. Activating Flash-skip shortcut...")
+                else:
+                    logger.warning(f"Gemini JSON model {model_name} failed: {e}. Trying next candidate model...")
                 continue
 
         # If all candidates failed

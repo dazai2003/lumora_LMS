@@ -158,6 +158,7 @@ def execute_central_ai_generation(
     max_tokens: int = 8192,
     validator_fn: Optional[Callable[[Dict[str, Any]], Tuple[List[Any], List[Any]]]] = None,
     generation_id: Optional[str] = None,
+    max_fallback_models: int = 5,
 ) -> AIGenerationResult:
     """
     Executes a structured AI generation request through the centralized Gemini infrastructure.
@@ -185,6 +186,7 @@ def execute_central_ai_generation(
                 model_tier=model_tier,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                max_fallback_models=max_fallback_models,
             )
             break
         except Exception as e:

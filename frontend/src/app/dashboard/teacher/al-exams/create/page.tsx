@@ -1142,13 +1142,16 @@ function TeacherExamCreateContent() {
 
     setGeneratingAI(true);
     setAiClassifiedError(null);
-    setAiLoadingStage("Analyzing selected lesson materials...");
-
-    const stageTimer1 = setTimeout(() => setAiLoadingStage("Building question distribution & remainder allocation..."), 1200);
-    const stageTimer2 = setTimeout(() => setAiLoadingStage("Generating structured A/L questions via Gemini AI..."), 2500);
-    const stageTimer3 = setTimeout(() => setAiLoadingStage("Validating question schemas & 1-to-5 combination keys..."), 4000);
+    setAiLoadingStage("Analyzing selected lesson materials & retrieving RAG context...");
 
     const targetReqCount = safeParseInt(aiQuestionCount, 50);
+    const totalBatches = Math.ceil(targetReqCount / 10);
+    const stageTimer1 = setTimeout(() => setAiLoadingStage("Building question distribution & slot allocation plan..."), 1500);
+    const stageTimer2 = setTimeout(() => setAiLoadingStage(`Probing AI service health (batch 1 of ${totalBatches})...`), 3000);
+    const stageTimer3 = setTimeout(() => setAiLoadingStage(`Generating A/L questions via Gemini AI (batches 2-${totalBatches})...`), 8000);
+    const stageTimer4 = setTimeout(() => setAiLoadingStage("Validating question schemas & deduplicating candidates..."), 15000);
+    const stageTimer5 = setTimeout(() => setAiLoadingStage("AI service may be busy — applying fallback strategy with backoff retries..."), 30000);
+    const stageTimer6 = setTimeout(() => setAiLoadingStage("Still working — circuit breaker active, assembling partial results..."), 60000);
 
     try {
       const targetType = bankTargetSection === "paper_1"
@@ -1174,6 +1177,9 @@ function TeacherExamCreateContent() {
       clearTimeout(stageTimer1);
       clearTimeout(stageTimer2);
       clearTimeout(stageTimer3);
+      clearTimeout(stageTimer4);
+      clearTimeout(stageTimer5);
+      clearTimeout(stageTimer6);
 
       if (!candidates || candidates.length === 0) {
         throw new Error("The AI generator returned zero questions. Your configuration has been preserved, so you can safely retry.");
@@ -1214,8 +1220,18 @@ function TeacherExamCreateContent() {
       setAiModalOpen(false);
       setCandidateReviewModalOpen(true);
 
+      // Count AI-generated vs template fallback candidates
+      const aiGeneratedCount = processedCandidates.filter(c => c.creation_method === "AI_GENERATED" && c.source_type === "AI").length;
+      const templateCount = processedCandidates.length - aiGeneratedCount;
+
       if (candidates.length < targetReqCount) {
-        addToast(`Generated ${candidates.length} of ${targetReqCount} candidate questions for draft review! Valid candidates preserved.`, "info");
+        addToast(`Generated ${candidates.length} of ${targetReqCount} candidate questions. Valid candidates preserved for review.`, "info");
+      } else if (templateCount > 0 && templateCount < processedCandidates.length) {
+        addToast(
+          `Generated ${processedCandidates.length} questions (${aiGeneratedCount} AI-generated, ${templateCount} curriculum templates). ` +
+          `You can regenerate individual template questions using the "Regenerate" button.`,
+          "info"
+        );
       } else {
         addToast(`Successfully generated ${candidates.length} MCQs for candidate review!`, "success");
       }
@@ -1223,6 +1239,9 @@ function TeacherExamCreateContent() {
       clearTimeout(stageTimer1);
       clearTimeout(stageTimer2);
       clearTimeout(stageTimer3);
+      clearTimeout(stageTimer4);
+      clearTimeout(stageTimer5);
+      clearTimeout(stageTimer6);
       console.error("MCQ generation failed:", err);
       const classified = classifyAIError(err);
       setAiClassifiedError(classified);

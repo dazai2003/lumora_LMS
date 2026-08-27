@@ -1126,32 +1126,120 @@ def generate_mcq_paper_with_plan(
 
     api_attempts = total_batches
 
-    # 3. Concurrent Parallel Batch Execution (5x speedup, ~8s total for 50 questions)
+    # 3. Probe-First Strategy with Circuit Breaker
+    # Send Batch 1 as a "probe" to check if Gemini is healthy before launching parallel batches.
+    # If the probe fails with a 503/UNAVAILABLE, switch to sequential mode with backoff
+    # and abort after 2 consecutive failures to return partial results instead of timing out.
     batch_results_list: List[Optional[List[Dict[str, Any]]]] = [None] * len(batches_slots)
+    gemini_healthy = True
+    consecutive_failures = 0
+    MAX_CONSECUTIVE_FAILURES = 2
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(5, len(batches_slots))) as executor:
-        future_map = {
-            executor.submit(
-                generate_mcq_batch,
+    def _generate_batch_with_fallback(b_idx: int, b_slots: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Generate a batch, falling back to template questions on failure."""
+        try:
+            return generate_mcq_batch(
                 slots_batch=b_slots,
                 rag_context=batch_rag_contexts[b_idx],
                 custom_instruction=custom_instruction,
-            ): b_idx
-            for b_idx, b_slots in enumerate(batches_slots)
-        }
-        for future in concurrent.futures.as_completed(future_map):
-            b_idx = future_map[future]
-            try:
-                batch_res = future.result()
-                batch_results_list[b_idx] = batch_res
-            except Exception as e:
-                logger.error(f"Error in parallel MCQ batch {b_idx + 1}: {e}")
-                fallback_b = []
-                for slot in batches_slots[b_idx]:
-                    raw_cand = _get_authentic_slot_fallback(slot)
-                    is_valid, errors, val_obj = validate_mcq_candidate(raw_cand, slot)
-                    fallback_b.append(val_obj)
-                batch_results_list[b_idx] = fallback_b
+            )
+        except Exception as e:
+            logger.error(f"Error in MCQ batch {b_idx + 1}: {e}")
+            fallback_b = []
+            for slot in b_slots:
+                raw_cand = _get_authentic_slot_fallback(slot)
+                is_valid, errors, val_obj = validate_mcq_candidate(raw_cand, slot)
+                fallback_b.append(val_obj)
+            return fallback_b
+
+    def _is_503_failure(b_slots: List[Dict[str, Any]], b_idx: int) -> bool:
+        """Try to generate a batch and detect if it fails due to 503/UNAVAILABLE."""
+        try:
+            result = generate_mcq_batch(
+                slots_batch=b_slots,
+                rag_context=batch_rag_contexts[b_idx],
+                custom_instruction=custom_instruction,
+            )
+            batch_results_list[b_idx] = result
+            return False  # Success, no 503
+        except Exception as e:
+            error_str = str(e).lower()
+            is_503 = any(kw in error_str for kw in ["503", "unavailable", "high demand", "overloaded"])
+            # Use fallback templates for this batch
+            fallback_b = []
+            for slot in b_slots:
+                raw_cand = _get_authentic_slot_fallback(slot)
+                is_valid, errors, val_obj = validate_mcq_candidate(raw_cand, slot)
+                fallback_b.append(val_obj)
+            batch_results_list[b_idx] = fallback_b
+            if is_503:
+                logger.warning(f"[Circuit Breaker] Batch {b_idx + 1} hit 503 UNAVAILABLE. Switching to sequential mode.")
+                return True
+            logger.error(f"[Circuit Breaker] Batch {b_idx + 1} failed (non-503): {e}")
+            return False
+
+    if len(batches_slots) > 0:
+        # Phase 1: Probe Batch (sequential, test Gemini health)
+        logger.info(f"[Probe] Testing Gemini health with batch 1 of {len(batches_slots)}...")
+        probe_failed_503 = _is_503_failure(batches_slots[0], 0)
+
+        if probe_failed_503:
+            # Circuit Breaker: Sequential mode with exponential backoff
+            gemini_healthy = False
+            consecutive_failures = 1
+            logger.warning(f"[Circuit Breaker] Gemini probe failed with 503. Switching to sequential mode with backoff.")
+
+            for b_idx in range(1, len(batches_slots)):
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    logger.warning(
+                        f"[Circuit Breaker] {consecutive_failures} consecutive 503 failures. "
+                        f"Stopping API calls and using template fallbacks for remaining {len(batches_slots) - b_idx} batches."
+                    )
+                    # Fill remaining batches with template fallbacks
+                    for remaining_idx in range(b_idx, len(batches_slots)):
+                        fallback_b = []
+                        for slot in batches_slots[remaining_idx]:
+                            raw_cand = _get_authentic_slot_fallback(slot)
+                            is_valid, errors, val_obj = validate_mcq_candidate(raw_cand, slot)
+                            fallback_b.append(val_obj)
+                        batch_results_list[remaining_idx] = fallback_b
+                    break
+
+                # Exponential backoff: 2s, 4s, 8s
+                backoff_sec = min(2 ** consecutive_failures, 8)
+                logger.info(f"[Circuit Breaker] Waiting {backoff_sec}s before batch {b_idx + 1}...")
+                time.sleep(backoff_sec)
+
+                failed_503 = _is_503_failure(batches_slots[b_idx], b_idx)
+                if failed_503:
+                    consecutive_failures += 1
+                else:
+                    consecutive_failures = 0  # Reset on success
+        else:
+            # Phase 2: Gemini is healthy -- run remaining batches in parallel
+            if len(batches_slots) > 1:
+                logger.info(f"[Probe] Gemini is healthy. Launching batches 2-{len(batches_slots)} in parallel.")
+                with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(batches_slots) - 1)) as executor:
+                    future_map = {
+                        executor.submit(
+                            _generate_batch_with_fallback,
+                            b_idx=b_idx,
+                            b_slots=b_slots,
+                        ): b_idx
+                        for b_idx, b_slots in enumerate(batches_slots) if b_idx > 0
+                    }
+                    for future in concurrent.futures.as_completed(future_map):
+                        b_idx = future_map[future]
+                        try:
+                            batch_results_list[b_idx] = future.result()
+                        except Exception as e:
+                            logger.error(f"Error in parallel MCQ batch {b_idx + 1}: {e}")
+                            fallback_b = []
+                            for slot in batches_slots[b_idx]:
+                                raw_cand = _get_authentic_slot_fallback(slot)
+                                is_valid, errors, val_obj = validate_mcq_candidate(raw_cand, slot)
+                                fallback_b.append(val_obj)
+                            batch_results_list[b_idx] = fallback_b
 
     all_generated: List[Dict[str, Any]] = []
     for b_res in batch_results_list:

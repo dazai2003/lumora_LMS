@@ -80,9 +80,9 @@ class ApiClient {
     const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
     const url = `${cleanBase}${cleanEndpoint}`;
 
-    // Configure resilient timeout (180s for AI generation, 35s for standard endpoints)
+    // Configure resilient timeout (300s for AI generation to accommodate probe-first backoff strategy, 35s for standard endpoints)
     const isAiEndpoint = endpoint.includes("/generate-") || endpoint.includes("/ai-") || endpoint.includes("/evaluate") || endpoint.includes("/regenerate") || endpoint.includes("/qa/") || endpoint.includes("/ask");
-    const effectiveTimeout = timeoutMs || (isAiEndpoint ? 180000 : 35000);
+    const effectiveTimeout = timeoutMs || (isAiEndpoint ? 300000 : 35000);
 
 
     const controller = new AbortController();
