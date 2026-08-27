@@ -818,14 +818,24 @@ export default function QuestionBankPage() {
                   <div style={{ flex: 1 }}>
                     {/* Collapsed Card Preview Header */}
                     {!isExpanded ? (
-                      <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                        <div style={{ fontWeight: 700, fontSize: "1.02rem", color: "var(--text-primary)", lineHeight: 1.4 }}>
-                          {q.question_text.length > 150 ? `${q.question_text.slice(0, 150)}...` : q.question_text}
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                        <div style={{ fontWeight: 700, fontSize: "1.02rem", color: "var(--text-primary)", lineHeight: 1.45, whiteSpace: "pre-line" }}>
+                          {q.question_text}
                         </div>
                         <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-                          <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                            ▼ Click to view full stem, answer keys &amp; psychometrics
+                          <span style={{ fontSize: "0.75rem", color: "var(--accent-primary)", fontWeight: 600 }}>
+                            ▼ Click to expand full question tree, marking keys &amp; psychometrics
                           </span>
+                          {q.question_type === "structured" && (
+                            <span className="badge badge-primary" style={{ fontSize: "0.7rem", padding: "0.1rem 0.4rem" }}>
+                              40 pts · Structured Subparts Tree
+                            </span>
+                          )}
+                          {q.question_type === "essay" && (
+                            <span className="badge badge-info" style={{ fontSize: "0.7rem", padding: "0.1rem 0.4rem" }}>
+                              40 pts · Rubric-based Essay
+                            </span>
+                          )}
                         </div>
                       </div>
                     ) : (
@@ -912,13 +922,13 @@ export default function QuestionBankPage() {
                     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem", width: "100%" }}>
                       
                       {/* Options (Choices 1 to 5) for MCQs */}
-                      {q.options && q.options.length > 0 && (
+                      {q.question_type === "mcq" && q.options && Array.isArray(q.options) && q.options.length > 0 && typeof q.options[0] === "string" && (
                         <div>
                           <div style={{ fontWeight: 700, fontSize: "0.82rem", color: "var(--text-muted)", marginBottom: "0.5rem", textTransform: "uppercase", letterSpacing: "0.5px", display: "flex", alignItems: "center", gap: "0.4rem" }}>
                             <SvgIcon name="layers" size={14} /> Options &amp; Answer Keys (Choices 1 to 5)
                           </div>
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "0.5rem" }}>
-                            {q.options.map((opt, i) => {
+                            {q.options.map((opt: string, i: number) => {
                               const isCorrect = String(q.correct_answer).trim().toLowerCase() === String(opt).trim().toLowerCase() 
                                 || String(q.correct_answer).trim() === (i + 1).toString()
                                 || String(q.correct_answer).trim().toUpperCase() === String.fromCharCode(65 + i);
@@ -950,6 +960,124 @@ export default function QuestionBankPage() {
                         </div>
                       )}
 
+                      {/* Structured Question Subparts Tree View */}
+                      {q.question_type === "structured" && (
+                        <div style={{ padding: "1.1rem", background: "var(--bg-primary)", borderRadius: "var(--radius-md)", border: "1.5px solid rgba(99, 102, 241, 0.25)" }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem", paddingBottom: "0.6rem", borderBottom: "1px solid var(--border)" }}>
+                            <div style={{ fontWeight: 800, fontSize: "0.92rem", color: "var(--accent-primary)", display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                              <SvgIcon name="layers" size={17} />
+                              Authentic G.C.E. A/L Structured Question Sheet &amp; Subparts
+                            </div>
+                            <span className="badge badge-info" style={{ fontWeight: 700 }}>40 Marks (Paper II Part A)</span>
+                          </div>
+
+                          {Array.isArray(q.options) && q.options.length > 0 ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+                              {q.options.map((secNode: any, sIdx: number) => {
+                                const secLabel = secNode.label || String.fromCharCode(65 + sIdx);
+                                const children = secNode.children || [];
+                                return (
+                                  <div key={secNode.id || sIdx} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.45rem 0.75rem", background: "var(--bg-card)", borderRadius: "var(--radius-sm)", borderLeft: "4px solid var(--accent-primary)" }}>
+                                      <span style={{ fontWeight: 800, fontSize: "0.95rem", color: "var(--text-primary)" }}>
+                                        Part {secLabel} {secNode.prompt ? `— ${secNode.prompt}` : ""}
+                                      </span>
+                                      {secNode.points && (
+                                        <span className="badge badge-secondary" style={{ fontWeight: 700 }}>
+                                          [{secNode.points} pts]
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem", paddingLeft: "0.75rem" }}>
+                                      {children.map((child: any, cIdx: number) => (
+                                        <div key={child.id || cIdx} style={{ paddingLeft: "1rem", display: "flex", flexDirection: "column", gap: "0.4rem", borderLeft: "2px solid rgba(99, 102, 241, 0.3)" }}>
+                                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.75rem" }}>
+                                            <div style={{ fontSize: "0.9rem", color: "var(--text-primary)", lineHeight: 1.5 }}>
+                                              <strong style={{ color: "var(--accent-primary)", marginRight: "0.45rem", fontWeight: 800 }}>
+                                                ({cIdx + 1})
+                                              </strong>
+                                              <span>{child.prompt}</span>
+                                            </div>
+                                            {child.points && (
+                                              <span className="badge badge-secondary" style={{ fontSize: "0.75rem", padding: "0.15rem 0.45rem", flexShrink: 0, fontWeight: 700 }}>
+                                                {child.points} {child.points === 1 ? "pt" : "pts"}
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          {child.model_answer && (
+                                            <div style={{ marginTop: "0.25rem", padding: "0.45rem 0.75rem", background: "rgba(16, 185, 129, 0.08)", borderRadius: "var(--radius-sm)", border: "1px solid rgba(16, 185, 129, 0.3)", fontSize: "0.82rem", color: "var(--text-primary)" }}>
+                                              <strong style={{ color: "var(--success)", marginRight: "0.35rem" }}>Expected Marking Key:</strong>
+                                              <span>{child.model_answer}</span>
+                                            </div>
+                                          )}
+
+                                          {/* Dotted lines for student answer */}
+                                          <div style={{ display: "flex", flexDirection: "column", gap: "4px", marginTop: "0.2rem" }}>
+                                            {Array.from({ length: Math.min(3, Math.max(1, child.lines || child.points || 2)) }).map((_, lIdx) => (
+                                              <div key={lIdx} style={{ borderBottom: "1px dotted var(--border)", height: "14px" }} />
+                                            ))}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: "0.88rem", color: "var(--text-secondary)", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
+                              {q.question_text}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Essay Question Rubric & Criteria View */}
+                      {q.question_type === "essay" && (
+                        <div style={{ padding: "1.1rem", background: "var(--bg-primary)", borderRadius: "var(--radius-md)", border: "1.5px solid rgba(99, 102, 241, 0.25)" }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem", paddingBottom: "0.6rem", borderBottom: "1px solid var(--border)" }}>
+                            <div style={{ fontWeight: 800, fontSize: "0.92rem", color: "var(--accent-primary)", display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                              <SvgIcon name="file-text" size={17} />
+                              G.C.E. A/L Essay Paper II Part B Marking Rubric &amp; Checklist
+                            </div>
+                            <span className="badge badge-info" style={{ fontWeight: 700 }}>40 Marks (Paper II Part B)</span>
+                          </div>
+
+                          {/* Render Checklist Criteria */}
+                          {q.options && (typeof q.options === "object" || Array.isArray(q.options)) ? (() => {
+                            const essayOpt = q.options as any;
+                            const checklistItems = essayOpt?.checklist || (Array.isArray(essayOpt) ? essayOpt : []);
+                            if (!checklistItems || checklistItems.length === 0) return null;
+                            return (
+                              <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+                                <div style={{ fontWeight: 700, fontSize: "0.8rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.5px", display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                                  <SvgIcon name="check-circle" size={14} style={{ color: "var(--success)" }} />
+                                  Itemized Rubric Checklist (Award 4.0 Points per fully satisfied criterion):
+                                </div>
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "0.6rem" }}>
+                                  {checklistItems.map((item: any, idx: number) => (
+                                    <div key={item.item_number || idx} style={{ padding: "0.65rem 0.85rem", background: "var(--bg-card)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", display: "flex", alignItems: "flex-start", gap: "0.55rem" }}>
+                                      <span className="badge badge-primary" style={{ fontSize: "0.72rem", padding: "0.15rem 0.45rem", flexShrink: 0, fontWeight: 700 }}>
+                                        #{item.item_number || idx + 1}
+                                      </span>
+                                      <div style={{ flex: 1, fontSize: "0.84rem", color: "var(--text-primary)", lineHeight: 1.45 }}>
+                                        {item.criterion || (typeof item === "string" ? item : JSON.stringify(item))}
+                                      </div>
+                                      <span style={{ fontSize: "0.78rem", fontWeight: 800, color: "var(--accent-primary)", flexShrink: 0 }}>
+                                        {item.points || 4.0} pts
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })() : null}
+
+                        </div>
+                      )}
+
                       {/* Explanation / Solution */}
                       {q.explanation && (
                         <div style={{ padding: "0.85rem 1rem", background: "var(--bg-primary)", borderRadius: "var(--radius-md)", border: "1px solid var(--border)" }}>
@@ -960,6 +1088,7 @@ export default function QuestionBankPage() {
                           <div style={{ fontSize: "0.88rem", color: "var(--text-secondary)", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{q.explanation}</div>
                         </div>
                       )}
+
 
                       {/* Item Psychometrics & Student Performance Panel (Clean Card Styling) */}
                       <div style={{ padding: "1rem", background: "var(--bg-primary)", borderRadius: "var(--radius-md)", border: "1px solid var(--border)" }}>

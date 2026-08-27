@@ -26,20 +26,13 @@ from app.models import (
 def _purge_test_specific_artifacts():
     """
     Surgically purges ONLY test-generated mock records created by pytest test suites.
-    Real courses, exams, and users you create in the future are 100% safe and preserved.
+    Course #36 (Advanced Level Biology) and official exams (#210, #212, #213, #1025, #1322)
+    and authentic Question Bank items are 100% safe and preserved.
     """
     db = SessionLocal()
     try:
-        # 1. Identify ONLY mock test courses (created with test naming conventions)
-        test_courses = db.query(Course).filter(
-            (Course.id != 36) & (
-                (Course.title.ilike("Test %")) |
-                (Course.title.ilike("%Test Course%")) |
-                (Course.title.ilike("Mock %")) |
-                (Course.title.ilike("Dummy %")) |
-                (Course.title.ilike("Temp %"))
-            )
-        ).all()
+        # 1. Identify ONLY mock test courses (anything other than master Course #36)
+        test_courses = db.query(Course).filter(Course.id != 36).all()
         test_course_ids = [c.id for c in test_courses]
 
         # 2. Identify ONLY mock test users (created with test email prefixes)
@@ -56,99 +49,99 @@ def _purge_test_specific_artifacts():
 
         # 3. Identify ONLY mock test exams
         test_exams = db.query(ALExam).filter(
-            (~ALExam.id.in_([210, 212, 213, 1025])) & (
-                (ALExam.course_id.in_(test_course_ids)) |
+            (~ALExam.id.in_([210, 212, 213, 1025, 1322])) & (
+                (ALExam.course_id != 36) |
                 (ALExam.title.ilike("Test %")) |
                 (ALExam.title.ilike("Mock %")) |
-                (ALExam.title.ilike("Dummy %"))
+                (ALExam.title.ilike("Dummy %")) |
+                (ALExam.title.ilike("Copy of %"))
             )
         ).all()
         test_exam_ids = [e.id for e in test_exams]
 
-        # 4. Identify ONLY mock test materials
-        test_materials = db.query(Material).filter(
-            (Material.course_id.in_(test_course_ids)) |
-            (Material.title.ilike("Test %")) |
-            (Material.title.ilike("Mock %"))
-        ).all()
-        test_mat_ids = [m.id for m in test_materials]
+        # 4. Clean Student Submissions and Answers on Test Exams
+        if test_exam_ids or test_user_ids:
+            test_subs = db.query(ALStudentSubmission).filter(
+                (ALStudentSubmission.exam_id.in_(test_exam_ids)) |
+                (ALStudentSubmission.student_id.in_(test_user_ids))
+            ).all()
+            test_sub_ids = [s.id for s in test_subs]
+            if test_sub_ids:
+                db.query(ALStudentAnswer).filter(ALStudentAnswer.submission_id.in_(test_sub_ids)).delete(synchronize_session=False)
+                db.query(ALStudentSubmission).filter(ALStudentSubmission.id.in_(test_sub_ids)).delete(synchronize_session=False)
+            if test_exam_ids:
+                db.query(ALQuestion).filter(ALQuestion.exam_id.in_(test_exam_ids)).delete(synchronize_session=False)
+                db.query(ALExam).filter(ALExam.id.in_(test_exam_ids)).delete(synchronize_session=False)
 
-        # 5. Delete synthetic Question Bank test mock items (e.g. '[Test Question Bank Error Fixes]')
+        # 5. Clean Test Units & Lessons
+        test_units = db.query(Unit).filter((Unit.course_id != 36) | (Unit.title.ilike("Test %"))).all()
+        test_unit_ids = [u.id for u in test_units]
+
+        test_lessons = db.query(Lesson).filter(
+            (Lesson.unit_id.in_(test_unit_ids)) | 
+            (Lesson.course_id != 36) | 
+            (Lesson.title.ilike("%Test%")) | 
+            (Lesson.title.ilike("Non-Duplicated%"))
+        ).all()
+        test_lesson_ids = [l.id for l in test_lessons]
+
+        test_mats = db.query(Material).filter(
+            (Material.lesson_id.in_(test_lesson_ids)) | 
+            (Material.course_id.in_(test_course_ids))
+        ).all()
+        test_mat_ids = [m.id for m in test_mats]
+
+        # Delete AI Responses and Student Questions on test materials/courses/lessons
+        sqs = db.query(StudentQuestion).filter(
+            (StudentQuestion.course_material_id.in_(test_mat_ids)) |
+            (StudentQuestion.course_id.in_(test_course_ids)) |
+            (StudentQuestion.student_id.in_(test_user_ids))
+        ).all()
+        sq_ids = [sq.id for sq in sqs]
+        if sq_ids:
+            db.query(AIResponse).filter(AIResponse.student_question_id.in_(sq_ids)).delete(synchronize_session=False)
+            db.query(StudentQuestion).filter(StudentQuestion.id.in_(sq_ids)).delete(synchronize_session=False)
+
+        db.query(AITutorSession).filter(
+            (AITutorSession.course_id.in_(test_course_ids)) |
+            (AITutorSession.student_id.in_(test_user_ids))
+        ).delete(synchronize_session=False)
+
+        # Delete Material progress, flags, notes, and materials
+        if test_mat_ids:
+            db.query(StudentMaterialProgress).filter(
+                (StudentMaterialProgress.material_id.in_(test_mat_ids)) |
+                (StudentMaterialProgress.student_id.in_(test_user_ids))
+            ).delete(synchronize_session=False)
+            db.query(MaterialFlag).filter(
+                (MaterialFlag.material_id.in_(test_mat_ids)) |
+                (MaterialFlag.student_id.in_(test_user_ids))
+            ).delete(synchronize_session=False)
+            db.query(MaterialNote).filter(
+                (MaterialNote.material_id.in_(test_mat_ids)) |
+                (MaterialNote.student_id.in_(test_user_ids))
+            ).delete(synchronize_session=False)
+            db.query(Material).filter(Material.id.in_(test_mat_ids)).delete(synchronize_session=False)
+
+        if test_lesson_ids:
+            db.query(Lesson).filter(Lesson.id.in_(test_lesson_ids)).delete(synchronize_session=False)
+
+        if test_unit_ids:
+            db.query(Unit).filter(Unit.id.in_(test_unit_ids)).delete(synchronize_session=False)
+
+        # 6. Delete synthetic Question Bank test mock items (e.g. '[Test Question Bank Error Fixes]')
         test_q_versions = db.query(QuestionVersion).filter(
             (QuestionVersion.question_text.ilike("%[Test %")) |
             (QuestionVersion.question_text.ilike("%Test Q Text%"))
         ).all()
-        test_qv_ids = [qv.id for qv in test_q_versions]
-        test_q_ids = [qv.question_id for qv in test_q_versions]
+        for qv in test_q_versions:
+            qid = qv.question_id
+            db.query(QuizQuestion).filter(QuizQuestion.question_version_id == qv.id).delete(synchronize_session=False)
+            db.query(Answer).filter(Answer.question_version_id == qv.id).delete(synchronize_session=False)
+            db.query(QuestionVersion).filter(QuestionVersion.id == qv.id).delete(synchronize_session=False)
+            db.query(Question).filter(Question.id == qid).delete(synchronize_session=False)
 
-        if test_qv_ids:
-            db.query(QuizQuestion).filter(QuizQuestion.question_version_id.in_(test_qv_ids)).delete(synchronize_session=False)
-            db.query(Answer).filter(Answer.question_version_id.in_(test_qv_ids)).delete(synchronize_session=False)
-            db.query(QuestionVersion).filter(QuestionVersion.id.in_(test_qv_ids)).delete(synchronize_session=False)
-            db.query(Question).filter(Question.id.in_(test_q_ids)).delete(synchronize_session=False)
-
-        # 6. Delete AI & Q&A mock data for test courses/users
-        if test_course_ids or test_user_ids:
-            db.query(AIResponse).filter(
-                AIResponse.student_question_id.in_(
-                    db.query(StudentQuestion.id).filter(
-                        (StudentQuestion.course_id.in_(test_course_ids)) |
-                        (StudentQuestion.student_id.in_(test_user_ids))
-                    )
-                )
-            ).delete(synchronize_session=False)
-
-            db.query(StudentQuestion).filter(
-                (StudentQuestion.course_id.in_(test_course_ids)) |
-                (StudentQuestion.student_id.in_(test_user_ids))
-            ).delete(synchronize_session=False)
-
-            db.query(AITutorSession).filter(
-                (AITutorSession.course_id.in_(test_course_ids)) |
-                (AITutorSession.student_id.in_(test_user_ids))
-            ).delete(synchronize_session=False)
-
-        # 7. Delete AL Exam answers and submissions for test exams/users
-        if test_exam_ids or test_user_ids:
-            db.query(ALStudentAnswer).filter(
-                ALStudentAnswer.submission_id.in_(
-                    db.query(ALStudentSubmission.id).filter(
-                        (ALStudentSubmission.exam_id.in_(test_exam_ids)) |
-                        (ALStudentSubmission.student_id.in_(test_user_ids))
-                    )
-                )
-            ).delete(synchronize_session=False)
-
-            db.query(ALStudentSubmission).filter(
-                (ALStudentSubmission.exam_id.in_(test_exam_ids)) |
-                (ALStudentSubmission.student_id.in_(test_user_ids))
-            ).delete(synchronize_session=False)
-
-            db.query(ALQuestion).filter(ALQuestion.exam_id.in_(test_exam_ids)).delete(synchronize_session=False)
-            db.query(ALExam).filter(ALExam.id.in_(test_exam_ids)).delete(synchronize_session=False)
-
-        # 8. Delete material telemetry for test courses/users
-        if test_course_ids or test_user_ids or test_mat_ids:
-            db.query(MaterialFlag).filter(
-                (MaterialFlag.student_id.in_(test_user_ids)) |
-                (MaterialFlag.material_id.in_(test_mat_ids))
-            ).delete(synchronize_session=False)
-
-            db.query(MaterialNote).filter(
-                (MaterialNote.student_id.in_(test_user_ids)) |
-                (MaterialNote.material_id.in_(test_mat_ids))
-            ).delete(synchronize_session=False)
-
-            db.query(StudentMaterialProgress).filter(
-                (StudentMaterialProgress.student_id.in_(test_user_ids)) |
-                (StudentMaterialProgress.material_id.in_(test_mat_ids))
-            ).delete(synchronize_session=False)
-
-            db.query(Material).filter(Material.course_id.in_(test_course_ids)).delete(synchronize_session=False)
-            db.query(Lesson).filter(Lesson.course_id.in_(test_course_ids)).delete(synchronize_session=False)
-            db.query(Unit).filter(Unit.course_id.in_(test_course_ids)).delete(synchronize_session=False)
-
-        # 9. Delete test enrollments, notifications, and test courses/users
+        # 7. Delete test enrollments, notifications, and test courses/users
         if test_course_ids or test_user_ids:
             db.query(Enrollment).filter(
                 (Enrollment.course_id.in_(test_course_ids)) |
@@ -172,11 +165,10 @@ def _purge_test_specific_artifacts():
 
 
 @pytest.fixture(scope="session", autouse=True)
-def autoclean_test_artifacts():
-    """
-    Session-level fixture that runs tests and automatically cleans up
-    ONLY test-specific mock fixtures upon test suite completion.
-    """
+def autoclean_test_artifacts_session():
+    """Session-level fixture: cleans test artifacts at the start and end of testing."""
     _purge_test_specific_artifacts()
     yield
     _purge_test_specific_artifacts()
+
+
