@@ -39,17 +39,21 @@ class GeminiService:
     """
 
     MODEL_MAP = {
-        "flash": "gemini-flash-lite-latest",
-        "flash_25": "gemini-flash-latest",
-        "pro": "gemini-3.7-flash",
+        "flash": "gemini-flash-latest",
+        "flash_lite": "gemini-flash-lite-latest",
+        "flash_36": "gemini-3.6-flash",
+        "flash_35": "gemini-3.5-flash-lite",
+        "pro": "gemini-pro-latest",
     }
 
     FALLBACK_MODELS = [
-        "gemini-flash-lite-latest",
         "gemini-flash-latest",
-        "gemini-2.5-flash",
-        "gemini-3.7-flash",
+        "gemini-3.6-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-flash-lite-latest",
+        "gemini-pro-latest",
     ]
+
 
     def __init__(self):
         self._client = None
@@ -202,7 +206,7 @@ class GeminiService:
         response_schema: Optional[Type[BaseModel]] = None,
         model_tier: str = "flash",
         temperature: float = 0.2,
-        max_tokens: int = 4000,
+        max_tokens: int = 8192,
     ) -> dict:
         """
         Generate a structured JSON response from Gemini with automatic multi-model failover.
@@ -238,7 +242,9 @@ class GeminiService:
 
                 # Parse the JSON response with resilient cleaning & repair
                 cleaned = raw_text.strip()
-                if cleaned.startswith("```"):
+                if cleaned.startswith("```json"):
+                    cleaned = cleaned[7:]
+                elif cleaned.startswith("```"):
                     cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
                 if cleaned.endswith("```"):
                     cleaned = cleaned[:-3]
@@ -253,16 +259,17 @@ class GeminiService:
                     try:
                         result = json.loads(repaired)
                     except Exception:
-                        # Repair attempt 2: find last valid boundary and close brackets
-                        last_brace = repaired.rfind("}")
-                        if last_brace != -1:
-                            sub = repaired[:last_brace+1]
+                        # Repair attempt 2: extract outermost matching JSON object or array
+                        match = re.search(r"(\{[\s\S]*\}|\[[\s\S]*\])", repaired)
+                        if match:
+                            sub = match.group(0)
                             open_braces = sub.count("{") - sub.count("}")
                             open_brackets = sub.count("[") - sub.count("]")
                             sub += ("]" * max(0, open_brackets)) + ("}" * max(0, open_braces))
                             result = json.loads(sub)
                         else:
                             raise parse_err
+
 
                 elapsed_ms = int((time.time() - start_time) * 1000)
 
