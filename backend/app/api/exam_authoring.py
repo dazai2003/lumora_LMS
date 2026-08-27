@@ -42,6 +42,7 @@ from app.services.al_essay_generator import (
     regenerate_single_essay_candidate
 )
 from app.utils.image_utils import process_and_save_diagram_url
+from app.services.assessments.exam_sequencer import resequence_exam_questions_canonically
 from app.auth import get_current_user, require_teacher
 
 router = APIRouter(tags=["A/L Authoring & Hotspot Analytics"])
@@ -553,6 +554,8 @@ def batch_accept_candidate_questions_endpoint(
     try:
         if accepted_records:
             db.commit()
+            # Deterministically resequence all exam questions into canonical Sri Lankan A/L paper order
+            resequence_exam_questions_canonically(data.exam_id, db)
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database error while saving accepted questions: {str(e)}")

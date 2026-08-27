@@ -1993,23 +1993,35 @@ function TeacherExamCreateContent() {
 
   const handleMoveQuestion = async (qId: number, direction: "up" | "down") => {
     if (!createdExam || !createdExam.questions) return;
-    const questionsList = [...createdExam.questions].sort((a, b) => a.question_number - b.question_number);
-    const index = questionsList.findIndex(q => q.id === qId);
-    if (index < 0) return;
+    const currentSectionList = [...sectionQuestions];
+    const sIndex = currentSectionList.findIndex(q => q.id === qId);
+    if (sIndex < 0) return;
 
-    if (direction === "up" && index > 0) {
-      const temp = questionsList[index];
-      questionsList[index] = questionsList[index - 1];
-      questionsList[index - 1] = temp;
-    } else if (direction === "down" && index < questionsList.length - 1) {
-      const temp = questionsList[index];
-      questionsList[index] = questionsList[index + 1];
-      questionsList[index + 1] = temp;
+    if (direction === "up" && sIndex > 0) {
+      const temp = currentSectionList[sIndex];
+      currentSectionList[sIndex] = currentSectionList[sIndex - 1];
+      currentSectionList[sIndex - 1] = temp;
+    } else if (direction === "down" && sIndex < currentSectionList.length - 1) {
+      const temp = currentSectionList[sIndex];
+      currentSectionList[sIndex] = currentSectionList[sIndex + 1];
+      currentSectionList[sIndex + 1] = temp;
     } else {
       return;
     }
 
-    const reorderedIds = questionsList.map(q => q.id);
+    const sectionIds = new Set(currentSectionList.map(q => q.id));
+    const allQuestions = [...createdExam.questions].sort((a, b) => a.question_number - b.question_number);
+    const updatedFullList: typeof createdExam.questions = [];
+    let secPointer = 0;
+    for (const q of allQuestions) {
+      if (sectionIds.has(q.id)) {
+        updatedFullList.push(currentSectionList[secPointer++]);
+      } else {
+        updatedFullList.push(q);
+      }
+    }
+
+    const reorderedIds = updatedFullList.map(q => q.id);
     try {
       await api.reorderALExamQuestions(createdExam.id, reorderedIds);
       await refreshCreatedExam(createdExam.id);
@@ -2830,7 +2842,7 @@ function TeacherExamCreateContent() {
                         return (
                           <div key={q.id} style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
                             <StructuredQuestionPaperRenderer
-                              questionNumber={q.question_number}
+                              questionNumber={activeSectionTab === "part_a" ? (idx + 1) : q.question_number}
                               stemText={q.stem_text}
                               parts={q.structured_subparts_json || []}
                               diagramUrl={q.diagram_url}
@@ -2901,7 +2913,7 @@ function TeacherExamCreateContent() {
                               <button
                                 className="btn-icon"
                                 onClick={() => handleMoveQuestion(q.id, "down")}
-                                disabled={idx === (createdExam.questions?.length || 1) - 1}
+                                disabled={idx === sectionQuestions.length - 1}
                                 title="Move Down"
                               >
                                 <SvgIcon name="chevron-down" size={14} />
@@ -2943,7 +2955,7 @@ function TeacherExamCreateContent() {
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "0.5rem" }}>
                               <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
                                 <span style={{ fontSize: "1.1rem", fontWeight: 800, color: "var(--accent-primary)" }}>
-                                  Q{q.question_number}
+                                  {activeSectionTab === "part_b" ? `Q${idx + 5}` : `Q${q.question_number}`}
                                 </span>
                                 <span className="badge badge-primary" style={{ fontSize: "0.8rem", fontWeight: 700 }}>
                                   {structure_type === "single_complete"
@@ -3126,7 +3138,7 @@ function TeacherExamCreateContent() {
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "0.5rem" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
                               <span style={{ fontWeight: 800, fontSize: "1.1rem", color: "var(--accent-primary)", minWidth: "32px" }}>
-                                Q{q.question_number}
+                                Q{activeSectionTab === "paper_1" ? (idx + 1) : q.question_number}
                               </span>
                               <span className={`badge ${badgeInfo.color}`} style={{ fontWeight: 700 }}>
                                 {badgeInfo.label}
@@ -3165,7 +3177,7 @@ function TeacherExamCreateContent() {
                               <button
                                 className="btn-icon"
                                 onClick={() => handleMoveQuestion(q.id, "down")}
-                                disabled={idx === (createdExam.questions?.length || 1) - 1}
+                                disabled={idx === sectionQuestions.length - 1}
                                 title="Move Down"
                               >
                                 <SvgIcon name="chevron-down" size={14} />

@@ -41,6 +41,7 @@ from app.schemas import (
 )
 from app.auth import get_current_user, require_role, require_teacher
 from app.services.al_marking_service import al_marking_service
+from app.services.assessments.exam_sequencer import resequence_exam_questions_canonically
 from app.utils.image_utils import process_and_save_diagram_url
 
 router = APIRouter(tags=["A/L Exam Engine"])
@@ -421,6 +422,9 @@ def get_al_exam(
     if current_user.role == UserRole.STUDENT and not exam.is_published:
         raise HTTPException(status_code=403, detail="Exam is not published yet")
 
+    # Ensure questions are always ordered and numbered canonically (MCQs 1..50, Structured 51..54, Essays 55..57)
+    resequence_exam_questions_canonically(exam.id, db)
+    db.refresh(exam)
     return exam
 
 
@@ -692,6 +696,8 @@ def add_al_question(
     )
     db.add(question)
     db.commit()
+    # Deterministically resequence questions into canonical order
+    resequence_exam_questions_canonically(exam_id, db)
     db.refresh(question)
 
     # Auto-bank to Question & QuestionVersion
@@ -777,11 +783,8 @@ def delete_al_question(
     db.delete(question)
     db.commit()
 
-    # Recalculate display numbers (1..N) sequentially for remaining questions
-    remaining_qs = db.query(ALQuestion).filter(ALQuestion.exam_id == exam_id).order_by(ALQuestion.question_number.asc()).all()
-    for idx, q in enumerate(remaining_qs, start=1):
-        q.question_number = idx
-    db.commit()
+    # Recalculate canonical display numbers for remaining questions
+    resequence_exam_questions_canonically(exam_id, db)
     return None
 
 
