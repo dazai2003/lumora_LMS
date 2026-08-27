@@ -39,35 +39,35 @@ def get_question_bank(
     query = query.options(joinedload(QuestionVersion.question).joinedload(Question.lesson))
     query = query.filter(Question.is_banked == True, Question.is_active == True)
     
-    if topic_id is not None:
+    if topic_id is not None and isinstance(topic_id, int):
         query = query.filter(Question.topic_id == topic_id)
         
-    if subject_id is not None:
+    if subject_id is not None and isinstance(subject_id, int):
         from app.models import Topic
         query = query.join(Topic, Question.topic_id == Topic.id).filter(Topic.subject_id == subject_id)
         
-    if lesson_id is not None:
+    if lesson_id is not None and isinstance(lesson_id, int):
         query = query.filter(Question.lesson_id == lesson_id)
         
-    if question_type is not None:
+    if question_type is not None and not hasattr(question_type, 'default'):
         query = query.filter(QuestionVersion.question_type == question_type)
 
-    if question_family is not None:
+    if question_family is not None and isinstance(question_family, str):
         qf = question_family.lower()
         if "paper_1" in qf or "mcq" in qf:
-            query = query.filter(QuestionVersion.question_type.in_([QuestionType.MCQ, QuestionType.MULTIPLE_SELECT, QuestionType.TRUE_FALSE, QuestionType.MATCHING]))
+            query = query.filter(QuestionVersion.question_type.in_([QuestionType.MCQ, QuestionType.MULTIPLE_SELECT, QuestionType.TRUE_FALSE]))
         elif "paper_2_structured" in qf or "structured" in qf:
-            query = query.filter(QuestionVersion.question_type.in_([QuestionType.SHORT_ANSWER, QuestionType.CODE]))
+            query = query.filter(QuestionVersion.question_type.in_([QuestionType.STRUCTURED, QuestionType.SHORT_ANSWER]))
         elif "paper_2_essay" in qf or "essay" in qf:
             query = query.filter(QuestionVersion.question_type == QuestionType.ESSAY)
 
-    if difficulty is not None:
+    if difficulty is not None and isinstance(difficulty, str):
         query = query.filter(QuestionVersion.difficulty == difficulty.lower())
 
-    if cognitive_level is not None:
+    if cognitive_level is not None and isinstance(cognitive_level, str):
         query = query.filter(QuestionVersion.cognitive_level == cognitive_level.lower())
 
-    if source_type is not None:
+    if source_type is not None and isinstance(source_type, str):
         st = source_type.lower()
         if st in ["ai", "ai_generated"]:
             query = query.filter(QuestionVersion.source_type.in_(["ai", "ai_generated"]))
@@ -78,12 +78,13 @@ def get_question_bank(
         else:
             query = query.filter(QuestionVersion.source_type == st)
 
-    if approval_status is not None:
+    if approval_status is not None and not hasattr(approval_status, 'default'):
         query = query.filter(QuestionVersion.teacher_approval_status == approval_status)
 
-    if search:
-        pattern = f"%{search}%"
+    if search is not None and isinstance(search, str) and search.strip():
+        pattern = f"%{search.strip()}%"
         query = query.filter(QuestionVersion.question_text.ilike(pattern))
+
 
     query = query.order_by(QuestionVersion.created_at.desc())
     versions = query.offset(offset).limit(limit).all()
@@ -98,8 +99,13 @@ def get_question_analytics(
     from app.models import Answer
     from app.schemas import QuestionAnalyticsResponse
 
-    # Make sure question exists
+    # Make sure question exists (or lookup by version id)
     question = db.query(Question).filter(Question.id == question_id).first()
+    if not question:
+        v = db.query(QuestionVersion).filter(QuestionVersion.id == question_id).first()
+        if v:
+            question = db.query(Question).filter(Question.id == v.question_id).first()
+
     if not question:
         raise HTTPException(status_code=404, detail="Question not found")
         
@@ -108,12 +114,14 @@ def get_question_analytics(
     
     if not version_ids:
         return QuestionAnalyticsResponse(
+            question_id=question.id,
             total_attempts=0,
             correct_attempts=0,
             success_rate=0.0,
             observed_difficulty="unknown",
             distractor_distribution={}
         )
+
 
     # Get all answers for these versions
     answers = db.query(Answer).filter(Answer.question_version_id.in_(version_ids)).all()
@@ -126,10 +134,9 @@ def get_question_analytics(
     # If no legacy Answer rows exist, query ALStudentAnswer for genuine A/L Exam responses
     if total_attempts == 0 and latest_version:
         from app.models import ALQuestion, ALStudentAnswer
-        al_q_query = db.query(ALQuestion).filter(ALQuestion.stem_text == latest_version.question_text)
+        al_q = None
         if latest_version.source_id:
-            al_q_query = al_q_query.filter(ALQuestion.exam_id == latest_version.source_id)
-        al_q = al_q_query.first()
+            al_q = db.query(ALQuestion).filter(ALQuestion.id == latest_version.source_id).first()
         if not al_q:
             al_q = db.query(ALQuestion).filter(ALQuestion.stem_text == latest_version.question_text).first()
 
@@ -167,16 +174,36 @@ def get_question_analytics(
                 elif success_rate > 70.0:
                     observed_difficulty = "easy"
 
+                # Calculate item facility and discrimination index
+                facility_idx = round(success_rate / 100.0, 2)
+                # Discrimination index approximation from upper/lower cohorts or empirical spread
+                disc_idx = 0.45
+                if total_attempts >= 4:
+                    sorted_ans = sorted(al_answers, key=lambda x: float(x.final_score or x.raw_points_earned or 0.0), reverse=True)
+                    k = max(1, int(len(sorted_ans) * 0.27))
+                    top_k = sorted_ans[:k]
+                    bot_k = sorted_ans[-k:]
+                    top_avg = sum(float(a.final_score or a.raw_points_earned or 0.0) for a in top_k) / (k * pts)
+                    bot_avg = sum(float(a.final_score or a.raw_points_earned or 0.0) for a in bot_k) / (k * pts)
+                    disc_idx = round(max(-1.0, min(1.0, top_avg - bot_avg)), 2)
+
                 return QuestionAnalyticsResponse(
+                    question_id=question_id,
                     total_attempts=total_attempts,
                     correct_attempts=correct_attempts,
                     success_rate=round(success_rate, 1),
                     observed_difficulty=observed_difficulty,
-                    distractor_distribution=distractor_distribution
+                    distractor_distribution=distractor_distribution,
+                    attempts_count=total_attempts,
+                    correct_count=correct_attempts,
+                    difficulty_index=facility_idx,
+                    discrimination_index=disc_idx,
                 )
+
 
     if total_attempts == 0:
         return QuestionAnalyticsResponse(
+            question_id=question.id,
             total_attempts=0,
             correct_attempts=0,
             success_rate=0.0,
@@ -224,12 +251,14 @@ def get_question_analytics(
         distractor_distribution[k] = round((distractor_distribution[k] / total_attempts) * 100, 1)
 
     return QuestionAnalyticsResponse(
+        question_id=question.id,
         total_attempts=total_attempts,
         correct_attempts=correct_attempts,
         success_rate=round(success_rate, 1),
         observed_difficulty=observed_difficulty,
         distractor_distribution=distractor_distribution
     )
+
 
 
 @router.post("/{question_id}/improve", response_model=QuestionVersionResponse)
@@ -720,42 +749,6 @@ def delete_question_endpoint(
         raise HTTPException(status_code=500, detail=f"Failed to delete question: {str(err)}")
 
 
-@router.get("/{question_id}/analytics")
-async def get_question_analytics(
-    question_id: int,
-    current_user: User = Depends(require_admin_or_teacher),
-    db: Session = Depends(get_db),
-):
-    """Retrieve psychometric analytics for a question (or question version)."""
-    q = db.query(Question).filter(Question.id == question_id).first()
-    if not q:
-        v = db.query(QuestionVersion).filter(QuestionVersion.id == question_id).first()
-        if v:
-            q = db.query(Question).filter(Question.id == v.question_id).first()
 
-    if not q:
-        raise HTTPException(status_code=404, detail="Question not found")
-
-    analytics = db.query(QuestionAnalytics).filter(QuestionAnalytics.question_id == q.id).first()
-    if analytics:
-        return {
-            "question_id": q.id,
-            "total_attempts": analytics.total_attempts or 0,
-            "correct_attempts": analytics.correct_attempts or 0,
-            "difficulty_index": analytics.difficulty_index or 0.65,
-            "discrimination_index": analytics.discrimination_index or 0.45,
-            "distractor_efficiency": analytics.distractor_efficiency or 0.85,
-            "recommendation": analytics.recommendation or "Validated G.C.E. A/L standard question.",
-        }
-
-    return {
-        "question_id": q.id,
-        "total_attempts": 0,
-        "correct_attempts": 0,
-        "difficulty_index": 0.65,
-        "discrimination_index": 0.45,
-        "distractor_efficiency": 0.85,
-        "recommendation": "Banked question ready for assessment generation.",
-    }
 
 

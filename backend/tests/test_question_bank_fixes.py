@@ -25,16 +25,16 @@ def test_question_bank_error_fixes():
         db.refresh(qv)
 
         # Test Question Analytics lookup by parent question ID and version ID
-        analytics_res = asyncio.run(get_question_analytics(question_id=q.id, current_user=None, db=db))
-        print(f"[SUCCESS] get_question_analytics(parent_id={q.id}) returned: {analytics_res}")
+        res1 = get_question_analytics(question_id=q.id, current_user=None, db=db)
+        q_id_1 = getattr(res1, "question_id", None) or (res1.get("question_id") if isinstance(res1, dict) else None)
+        assert q_id_1 == q.id
 
-        analytics_ver_res = asyncio.run(get_question_analytics(question_id=qv.id, current_user=None, db=db))
-        print(f"[SUCCESS] get_question_analytics(version_id={qv.id}) returned: {analytics_ver_res}")
-
-        assert analytics_res["question_id"] == q.id
-        assert analytics_ver_res["question_id"] == q.id
+        res2 = get_question_analytics(question_id=qv.id, current_user=None, db=db)
+        q_id_2 = getattr(res2, "question_id", None) or (res2.get("question_id") if isinstance(res2, dict) else None)
+        assert q_id_2 == q.id
 
         print(f"[SUCCESS] Question Bank Error Fixes verified 100%!")
+
     finally:
         db.close()
 
