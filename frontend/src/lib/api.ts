@@ -1,6 +1,17 @@
 /**
- * API client for communicating with the FastAPI backend.
- * Handles authentication tokens automatically.
+ * @file api.ts
+ * @description Centralized HTTP API Client for Lumora LMS.
+ * 
+ * Architectural Responsibilities:
+ * 1. Automatic Authentication: Reads and attaches JWT Bearer tokens from localStorage.
+ * 2. Typed API Contracts: Wraps all FastAPI backend endpoints with strict TypeScript return types.
+ * 3. Error Interception: Translates 401/403 auth errors and structured AI 429/503 responses.
+ * 4. Domain Subsystems:
+ *    - Auth & Users (login, registration, profile management)
+ *    - Academic Hierarchy (courses, units, lessons, materials)
+ *    - A/L Examination Engine (authoring, AI generation, candidate review, live student testing)
+ *    - SpeedGrader & Verification (AI pre-graded assessment evaluation)
+ *    - Psychometrics & Learning Analytics (difficulty hotspots, student mastery radars)
  */
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";

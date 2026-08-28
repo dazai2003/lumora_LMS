@@ -1,5 +1,14 @@
 """
-Pydantic schemas for request/response validation.
+Lumora LMS — Pydantic Request & Response Data Contracts.
+
+Defines strongly-typed data validation schemas across all architectural subsystems:
+1. Authentication & Security: JWT tokens, user registration, role enforcement, and password resets.
+2. Academic Hierarchy: Course administration, syllabus units, and lesson material associations.
+3. Assessment Engine: G.C.E. Advanced Level Paper I (MCQ 7-templates), Paper II-A (Structured subparts),
+   and Paper II-B (Essay rubrics) with validation rules for marks and cognitive tiers.
+4. Student Submissions & SpeedGrader: Attempt lifecycle states, live autosave answer payloads,
+   AI pre-grading suggestions, and teacher verification requests.
+5. Psychometrics & Learning Analytics: Item discrimination indices, mastery distributions, and telemetry.
 """
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List, Dict, Any, Union
