@@ -795,7 +795,7 @@ function StudentALExamTakeContent({ params }: { params: Promise<{ id: string }> 
             <div style={{ background: "var(--bg-secondary)", padding: "1.25rem", borderRadius: "var(--radius-md)" }}>
               <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", textTransform: "uppercase" }}>Total Questions</div>
               <div style={{ fontSize: "1.35rem", fontWeight: 700, color: "var(--text-primary)", marginTop: "0.25rem" }}>
-                {exam.total_questions} Questions
+                {(questions.length > 0 ? questions.length : exam.questions?.length) || exam.total_questions || 0} Questions
               </div>
             </div>
             <div style={{ background: "var(--bg-secondary)", padding: "1.25rem", borderRadius: "var(--radius-md)" }}>
@@ -844,7 +844,7 @@ function StudentALExamTakeContent({ params }: { params: Promise<{ id: string }> 
     const answersList = result.answers || [];
 
     const totalCalculatedPoints = questions.reduce((sum, q) => sum + (q.points || 1.0), 0);
-    const maxPoints = totalCalculatedPoints > 0 ? totalCalculatedPoints : (exam.total_questions || 50);
+    const maxPoints = totalCalculatedPoints > 0 ? totalCalculatedPoints : (exam.questions?.length || exam.total_questions || 50);
 
     const mcqAnswers = answersList.filter((a) => {
       const q = questions.find((item) => item.id === a.question_id);

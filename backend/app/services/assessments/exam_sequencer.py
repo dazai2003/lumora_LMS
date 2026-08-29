@@ -38,7 +38,11 @@ def resequence_exam_questions_canonically(exam_id: int, db: Session) -> List[ALQ
     Structured questions second, and Essays third regardless of the order they were generated.
     """
     all_qs = db.query(ALQuestion).filter(ALQuestion.exam_id == exam_id).all()
+    exam = db.query(ALExam).filter(ALExam.id == exam_id).first()
     if not all_qs:
+        if exam:
+            exam.total_questions = 0
+            db.commit()
         return []
 
     mcqs = []
@@ -74,9 +78,13 @@ def resequence_exam_questions_canonically(exam_id: int, db: Session) -> List[ALQ
         q.question_number = current_num
         current_num += 1
 
+    # Synchronize parent ALExam.total_questions with exact question count
+    if exam:
+        exam.total_questions = len(all_qs)
+
     db.commit()
     logger.info(
-        f"[ExamSequencer] Resequenced exam {exam_id}: {len(mcqs)} MCQs (Q1-Q{len(mcqs)}), "
+        f"[ExamSequencer] Resequenced exam {exam_id} (total_questions={len(all_qs)}): {len(mcqs)} MCQs (Q1-Q{len(mcqs)}), "
         f"{len(structured)} Structured (Q{len(mcqs)+1}-Q{len(mcqs)+len(structured)}), "
         f"{len(essays)} Essays (Q{len(mcqs)+len(structured)+1}-Q{current_num-1})"
     )

@@ -322,6 +322,7 @@ def create_question_authoring(
     )
     db.add(question)
     db.commit()
+    resequence_exam_questions_canonically(data.exam_id, db)
     db.refresh(question)
     return question
 

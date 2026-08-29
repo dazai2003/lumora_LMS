@@ -358,6 +358,9 @@ def list_al_exams(
         query = query.filter(ALExam.is_published == True)
 
     exams = query.order_by(ALExam.created_at.desc()).all()
+    for e in exams:
+        if e.questions is not None and len(e.questions) > 0:
+            e.total_questions = len(e.questions)
     return exams
 
 
@@ -547,6 +550,7 @@ def publish_al_exam(
             }
 
     exam.is_published = True
+    exam.total_questions = len(exam.questions) if exam.questions else 0
     db.commit()
     db.refresh(exam)
     return exam
@@ -628,6 +632,7 @@ def import_bank_questions_to_exam(
         db.add(al_q)
 
     db.commit()
+    resequence_exam_questions_canonically(exam.id, db)
     db.refresh(exam)
     return exam
 

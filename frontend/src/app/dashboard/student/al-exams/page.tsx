@@ -403,7 +403,7 @@ function StudentExamStudioContent() {
                     <div style={{ paddingTop: "1rem", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
                       <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                         <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontWeight: 500 }}>
-                          {exam.total_questions || 0} Questions
+                          {exam.questions && exam.questions.length > 0 ? exam.questions.length : (exam.total_questions || 0)} Questions
                         </div>
                         {maxAttempts > 0 && (
                           <div style={{ fontSize: "0.72rem", color: totalAttemptsUsed >= maxAttempts ? "var(--warning)" : "var(--text-muted)", fontWeight: 600 }}>
