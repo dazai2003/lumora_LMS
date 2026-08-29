@@ -123,8 +123,8 @@ const GUIDE_TOPICS: GuideTopic[] = [
 
 const FAQS = [
   {
-    q: "How is my Course Completion Percentage calculated?",
-    a: "Course Completion is calculated from 3 components: 45% theory lesson study, 35% coursework assignments, and 20% quiz performance."
+    q: "How is my Course Readiness Percentage calculated?",
+    a: "Course Readiness is calculated from theory lesson completion, A/L examination paper performance, and active study engagement."
   },
   {
     q: "What happens when my 3-Day Grace Pass expires?",
@@ -327,7 +327,7 @@ export default function StudentGuidePage() {
         <div className="card empty-state" style={{ padding: "2rem 1.5rem" }}>
           <SvgIcon name="search" size={32} style={{ opacity: 0.3, marginBottom: "0.5rem" }} />
           <div className="empty-state-title" style={{ fontSize: "1rem" }}>No matching guide topics</div>
-          <div className="empty-state-desc" style={{ fontSize: "0.82rem" }}>Try searching for 'coursework', 'quizzes', 'grace trial', or 'combos'.</div>
+          <div className="empty-state-desc" style={{ fontSize: "0.82rem" }}>Try searching for 'examinations', 'papers', 'grace trial', or 'combos'.</div>
         </div>
       )}
 

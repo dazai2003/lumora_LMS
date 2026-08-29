@@ -318,7 +318,7 @@ function TeacherAnalyticsContent() {
       return {
         label: "No Activity",
         className: "badge-secondary",
-        desc: "No coursework materials, assessments, or interactions recorded"
+        desc: "No study materials, assessments, or interactions recorded"
       };
     }
     if (code === "LIMITED_DATA") {
@@ -345,7 +345,7 @@ function TeacherAnalyticsContent() {
     return {
       label: "Active",
       className: "badge-info",
-      desc: "Active student coursework engagement with developing evidence"
+      desc: "Active student study engagement with developing evidence"
     };
   };
 
@@ -2455,7 +2455,7 @@ function TeacherAnalyticsContent() {
                                     {effectiveScore}%
                                   </span>
                                   <div style={{ fontSize: "0.675rem", color: "var(--text-muted)" }}>
-                                    {s.al_exams_taken ? `${s.al_exams_taken} AL exam${s.al_exams_taken > 1 ? "s" : ""}` : s.quizzes_taken ? `${s.quizzes_taken} quiz${s.quizzes_taken > 1 ? "zes" : ""}` : "Coursework"}
+                                    {s.al_exams_taken ? `${s.al_exams_taken} AL exam${s.al_exams_taken > 1 ? "s" : ""}` : "Assessment"}
                                   </div>
                                 </div>
                               ) : (

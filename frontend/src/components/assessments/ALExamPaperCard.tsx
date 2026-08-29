@@ -194,7 +194,7 @@ export default function ALExamPaperCard({
                 </button>
 
                 <Link
-                  href="/dashboard/teacher/al-exams/grading"
+                  href="/dashboard/teacher/al-exams/marking"
                   style={{ padding: "0.45rem 0.75rem", fontSize: "0.82rem", textDecoration: "none", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "0.4rem", borderRadius: "var(--radius-sm)" }}
                   onClick={() => setMenuOpen(false)}
                 >

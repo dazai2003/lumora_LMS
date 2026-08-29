@@ -567,7 +567,7 @@ export function PlatformGuideModal({ onClose }: { onClose: () => void }) {
             Getting Started with Lumora LMS
           </h3>
           <p style={{ margin: "4px 0 0 0", fontSize: "0.825rem", color: "var(--text-secondary)" }}>
-            Here is a quick guide on how to navigate your courses, attempt quizzes, submit coursework, and use AI support.
+            Here is a quick guide on how to navigate your courses, attempt A/L examination papers, study theory lessons, and use AI support.
           </p>
         </div>
 

@@ -328,7 +328,7 @@ export default function StudentOnboardingModal({
                     <h4 style={{ margin: 0, fontSize: "1rem", fontWeight: 700, color: "var(--text-primary)" }}>Start 3-Day Free Grace Access</h4>
                   </div>
                   <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", lineHeight: 1.5, margin: "0 0 1rem 0" }}>
-                    Get instant 3-day full access to all theory lessons, coursework, and AI Tutor features. You can pay your monthly tuition pass anytime during the grace period!
+                    Get instant 3-day full access to all theory lessons, A/L examination papers, and AI Tutor features. You can pay your monthly tuition pass anytime during the grace period!
                   </p>
                 </div>
 

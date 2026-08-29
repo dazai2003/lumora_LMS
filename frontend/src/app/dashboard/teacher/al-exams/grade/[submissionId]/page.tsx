@@ -813,7 +813,7 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
     return (
       <div style={{ maxWidth: "800px", margin: "4rem auto", padding: "3rem", textAlign: "center" }} className="card">
         <h2>Submission Not Found</h2>
-        <Link href="/dashboard/teacher/al-exams/grading" className="btn btn-primary" style={{ marginTop: "1rem" }}>
+        <Link href="/dashboard/teacher/al-exams/marking" className="btn btn-primary" style={{ marginTop: "1rem" }}>
           Back to Marking Studio
         </Link>
       </div>
@@ -833,7 +833,7 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem", color: "var(--text-muted)" }}>
           <Link href="/dashboard/teacher" style={{ color: "inherit", textDecoration: "none" }}>Teacher Portal</Link>
           <span>/</span>
-          <Link href="/dashboard/teacher/al-exams/grading" style={{ color: "inherit", textDecoration: "none" }}>Marking Studio</Link>
+          <Link href="/dashboard/teacher/al-exams/marking" style={{ color: "inherit", textDecoration: "none" }}>Marking Studio</Link>
           <span>/</span>
           <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>Submission #{submission.id}</span>
         </div>
@@ -850,7 +850,7 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
             {readingLayout === "wide_focus" ? "Standard View" : "Wide Focus Mode"}
           </button>
 
-          <Link href="/dashboard/teacher/al-exams/grading" className="btn btn-secondary btn-sm" style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+          <Link href="/dashboard/teacher/al-exams/marking" className="btn btn-secondary btn-sm" style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
             <SvgIcon name="arrow-left" size={14} /> Back to Marking Hub
           </Link>
         </div>

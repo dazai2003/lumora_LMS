@@ -293,7 +293,7 @@ function TeacherAssessmentAnalyticsContent() {
             </Link>
 
             <Link
-              href={`/dashboard/teacher/al-exams/grading`}
+              href={`/dashboard/teacher/al-exams/marking`}
               className="btn btn-secondary btn-sm"
               style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", fontSize: "0.8rem", height: "36px" }}
             >

@@ -173,10 +173,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       return pathname === href;
     }
     if (href === "/dashboard/teacher/al-exams") {
-      return pathname === href || (pathname.startsWith(href + "/") && !pathname.startsWith("/dashboard/teacher/al-exams/marking") && !pathname.startsWith("/dashboard/teacher/al-exams/grading") && !pathname.startsWith("/dashboard/teacher/al-exams/grade"));
+      return pathname === href || (pathname.startsWith(href + "/") && !pathname.startsWith("/dashboard/teacher/al-exams/marking") && !pathname.startsWith("/dashboard/teacher/al-exams/grade"));
     }
     if (href === "/dashboard/teacher/al-exams/marking") {
-      return pathname === href || pathname.startsWith("/dashboard/teacher/al-exams/marking") || pathname.startsWith("/dashboard/teacher/al-exams/grading") || pathname.startsWith("/dashboard/teacher/al-exams/grade");
+      return pathname === href || pathname.startsWith("/dashboard/teacher/al-exams/marking") || pathname.startsWith("/dashboard/teacher/al-exams/grade");
     }
     return pathname === href || pathname.startsWith(href + "/");
   };

@@ -1400,7 +1400,7 @@ export default function TeacherCourseDetailPage({ params }: { params: Promise<{ 
                   New Lesson Module
                 </div>
                 <div style={{ fontSize: "0.88rem", color: "var(--text-secondary)", lineHeight: 1.55 }}>
-                  Create an interactive lesson module where students can access study notes, video lectures, and coursework.
+                  Create an interactive lesson module where students can access study notes, video lectures, and practice materials.
                 </div>
               </div>
             </div>

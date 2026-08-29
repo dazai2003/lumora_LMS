@@ -581,7 +581,7 @@ export function TeacherPlatformGuideModal({ onClose }: { onClose: () => void }) 
             Welcome to Lumora LMS — Teacher Workspace Guide
           </h3>
           <p style={{ margin: "4px 0 0 0", fontSize: "0.825rem", color: "var(--text-secondary)" }}>
-            Learn how to author courses, evaluate written coursework with SpeedGrader, manage Question Banks, and moderate Q&A.
+            Learn how to author courses, assemble A/L examination papers, evaluate student submissions with SpeedGrader, manage Question Banks, and moderate Q&A.
           </p>
         </div>
 

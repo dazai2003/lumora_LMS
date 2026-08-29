@@ -449,7 +449,7 @@ export default function WYSIWYGEditor({
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--text-secondary)", fontWeight: 600 }}>
             <SvgIcon name="lock" size={14} style={{ color: "var(--color-warning)" }} />
             <span>Read-Only Document Preview</span>
-            <span style={{ fontSize: "0.7rem", fontWeight: 400, color: "var(--text-muted)" }}>(Submitted coursework cannot be edited)</span>
+            <span style={{ fontSize: "0.7rem", fontWeight: 400, color: "var(--text-muted)" }}>(Submitted answers cannot be edited)</span>
           </div>
           <button className="btn-secondary btn-sm" onClick={() => setIsFullScreen(!isFullScreen)} style={{ fontSize: "0.7rem", padding: "2px 8px" }}>
             <SvgIcon name={isFullScreen ? "minimize" : "maximize"} size={12} /> {isFullScreen ? "Exit Full Screen" : "Full Screen"}

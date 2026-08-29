@@ -306,7 +306,7 @@ export default function TeacherDashboard() {
               <div className="empty-state" style={{ padding: "1rem 0" }}>
                 <SvgIcon name="target" className="empty-state-icon" style={{ opacity: 0.4, width: 24, height: 24 }} />
                 <div className="empty-state-title" style={{ fontSize: "0.85rem" }}>No activity recorded yet</div>
-                <div className="empty-state-desc" style={{ fontSize: "0.75rem" }}>Student progress metrics will appear once coursework is started.</div>
+                <div className="empty-state-desc" style={{ fontSize: "0.75rem" }}>Student progress metrics will appear once assessments or lessons are started.</div>
               </div>
             )}
           </div>
