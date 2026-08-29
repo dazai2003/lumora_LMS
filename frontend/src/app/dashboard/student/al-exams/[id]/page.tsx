@@ -844,7 +844,9 @@ function StudentALExamTakeContent({ params }: { params: Promise<{ id: string }> 
     const answersList = result.answers || [];
 
     const totalCalculatedPoints = questions.reduce((sum, q) => sum + (q.points || 1.0), 0);
-    const maxPoints = totalCalculatedPoints > 0 ? totalCalculatedPoints : (exam.questions?.length || exam.total_questions || 50);
+    const maxPoints = totalCalculatedPoints > 0 
+      ? totalCalculatedPoints 
+      : (exam.total_marks && exam.total_marks > 0 ? exam.total_marks : (exam.questions?.length || exam.total_questions || 50));
 
     const mcqAnswers = answersList.filter((a) => {
       const q = questions.find((item) => item.id === a.question_id);

@@ -1270,6 +1270,7 @@ class ALExamResponse(BaseModel):
     exam_type: ALExamType
     time_limit_minutes: int
     total_questions: int
+    total_marks: Optional[float] = None
     raw_mark_cap: Optional[float] = None
     score_multiplier: float
     max_attempts: int

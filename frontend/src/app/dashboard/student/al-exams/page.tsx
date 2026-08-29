@@ -132,7 +132,7 @@ function StudentExamStudioContent() {
     if (pct >= 75) return { grade: "Grade A", badgeClass: "badge-success", color: "#10B981", percentage: pct };
     if (pct >= 65) return { grade: "Grade B", badgeClass: "badge-info", color: "#3B82F6", percentage: pct };
     if (pct >= 55) return { grade: "Grade C", badgeClass: "badge-purple", color: "#8B5CF6", percentage: pct };
-    if (pct >= 35) return { grade: "Grade S", badgeClass: "badge-warning", color: "#F59E0B", percentage: pct };
+    if (pct >= 40) return { grade: "Grade S", badgeClass: "badge-warning", color: "#F59E0B", percentage: pct };
     return { grade: "Grade F", badgeClass: "badge-error", color: "#EF4444", percentage: pct };
   };
 

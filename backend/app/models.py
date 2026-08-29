@@ -1616,6 +1616,13 @@ class ALExam(Base):
     questions = relationship("ALQuestion", back_populates="exam", cascade="all, delete-orphan", order_by="ALQuestion.question_number")
     submissions = relationship("ALStudentSubmission", back_populates="exam", cascade="all, delete-orphan")
 
+    @property
+    def total_marks(self) -> float:
+        if not self.questions:
+            return 0.0
+        return round(sum(float(q.points or 1.0) for q in self.questions), 2)
+
+
 
 class ALQuestion(Base):
     """Represents an A/L Exam Question supporting 7 MCQ templates, Structured sub-parts, and Essay rubrics."""

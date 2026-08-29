@@ -531,11 +531,17 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
   }, [overrides]);
 
   const maxPossibleScore = useMemo(() => {
-    if (!exam || !exam.questions || exam.questions.length === 0) {
-      return submission?.exam_id === 210 ? 50 : submission?.exam_id === 212 ? 160 : submission?.exam_id === 213 ? 120 : 100;
+    if (exam?.total_marks && exam.total_marks > 0) {
+      return exam.total_marks;
     }
-    return exam.questions.reduce((sum, q) => sum + (Number(q.points) || 1.0), 0);
-  }, [exam, submission]);
+    if (exam?.questions && exam.questions.length > 0) {
+      return exam.questions.reduce((sum, q) => sum + (Number(q.points) || 1.0), 0);
+    }
+    if (questionList.length > 0) {
+      return questionList.reduce((sum, q) => sum + (Number(q.points) || 1.0), 0);
+    }
+    return 100;
+  }, [exam, questionList]);
 
   const livePercentage = useMemo(() => {
     if (maxPossibleScore <= 0) return 0.0;
@@ -546,7 +552,7 @@ export default function TeacherGradeSubmissionPage({ params }: { params: Promise
     if (livePercentage >= 75) return "A";
     if (livePercentage >= 65) return "B";
     if (livePercentage >= 55) return "C";
-    if (livePercentage >= 35) return "S";
+    if (livePercentage >= 40) return "S";
     return "F";
   }, [livePercentage]);
 

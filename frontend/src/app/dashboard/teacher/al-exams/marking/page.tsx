@@ -45,7 +45,7 @@ function getSubmissionGrade(sub: ALStudentSubmission): { grade: string; badgeCla
   if (pct >= 75) return { grade: "Grade A", badgeClass: "badge-success", color: "#10B981", percentage: pct };
   if (pct >= 65) return { grade: "Grade B", badgeClass: "badge-info", color: "#3B82F6", percentage: pct };
   if (pct >= 55) return { grade: "Grade C", badgeClass: "badge-purple", color: "#8B5CF6", percentage: pct };
-  if (pct >= 35) return { grade: "Grade S", badgeClass: "badge-warning", color: "#F59E0B", percentage: pct };
+  if (pct >= 40) return { grade: "Grade S", badgeClass: "badge-warning", color: "#F59E0B", percentage: pct };
   return { grade: "Grade F", badgeClass: "badge-error", color: "#EF4444", percentage: pct };
 }
 
@@ -189,8 +189,8 @@ export default function TeacherMarkingStudioPage() {
       if (scoreFilter === "distinction" && gradeInfo.percentage < 75) return false;
       if (scoreFilter === "merit" && (gradeInfo.percentage < 65 || gradeInfo.percentage >= 75)) return false;
       if (scoreFilter === "credit" && (gradeInfo.percentage < 55 || gradeInfo.percentage >= 65)) return false;
-      if (scoreFilter === "ordinary" && (gradeInfo.percentage < 35 || gradeInfo.percentage >= 55)) return false;
-      if (scoreFilter === "needs_support" && gradeInfo.percentage >= 35) return false;
+      if (scoreFilter === "ordinary" && (gradeInfo.percentage < 40 || gradeInfo.percentage >= 55)) return false;
+      if (scoreFilter === "needs_support" && gradeInfo.percentage >= 40) return false;
 
       // 5. Search Query (student name, email, exam title, submission ID)
       if (searchQuery.trim()) {

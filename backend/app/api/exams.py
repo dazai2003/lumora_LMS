@@ -212,20 +212,6 @@ def resolve_combination_grid_option(selected_input: Optional[str], statements: O
 
 
 def calculate_al_grade(percentage: float) -> str:
-    """Standard G.C.E. Advanced Level Grading Scale."""
-    if percentage >= 75.0:
-        return "A"
-    elif percentage >= 65.0:
-        return "B"
-    elif percentage >= 55.0:
-        return "C"
-    elif percentage >= 40.0:
-        return "S"
-    else:
-        return "F"
-
-
-def _calculate_al_grade(percentage: float) -> str:
     """
     Standard G.C.E. Advanced Level Grade Boundaries in Sri Lanka:
       A: >= 75.0%
@@ -245,46 +231,8 @@ def _calculate_al_grade(percentage: float) -> str:
     return "F"
 
 
-def _grade_paper_1_mcq(submission: ALStudentSubmission, exam: ALExam, db: Session):
-    """
-    Automated grading engine for A/L Biology Paper 1 (50 MCQ questions).
-    Evaluates standard options, Assertion-Reason, 5-Statement Truth, and Combination Grid (Q41-50).
-    """
-    total_raw_points = 0.0
-    questions_map = {q.id: q for q in exam.questions}
+_calculate_al_grade = calculate_al_grade
 
-    for answer in submission.answers:
-        question = questions_map.get(answer.question_id)
-        if not question or not question.correct_option:
-            continue
-
-        student_opt = answer.selected_option
-        
-        # Handle Combination Grid auto-resolution if template is combination_grid
-        if question.template_type == ALQuestionTemplate.COMBINATION_GRID and student_opt:
-            resolved_opt = resolve_combination_grid_option(student_opt)
-            if resolved_opt:
-                answer.selected_option = resolved_opt
-                student_opt = resolved_opt
-
-        correct_opt = question.correct_option.strip().upper() if question.correct_option else ""
-        is_correct = (student_opt is not None and student_opt.strip().upper() == correct_opt)
-
-        points = question.points if is_correct else 0.0
-        answer.is_correct = is_correct
-        answer.raw_points_earned = points
-        answer.scaled_points_earned = points * (exam.score_multiplier or 1.0)
-        total_raw_points += points
-
-    total_possible = float(len(exam.questions)) if exam.questions else 50.0
-    submission.raw_score = round(total_raw_points, 2)
-    submission.scaled_score = round(total_raw_points * (exam.score_multiplier or 1.0), 2)
-    
-    pct = (total_raw_points / total_possible * 100.0) if total_possible > 0 else 0.0
-    submission.percentage = round(pct, 2)
-    submission.grade = calculate_al_grade(pct)
-    submission.status = "ai_graded"
-    db.commit()
 
 
 # ──────────────────────────────────────────────
@@ -1105,7 +1053,7 @@ def _grade_paper_1_mcq(submission: ALStudentSubmission, exam: ALExam, db: Sessio
 
         if not is_structured and not is_essay:
             mcq_count += 1
-            pts = float(question.points or 1.0)
+            pts = float(question.points if question.points is not None else 1.0)
             total_mcq_points += pts
 
             norm_correct = normalize_mcq_option_key(question.correct_option)
@@ -1121,7 +1069,7 @@ def _grade_paper_1_mcq(submission: ALStudentSubmission, exam: ALExam, db: Sessio
                 answer.ai_score = 0.0
                 answer.final_score = pts
                 answer.raw_points_earned = pts
-                answer.scaled_points_earned = pts
+                answer.scaled_points_earned = round(pts * (exam.score_multiplier or 1.0), 2)
                 total_raw += pts
             else:
                 answer.is_correct = False
@@ -1131,8 +1079,8 @@ def _grade_paper_1_mcq(submission: ALStudentSubmission, exam: ALExam, db: Sessio
                 answer.raw_points_earned = 0.0
                 answer.scaled_points_earned = 0.0
 
-    submission.raw_score = total_raw
-    submission.scaled_score = total_raw
+    submission.raw_score = round(total_raw, 2)
+    submission.scaled_score = round(total_raw * (exam.score_multiplier or 1.0), 2)
 
     # For pure MCQ exams, calculate percentage and final grade
     is_pure_mcq = (
@@ -1140,9 +1088,9 @@ def _grade_paper_1_mcq(submission: ALStudentSubmission, exam: ALExam, db: Sessio
         (mcq_count == len(submission.answers) and mcq_count > 0)
     )
     if is_pure_mcq:
-        calc_max = total_mcq_points if total_mcq_points > 0 else float(exam.total_questions or mcq_count or 1)
+        calc_max = total_mcq_points if total_mcq_points > 0 else (exam.total_marks if exam.total_marks > 0 else float(exam.total_questions or mcq_count or 1))
         submission.percentage = round((total_raw / calc_max) * 100.0, 2)
-        submission.grade = _calculate_al_grade(submission.percentage)
+        submission.grade = calculate_al_grade(submission.percentage)
 
     db.commit()
     db.refresh(submission)
@@ -1188,7 +1136,7 @@ def _grade_paper_2_structured_and_essay(submission: ALStudentSubmission, exam: A
         }
 
         if is_structured:
-            max_q_pts = float(question.points or 10.0)
+            max_q_pts = float(question.points if question.points is not None else 40.0)
             total_possible += max_q_pts
             try:
                 subpart_ans = answer.subpart_answers_json or {}
@@ -1208,7 +1156,7 @@ def _grade_paper_2_structured_and_essay(submission: ALStudentSubmission, exam: A
                 answer.ai_score = 0.0
 
         elif is_essay:
-            max_q_pts = float(question.points or 20.0)
+            max_q_pts = float(question.points if question.points is not None else 150.0)
             total_possible += max_q_pts
             try:
                 essay_text = answer.essay_text_answer or ""
@@ -1228,9 +1176,9 @@ def _grade_paper_2_structured_and_essay(submission: ALStudentSubmission, exam: A
                 logger.error(f"Error evaluating essay question {question.id}: {e}")
                 answer.ai_score = 0.0
 
-    calc_max = total_possible if total_possible > 0 else 100.0
+    calc_max = total_possible if total_possible > 0 else (exam.total_marks if exam.total_marks > 0 else 100.0)
     submission.percentage = round(min((total_suggested_raw / calc_max) * 100.0, 100.0), 2)
-    submission.grade = _calculate_al_grade(submission.percentage)
+    submission.grade = calculate_al_grade(submission.percentage)
     submission.status = "ai_graded"
     submission.ai_feedback_summary = " | ".join(feedback_summaries) if feedback_summaries else "AI pre-marking completed successfully."
 
@@ -1397,17 +1345,17 @@ def verify_teacher_submission(
         total_raw += final_scaled
 
         if question.template_type == ALQuestionTemplate.STRUCTURED_SUBPARTS:
-            max_possible_scaled += (question.points or 10.0)
+            max_possible_scaled += float(question.points if question.points is not None else 40.0)
         elif question.template_type == ALQuestionTemplate.ESSAY_RUBRIC:
-            max_possible_scaled += (question.points or 20.0)
+            max_possible_scaled += float(question.points if question.points is not None else 150.0)
         else:
-            max_possible_scaled += (question.points or 1.0)
+            max_possible_scaled += float(question.points if question.points is not None else 1.0)
 
-    submission.scaled_score = total_scaled
-    submission.raw_score = total_raw
-    calc_max = max_possible_scaled if max_possible_scaled > 0 else 100.0
+    submission.scaled_score = round(total_scaled, 2)
+    submission.raw_score = round(total_raw, 2)
+    calc_max = max_possible_scaled if max_possible_scaled > 0 else (exam.total_marks if exam.total_marks > 0 else 100.0)
     submission.percentage = round(min((total_scaled / calc_max) * 100.0, 100.0), 2)
-    submission.grade = _calculate_al_grade(submission.percentage)
+    submission.grade = calculate_al_grade(submission.percentage)
     submission.teacher_feedback = data.teacher_feedback
     submission.status = "teacher_verified"
     submission.teacher_verified_at = datetime.utcnow()

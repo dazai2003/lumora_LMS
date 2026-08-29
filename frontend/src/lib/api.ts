@@ -2458,6 +2458,7 @@ export interface ALExam {
   exam_type: ALExamType;
   time_limit_minutes: number;
   total_questions: number;
+  total_marks?: number;
   raw_mark_cap?: number;
   score_multiplier: number;
   max_attempts: number;
